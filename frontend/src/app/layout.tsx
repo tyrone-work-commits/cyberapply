@@ -1,0 +1,5 @@
+import type { Metadata } from 'next';
+import './globals.css';
+export const metadata:Metadata={title:'CyberApply — Your next move',description:'Your cybersecurity career search, simplified. Discover your fit, review your résumé and manage applications.',manifest:'/manifest.webmanifest',icons:{icon:'/icon.svg',apple:'/icon.svg'}};
+const boot=`try{var s=JSON.parse(sessionStorage.getItem('cyberapply-session')||'null');var k=sessionStorage.getItem('cyberapply-demo')==='true'?'demo-user':s?.user?.id||'guest';var t=localStorage.getItem('cyberapply-theme:'+k)||localStorage.getItem('cyberapply-theme:guest')||'paper';if(t==='system')t=matchMedia('(prefers-color-scheme:dark)').matches?'midnight':'paper';if(['paper','midnight','ocean','forest','ember'].includes(t)){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==='midnight'?'dark':'light'}}catch(e){}`;
+export default function RootLayout({children}:{children:React.ReactNode}){return <html lang="en" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{__html:boot}}/></head><body>{children}</body></html>;}
