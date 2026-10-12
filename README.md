@@ -14,3 +14,7 @@ Local cybersecurity job application workspace, with a responsive frontend and Fa
 The palette button lets you choose **Paper, Midnight, Ocean, Forest or Ember**, or follow your device. The full frontend workflow and checks are documented in [frontend/README.md](frontend/README.md).
 
 Google, Apple, phone, live mail and external submission connectors require backend provider configuration. The local setup uses captured mail and demo submissions. Nothing has been deployed publicly.
+
+Right swipes wait five seconds for **Undo** before processing. Job cards show automatic, demo or manual employer application availability. The app can choose the best reviewed résumé per role and create a factual targeted draft for review. Applications include interview/follow-up schedules and calendar downloads.
+
+Profile → Appearance offers account-synced themes, larger text and installation help. The production build keeps Saved job listings available offline, with choices explicitly reviewed after reconnecting. Profile → Account & security offers an authenticator, one-use recovery codes, private export and account erasure. The first live employer connection has been deferred by the user.

@@ -131,6 +131,8 @@ def job_response(job: Job, *, match: dict | None = None, decision: str | None = 
     result = {field: getattr(job, field) for field in fields}
     result["cybersecurity"] = is_cybersecurity_job(job.title, job.description)
     result["decision"] = decision
+    from app.domain.product import submission_capability
+    result["submission"] = submission_capability(job)
     if match is not None:
         result["match"] = match
     return result
@@ -166,7 +168,8 @@ def list_jobs(
             SavedJob.user_id == user.id, SavedJob.job_id == Job.id, SavedJob.decision == "passed"
         ).exists())
         conditions.append(~select(Application.id).where(
-            Application.user_id == user.id, Application.job_id == Job.id
+            Application.user_id == user.id, Application.job_id == Job.id,
+            or_(Application.error_code.is_(None), Application.error_code != "swipe_undone")
         ).exists())
     if not include_inactive:
         conditions.extend(_active_conditions())

@@ -17,9 +17,17 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.errors import fail
-from app.core.security import digest, ensure_user_records, get_current_user, issue_access, password_hash
+from app.core.security import (
+    digest,
+    ensure_user_records,
+    get_current_user,
+    get_primary_user,
+    issue_access,
+    lock_active_user,
+    password_hash,
+)
 from app.core.time import utcnow
-from app.models import RefreshSession, User, VerificationToken
+from app.models import AuthChallenge, MfaFactor, RefreshSession, User, VerificationToken
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -57,6 +65,7 @@ class TokenRequest(Strict):
 
 class ResetPassword(TokenRequest):
     password: str = Field(min_length=12, max_length=128)
+    mfa_code: str | None = Field(default=None, max_length=64)
 
 
 class PhoneRequest(Strict):
@@ -107,12 +116,15 @@ def user_view(user: User):
     return {"id": user.id, "email": user.email, "phone": user.phone, "email_verified": user.email_verified}
 
 
-def session_tokens(db: Session, user: User):
+def session_tokens(db: Session, user: User, assurance: int = 1, authenticated_at=None):
+    lock_active_user(db, user)
     raw = secrets.token_urlsafe(48)
-    db.add(RefreshSession(user_id=user.id, token_hash=digest(raw),
+    authenticated_at = authenticated_at or utcnow()
+    db.add(RefreshSession(user_id=user.id, token_hash=digest(raw), assurance=assurance,
+                          security_version=user.token_version, authenticated_at=authenticated_at,
                           expires_at=utcnow() + timedelta(days=get_settings().refresh_token_days)))
     db.commit()
-    return {"access_token": issue_access(user), "refresh_token": raw, "token_type": "bearer",
+    return {"access_token": issue_access(user, assurance, authenticated_at), "refresh_token": raw, "token_type": "bearer",
             "expires_in": get_settings().access_token_minutes * 60, "user": user_view(user)}
 
 
@@ -124,7 +136,7 @@ def deliver_auth_email(user: User, purpose: str, raw: str):
         directory.mkdir(parents=True, exist_ok=True)
         # Private local developer artifact; never exposed through an API endpoint.
         (directory / (secrets.token_hex(16) + ".json")).write_text(
-            json.dumps({"recipient": user.email, "purpose": purpose, "token": raw}), encoding="utf-8")
+            json.dumps({"user_id": user.id, "recipient": user.email, "purpose": purpose, "token": raw}), encoding="utf-8")
         return
     if not settings.smtp_host or not settings.smtp_from:
         fail(503, "email_unconfigured", "Authentication email delivery is not configured")
@@ -143,14 +155,16 @@ def deliver_auth_email(user: User, purpose: str, raw: str):
 def verification(db: Session, user: User, purpose: str):
     raw = secrets.token_urlsafe(48)
     # Serialize requests and make only the newest verification/reset token usable.
-    db.execute(update(User).where(User.id == user.id).values(token_version=User.token_version))
+    lock_active_user(db, user)
     db.execute(update(VerificationToken).where(VerificationToken.user_id == user.id,
                                                VerificationToken.purpose == purpose,
                                                VerificationToken.used_at.is_(None)).values(used_at=utcnow()))
     db.add(VerificationToken(user_id=user.id, purpose=purpose, token_hash=digest(raw),
                              expires_at=utcnow() + timedelta(hours=1)))
     db.commit()
+    lock_active_user(db, user)
     deliver_auth_email(user, purpose, raw)
+    db.commit()
 
 
 @router.get("/capabilities")
@@ -184,6 +198,8 @@ def login(body: Login, db: Session = Depends(get_db)):
     if get_settings().auth_mode == "supabase":
         return provider_call("token?grant_type=password", body.model_dump(mode="json"))
     user = db.scalar(select(User).where(User.email == str(body.email).casefold()))
+    if user and user.active:
+        lock_active_user(db, user)
     valid = False
     if user and user.password_hash:
         try:
@@ -194,6 +210,10 @@ def login(body: Login, db: Session = Depends(get_db)):
         password_hash.verify(body.password, DUMMY_PASSWORD)
     if not valid or not user or not user.active:
         fail(401, "invalid_credentials", "Email or password is incorrect")
+    factor = db.get(MfaFactor, user.id)
+    if factor and factor.enabled:
+        from app.domain.mfa import login_challenge
+        return login_challenge(db, user)
     return session_tokens(db, user)
 
 
@@ -208,6 +228,13 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
     old = db.scalar(select(RefreshSession).where(RefreshSession.token_hash == digest(body.refresh_token)))
     if not old or old.expires_at <= now or old.revoked_at:
         fail(401, "invalid_refresh_token", "Refresh token is invalid or expired")
+    user = db.get(User, old.user_id)
+    if not user or not user.active:
+        fail(401, "account_unavailable", "Account is unavailable")
+    lock_active_user(db, user)
+    db.refresh(old)
+    if old.revoked_at or old.expires_at <= now or old.security_version != user.token_version:
+        fail(401, "invalid_refresh_token", "Refresh session has been revoked")
     claimed = db.execute(update(RefreshSession).where(RefreshSession.id == old.id,
                                                      RefreshSession.revoked_at.is_(None)).values(revoked_at=now))
     if claimed.rowcount != 1:
@@ -216,7 +243,10 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
     user = db.get(User, old.user_id)
     if not user or not user.active:
         fail(401, "account_unavailable", "Account is unavailable")
-    return session_tokens(db, user)
+    factor = db.get(MfaFactor, user.id)
+    if old.security_version != user.token_version or (factor and factor.enabled and old.assurance != 2):
+        fail(401, "invalid_refresh_token", "Sign in again with two-factor authentication")
+    return session_tokens(db, user, old.assurance, old.authenticated_at or old.created_at)
 
 
 @router.get("/me")
@@ -225,11 +255,12 @@ def me(user: User = Depends(get_current_user)):
 
 
 @router.post("/logout")
-def logout(request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def logout(request: Request, user: User = Depends(get_primary_user), db: Session = Depends(get_db)):
     if get_settings().auth_mode == "supabase":
         provider_call("logout?scope=global", token=request.headers["authorization"].split(" ", 1)[1])
     user.token_version += 1
     user.revoked_before = int(time.time())
+    db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
     db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id,
                                             RefreshSession.revoked_at.is_(None)).values(revoked_at=utcnow()))
     db.commit()
@@ -251,11 +282,18 @@ def consume_verification(db: Session, raw: str, purpose: str):
                                                     VerificationToken.purpose == purpose))
     if not row or row.used_at or row.expires_at <= now:
         fail(400, "invalid_verification_token", "Token is invalid or expired")
+    owner = db.get(User, row.user_id)
+    if not owner:
+        fail(400, "invalid_verification_token", "Token is invalid or expired")
+    lock_active_user(db, owner)
+    db.refresh(row)
+    if row.used_at or row.expires_at <= utcnow():
+        fail(400, "invalid_verification_token", "Token is invalid or expired")
     changed = db.execute(update(VerificationToken).where(VerificationToken.id == row.id,
                                                          VerificationToken.used_at.is_(None)).values(used_at=now))
     if changed.rowcount != 1:
         fail(400, "invalid_verification_token", "Token has already been used")
-    return db.get(User, row.user_id)
+    return owner
 
 
 @router.post("/email/verify")
@@ -283,6 +321,17 @@ def request_reset(body: EmailRequest, db: Session = Depends(get_db)):
 def reset_password(body: ResetPassword, db: Session = Depends(get_db)):
     if get_settings().auth_mode != "local":
         fail(400, "provider_flow", "Use the provider recovery session to update your password")
+    pending = db.scalar(select(VerificationToken).where(VerificationToken.token_hash == digest(body.token),
+        VerificationToken.purpose == "reset_password", VerificationToken.used_at.is_(None), VerificationToken.expires_at > utcnow()))
+    account = db.get(User, pending.user_id) if pending else None
+    if account:
+        lock_active_user(db, account)
+    factor = db.get(MfaFactor, account.id) if account else None
+    if factor and factor.enabled:
+        if not body.mfa_code:
+            fail(401, "mfa_code_required", "Enter an authenticator or recovery code to reset this password")
+        from app.domain.mfa import verify_factor
+        verify_factor(db, account, body.mfa_code)
     user = consume_verification(db, body.token, "reset_password")
     user.password_hash = password_hash.hash(body.password)
     user.token_version += 1
@@ -290,6 +339,7 @@ def reset_password(body: ResetPassword, db: Session = Depends(get_db)):
                                                VerificationToken.purpose == "reset_password",
                                                VerificationToken.used_at.is_(None)).values(used_at=utcnow()))
     db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked_at=utcnow()))
+    db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
     db.commit()
     return {"password_updated": True}
 
@@ -308,6 +358,7 @@ def phone_verify(body: PhoneVerify):
 class PasswordUpdate(Strict):
     password: str = Field(min_length=12, max_length=128)
     current_password: str | None = Field(default=None, max_length=128)
+    mfa_code: str | None = Field(default=None, max_length=64)
 
 
 @router.put("/password")
@@ -315,13 +366,22 @@ def update_password(body: PasswordUpdate, request: Request, user: User = Depends
                     db: Session = Depends(get_db)):
     if get_settings().auth_mode == "supabase":
         token = request.headers["authorization"].split(" ", 1)[1]
+        from app.domain.mfa import Proof, require_proof
+        require_proof(db, user, Proof(), request)
         provider_call("user", {"password": body.password}, token=token, method="PUT")
     else:
         if not body.current_password or not user.password_hash or not password_hash.verify(body.current_password, user.password_hash):
             fail(401, "invalid_credentials", "Current password is incorrect")
+        factor = db.get(MfaFactor, user.id)
+        if factor and factor.enabled:
+            if not body.mfa_code:
+                fail(401, "mfa_code_required", "Enter a new authenticator or recovery code")
+            from app.domain.mfa import verify_factor
+            verify_factor(db, user, body.mfa_code)
         user.password_hash = password_hash.hash(body.password)
         user.token_version += 1
         db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked_at=utcnow()))
+        db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
         db.commit()
     return {"password_updated": True}
 

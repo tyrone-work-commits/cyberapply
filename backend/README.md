@@ -2,6 +2,27 @@
 
 Backend for a cybersecurity job application app, combining SORCE's discovery, application tracking, inbox and profile flow with Jobscan-style résumé analysis and explainable matching. This directory contains the API, database, workers, integrations and tests. The responsive interface is implemented in `../frontend`; see its README for launch instructions and frontend verification.
 
+## Product controls — 12 October 2026
+
+Revision **792aecd432a1** adds account preferences, MFA factors/challenges, application schedules, deletion state, résumé target roles and submission holds. Migration preservation, downgrade/re-upgrade, schema checks and offline PostgreSQL DDL passed; the existing local SQLite database was backed up privately before migration. **157 backend tests passed**, including concurrency, owner isolation, MFA replay/recovery, provider factor enforcement/freshness, export/erasure, uploads during deletion and worker holds.
+
+| API | Behavior |
+| -- | -- |
+| Job responses → `submission` | Server-derived capability and validated manual employer URL; no secrets or user-controlled connector permission. |
+| `POST /applications` → `undo_window_seconds: 5` | Five-second server hold for automatic swipes; defaults to zero for existing callers. Workers cannot claim or process early. |
+| `POST /applications/{id}/undo` | Atomically cancels only unclaimed held work; restores the role, frees quota and preserves history. Reaccept uses a fresh request key. |
+| `GET /jobs/{id}/resume-recommendations` | Ranks owned, reviewed résumés against the job and preferences. |
+| `POST /resumes/{id}/tailoring-preview`, `/tailor` | Version-checked factual preview and new unreviewed text draft; never invents experience or changes an existing uploaded file. |
+| `/application-tasks` | Owned interview/follow-up CRUD with explicit timezone input, durable one-time in-app reminders and escaped/folded calendar exports with alarms. |
+| `/account/settings` | Theme/device mode, normal/large text and automatic résumé selection synchronized through the API. |
+| `/auth/mfa/*` | Encrypted local TOTP setup, replay protection, scoped expiring challenges, bounded attempts, hashed one-use recovery codes and session revocation. Provider verification uses authoritative factor state. |
+| `POST /account/export` | Streams a private ZIP containing owned data/files; excludes authentication and connection secrets. Requires password plus a new factor proof when enabled, or recent provider authentication. |
+| `DELETE /account` | Requires explicit confirmation and fresh proof; disables sessions/work first, then erases owned records/files. Returns pending when active I/O or storage prevents completion; the worker retries. |
+
+Erasure retains a minimal inactive user identifier to block old provider tokens from recreating an account. It cannot retract applications already delivered to employers or delete external Google/Apple identities. Worker adapters renew their leases during live I/O; expired submissions receive a grace period before crash recovery. Failed document deletion retains its storage key for retry/erasure. Export and deletion do not touch another user's data.
+
+The first live employer connection is deferred at the user's request. No live employer submission, provider credential validation, PostgreSQL runtime deployment or physical-phone installation is claimed by these checks.
+
 ## Start locally on this computer
 
 The project virtual environment is already installed at `../.venv`. From the project directory, open two PowerShell terminals:

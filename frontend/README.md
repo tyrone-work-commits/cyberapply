@@ -2,6 +2,19 @@
 
 Responsive Next.js / React / TypeScript interface for the existing FastAPI backend. The layout combines a simple five-tab mobile journey with résumé review, explainable fit comparisons and an application workspace.
 
+## Product controls added on 12 October 2026
+
+- Explore displays trusted automatic/demo/manual availability. Automatic right swipes have a server-enforced five-second Undo hold, restored after reload. Manual roles offer the validated employer link and a review draft.
+- Swipe settings can choose the best reviewed résumé per role or a manual selection. Targeted suggestions preserve the existing text and highlight only reviewed skills. New drafts must be reviewed before use.
+- Role cards surface salary/currency, certifications, authorization, clearance and explanatory match checks.
+- Applications → Your next steps schedules interviews and follow-ups in device-local time. The worker creates durable in-app reminders. Calendar downloads include a reminder. Push/email reminders are not connected.
+- The production service worker caches only the public offline shell/icons. Account-scoped Saved listings and pending choice IDs use IndexedDB; résumés, inbox, API responses and credentials are excluded from that cache. Offline choices require explicit foreground review and current eligibility checks after reconnecting. Signing out clears the current account's offline data.
+- Five themes use improved contrast; larger text is account-synced. Font sizes respond to browser text settings. Touch targets, focus, equivalent buttons/arrow keys and reduced-motion gestures are supported.
+- Account & security supports local TOTP setup, one-use recovery codes, protected sign-in, private ZIP export and account deletion. Provider MFA uses trusted provider factors and fresh authentication for sensitive actions. Live provider credentials still require validation.
+- Themes, text size and automatic résumé selection are stored by the API and synchronized across browsers. Installation help covers desktop/Android prompts and Safari's Add to Home Screen flow. A secure accessible deployment is needed to test actual phone installation.
+
+Run `frontend/tests/product_controls.py` against a **production** local build with the API and worker running. It creates and deletes a fictional account, tests MFA/export/erasure and exercises offline Saved listings and pending choices. `smoke.py` covers the overall responsive journey; `swipes.py` covers gesture and worker behavior. No physical iPhone/Android or VoiceOver/TalkBack test has been performed. The user deferred selection of the first real employer connection; external submissions remain disabled locally.
+
 ## Run locally on Windows
 
 The dependencies are already installed in this workspace. Keep the backend and worker running in their own terminals; then run this from the project root:
@@ -35,7 +48,7 @@ Backend setup and worker commands are in [the backend README](../backend/README.
 - Application review, answer / cover-letter edits, version-checked actions, submission status, activity history and manually recorded hiring outcomes.
 - Inbox folders, read/star/archive, search, mailbox connection/sync, attachments, drafts and captured previews. Sent, captured, sending, failed and uncertain statuses have distinct UI states.
 - Profile, preferences, automation mode/limits/pause, account verification/password controls, FAQ and private problem reports.
-- **Paper, Midnight, Ocean, Forest and Ember** themes, plus device light/dark preference. Choices are stored per account on this browser and are available on signup, the header palette button and Profile → Appearance.
+- **Paper, Midnight, Ocean, Forest and Ember** themes, plus device light/dark preference. Signed-in choices synchronize through the API; signup choices are saved on this browser and are available on signup, the header palette button and Profile → Appearance.
 - Desktop sidebar and mobile bottom navigation, keyboard focus styles, native dialog focus trapping, reduced-motion support and scrollable small-screen forms.
 
 ## Demo and provider configuration
@@ -66,3 +79,5 @@ The browser smoke script uses the backend's optional Playwright dependency and i
 Add `--live-registration` to exercise real local API signup, confirmed profile, preferences, reviewed main résumé and bootstrap token refresh. This creates one fictional `@example.com` QA account and refuses to run unless local authentication and captured email are enabled. Use `--url http://localhost:3001` to check another frontend port. No real email or employer contact occurs in these checks.
 
 The swipe script checks native touch and mouse gestures, keyboard actions, cancellation, vertical scrolling, passed-job restoration, persistence, setup/limits, five themes and responsive layouts. Intercepted responses test connection failures, stable retry keys, repeated clicks, queue polling and attention states. A fictional local QA account then exercises a right swipe through the real API and worker to a confirmed demo receipt. Keep the worker running; local authentication and captured email are required.
+
+Product-control verification: backend 157 tests, Ruff, TypeScript and production build passed. Browser checks covered Undo/reload/reaccept, targeted draft review, schedule/calendar actions, 40 theme/text-size/viewport combinations, production offline/reconnection behavior, cross-context preference sync, authenticator setup and recovery sign-in, export and deletion. Existing gesture/worker and 40 responsive page checks also passed. 100 theme text/control contrast comparisons met the tested AA thresholds. Physical device and live employer checks remain separate.
