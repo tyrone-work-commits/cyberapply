@@ -20,7 +20,7 @@ from app.core.time import utcnow
 from app.domain.job_sources import SourceError, SourceImport, fetch_public_jobs, validate_public_url
 from app.domain.matching import compute_match, is_cybersecurity_job
 from app.domain.profiles import Country, Label, StrictModel
-from app.models import CompanyFollow, Job, Preferences, Profile, SavedJob, User
+from app.models import Application, CompanyFollow, Job, Preferences, Profile, SavedJob, User
 
 router = APIRouter(tags=["Jobs and matching"])
 
@@ -153,6 +153,7 @@ def list_jobs(
     level: str | None = Query(default=None, max_length=50),
     source: str | None = Query(default=None, max_length=50),
     include_inactive: bool = False,
+    exclude_handled: bool = False,
     cybersecurity_only: bool = True,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=100000),
@@ -160,6 +161,13 @@ def list_jobs(
     user: User = Depends(get_current_user),
 ):
     conditions = [accessible_jobs(user.id)]
+    if exclude_handled:
+        conditions.append(~select(SavedJob.id).where(
+            SavedJob.user_id == user.id, SavedJob.job_id == Job.id, SavedJob.decision == "passed"
+        ).exists())
+        conditions.append(~select(Application.id).where(
+            Application.user_id == user.id, Application.job_id == Job.id
+        ).exists())
     if not include_inactive:
         conditions.extend(_active_conditions())
     if q.strip():

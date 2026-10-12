@@ -29,7 +29,8 @@ Backend setup and worker commands are in [the backend README](../backend/README.
 
 - Signup / sign-in with email, Google, Apple or phone; password visibility, local password recovery, provider callback and provider recovery session support.
 - Guided profile confirmation → job preferences → résumé upload or text creation → candidate fact review. Résumé versions, main selection, download and content analysis are connected to the API.
-- Explore and Search with job cards, filters, save/pass, company following, manual job entry and supported public job-board imports.
+- SORCE-inspired Explore deck: swipe left to pass, right to apply automatically with your selected reviewed résumé. Touch, mouse, keyboard arrows and Pass/Apply buttons are supported; vertical description scrolling and short/cancelled drags do not submit. Passed jobs can be restored; existing applications stay out of the deck.
+- Search and Saved/Passed collections with job cards, filters, company following, manual job entry and supported public job-board imports.
 - Job detail and explainable fit report; prepare an application using a reviewed résumé.
 - Application review, answer / cover-letter edits, version-checked actions, submission status, activity history and manually recorded hiring outcomes.
 - Inbox folders, read/star/archive, search, mailbox connection/sync, attachments, drafts and captured previews. Sent, captured, sending, failed and uncertain statuses have distinct UI states.
@@ -45,6 +46,8 @@ Local email authentication works with the current backend. Google, Apple and pho
 
 External application submission and live mailbox access follow the backend's connector settings. Public job imports do not create a universal submission connector. The current local setup captures mail and simulates demo submissions. Fit scores remain heuristic guidance.
 
+Right swipes create one `mode: automatic` application for the displayed job; they do not enable automatic discovery of other roles. The main reviewed résumé is selected initially and can be changed in Swipe application settings. Profile confirmation, résumé review, pause state and daily limits are checked before queueing. The backend also enforces fit, preferences, required answers and connector availability. The status panel polls the worker and shows sent only after a confirmation receipt; incomplete or unsupported applications wait for attention in Applications. Demo receipts explicitly say no employer was contacted. Duplicate clicks and retries use an idempotency key, and the backend enforces one application per user/job.
+
 Access/refresh tokens stay in session storage for the current tab. One expired access response triggers a coordinated refresh. OAuth/recovery credentials are removed from the URL before asynchronous work. Recovery tokens stay in memory and the user signs in again after a password change.
 
 ## Checks
@@ -55,8 +58,11 @@ pnpm run typecheck
 pnpm run build
 cd ..
 .\.venv\Scripts\python.exe frontend\tests\smoke.py
+.\.venv\Scripts\python.exe frontend\tests\swipes.py
 ```
 
 The browser smoke script uses the backend's optional Playwright dependency and installed Edge on Windows, or Playwright Chromium elsewhere. It tests signup options, all five themes, device mode, persistence, dialog scroll restoration and 40 combinations of pages/viewport widths (320, 390, 768 and 1440px). It requires both local servers.
 
 Add `--live-registration` to exercise real local API signup, confirmed profile, preferences, reviewed main résumé and bootstrap token refresh. This creates one fictional `@example.com` QA account and refuses to run unless local authentication and captured email are enabled. Use `--url http://localhost:3001` to check another frontend port. No real email or employer contact occurs in these checks.
+
+The swipe script checks native touch and mouse gestures, keyboard actions, cancellation, vertical scrolling, passed-job restoration, persistence, setup/limits, five themes and responsive layouts. Intercepted responses test connection failures, stable retry keys, repeated clicks, queue polling and attention states. A fictional local QA account then exercises a right swipe through the real API and worker to a confirmed demo receipt. Keep the worker running; local authentication and captured email are required.

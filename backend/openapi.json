@@ -1592,6 +1592,16 @@
             }
           },
           {
+            "name": "exclude_handled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Exclude Handled"
+            }
+          },
+          {
             "name": "cybersecurity_only",
             "in": "query",
             "required": false,

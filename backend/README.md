@@ -78,6 +78,8 @@ It can also reach `failed`, `cancelled` or `uncertain`. `applied` requires a val
 
 Automatic mode scans existing accessible listings while the worker runs, selects eligible jobs against explicit preferred roles and other saved preferences using the reviewed main résumé, and respects quota and passed/duplicate jobs. Scans are bounded and retain progress across restarts. Passing a discovered job stops its pending automatic submission; switching to review or clearing preferred roles requires review of pending discovered applications. Import additional listings through the API. This backend does not crawl every job board or guarantee support for every employer form.
 
+Explore right swipes explicitly queue the displayed job with `mode: automatic`, without changing the global discovery setting. All submission checks above still apply. `GET /jobs?exclude_handled=true` omits only the current user's passed jobs and existing applications before pagination; saved roles and normal search remain available.
+
 ### Local email account walkthrough
 
 1. `POST /auth/register` with `email` and a password of 12–128 characters.
@@ -209,5 +211,7 @@ From `backend`:
 Tests cover account/token security, tenant isolation, document parsing, profile confirmation, preferences, matching, job imports, application snapshots and transitions, quota/duplicate protection, browser/webhook receipts, inbox/drafts, notifications and support. An integrated API journey checks registration through a confirmed fictional application and interview tracking. External APIs use mocks; the browser fixture is fully intercepted.
 
 Latest local verification (2026-10-11): **138 tests passed**, Ruff passed, Alembic schema check passed at revision `1c59d9862ace`, the standalone worker completed a drain, and live local HTTP checks passed for readiness and API documentation. Fresh/legacy migration upgrades, a downgrade/re-upgrade, and offline PostgreSQL DDL were also checked. Provider credentials and a running PostgreSQL/Docker environment remain separate integration prerequisites.
+
+Swipe integration verification (2026-10-12): **139 tests passed**, including owner-specific handled-job filtering and correct totals/pagination. Ruff passed and the OpenAPI contract was refreshed. This change requires no schema migration.
 
 The responsive frontend maps Explore, Search, Applications, Inbox and Profile to these APIs. It presents review/attention/uncertain states, distinguishes simulated applications and captured mail, retains PKCE verifiers during authentication, and asks users to confirm extracted résumé facts. See `../frontend/README.md` for the five themes, local launch commands and browser checks. The backend verification above records the completed backend-first handoff; the frontend was built afterward.
