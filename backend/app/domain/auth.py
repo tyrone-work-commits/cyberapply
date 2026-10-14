@@ -78,7 +78,7 @@ class PhoneVerify(PhoneRequest):
 
 class OAuthStart(Strict):
     redirect_url: str = Field(max_length=2000)
-    code_challenge: str = Field(pattern=r"^[A-Za-z0-9_-]{43,128}$")
+    code_challenge: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
 
 
 class OAuthExchange(Strict):
@@ -90,10 +90,12 @@ def provider_call(path: str, payload: dict | None = None, token: str | None = No
     settings = get_settings()
     if settings.auth_mode != "supabase":
         fail(503, "provider_unconfigured", "Configure Supabase to enable this sign-in method")
+    headers = {"apikey": settings.supabase_anon_key}
+    if token:
+        headers["Authorization"] = "Bearer " + token
     try:
         response = httpx.request(method, settings.supabase_url.rstrip("/") + "/auth/v1/" + path,
-                                 json=payload, headers={"apikey": settings.supabase_anon_key,
-                                                       "Authorization": "Bearer " + (token or settings.supabase_anon_key)},
+                                 json=payload, headers=headers,
                                  timeout=15, follow_redirects=False)
         if response.status_code >= 500:
             fail(503, "identity_provider_unavailable", "Authentication provider is unavailable")
@@ -167,13 +169,36 @@ def verification(db: Session, user: User, purpose: str):
     db.commit()
 
 
+def provider_status():
+    """Read public provider flags; a configured project alone does not enable OAuth."""
+    settings = get_settings()
+    names = ("google", "apple", "phone")
+    if settings.auth_mode != "supabase" or not (settings.supabase_url and settings.supabase_anon_key):
+        return dict.fromkeys(names, "not_configured")
+    try:
+        response = httpx.request("GET", settings.supabase_url.rstrip("/") + "/auth/v1/settings",
+                                 headers={"apikey": settings.supabase_anon_key}, timeout=5, follow_redirects=False)
+        if response.status_code != 200:
+            return dict.fromkeys(names, "unavailable")
+        payload = response.json()
+        external = payload.get("external") if isinstance(payload, dict) else None
+        if not isinstance(external, dict):
+            return dict.fromkeys(names, "unavailable")
+        return {name: "ready" if external.get(name) is True else "disabled" if external.get(name) is False
+                else "unavailable" for name in names}
+    except (httpx.HTTPError, ValueError):
+        return dict.fromkeys(names, "unavailable")
+
+
 @router.get("/capabilities")
 def capabilities():
     settings = get_settings()
-    configured = settings.auth_mode == "supabase"
-    return {"auth_mode": settings.auth_mode, "email": True, "google": configured, "apple": configured,
-            "phone": configured, "external_provider_configuration_required": True,
-            "email_delivery": settings.auth_email_mode if not configured else "provider"}
+    providers = provider_status()
+    return {"auth_mode": settings.auth_mode, "email": True,
+            **{name: status == "ready" for name, status in providers.items()}, "providers": providers,
+            "external_provider_configuration_required": any(status in {"not_configured", "disabled"}
+                                                             for status in providers.values()),
+            "email_delivery": settings.auth_email_mode if settings.auth_mode == "local" else "provider"}
 
 
 @router.post("/register", status_code=201)
@@ -395,6 +420,11 @@ def oauth_start(provider: str, body: OAuthStart):
         fail(503, "provider_unconfigured", "Configure Supabase to enable this sign-in method")
     if body.redirect_url not in settings.oauth_redirect_urls:
         fail(400, "invalid_redirect", "Redirect URL is not permitted")
+    status = provider_status()[provider]
+    if status == "disabled":
+        fail(503, "provider_disabled", f"{provider.title()} sign-in has not been enabled for this app")
+    if status != "ready":
+        fail(503, "identity_provider_unavailable", "Sign-in service is unavailable. Please try again")
     query = urlencode({"provider": provider, "redirect_to": body.redirect_url,
                        "code_challenge": body.code_challenge, "code_challenge_method": "s256"})
     return {"authorization_url": settings.supabase_url.rstrip("/") + "/auth/v1/authorize?" + query,

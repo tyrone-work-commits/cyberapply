@@ -5,6 +5,7 @@ import { fetchApi } from '@/lib/api';
 import { AuthSession, Brand, canonicalSession, MfaRequired, type MfaPending } from '@/components/auth-screen';
 import { MfaSignIn } from '@/components/mfa-signin';
 import { Badge, Button, ErrorNotice, Field, Icon, Spinner } from '@/components/ui';
+import { clearOAuthAttempt, consumeOAuthAttempt } from '@/lib/oauth';
 
 type CallbackResult = { session: AuthSession; recovery: boolean };
 
@@ -14,7 +15,11 @@ async function completeCallback(): Promise<CallbackResult> {
   const code = url.searchParams.get('code');
   // Remove auth credentials before any asynchronous work or session persistence.
   history.replaceState(null, '', url.pathname);
+  try {
   if (fragment.has('error') || url.searchParams.has('error')) {
+    if ((fragment.get('error') || url.searchParams.get('error')) === 'access_denied') {
+      throw new Error('Sign-in was cancelled. You can try Google or Apple again, or sign in with email.');
+    }
     throw new Error('The account provider could not complete this link. Please request a new one.');
   }
   const capabilities = await fetchApi<{ auth_mode: string }>('/auth/capabilities', { auth: false });
@@ -25,14 +30,14 @@ async function completeCallback(): Promise<CallbackResult> {
     const session = await canonicalSession({ access_token: fragment.get('access_token') || '', refresh_token: fragment.get('refresh_token') || '' }).catch(failure=>{if(failure instanceof MfaRequired)failure.pending.recovery=fragment.get('type')==='recovery';throw failure;});
     return { session, recovery: fragment.get('type') === 'recovery' };
   }
-  const verifier = sessionStorage.getItem('cyberapply-pkce');
-  if (!code || !verifier) {
+  if (!code) {
     throw new Error('This link does not contain a supported sign-in session. Use the original confirmation or recovery link, or start sign-in again in this browser.');
   }
-  const raw = await fetchApi<{ access_token: string; refresh_token: string }>('/auth/oauth/exchange', { method: 'POST', body: { code, code_verifier: verifier }, auth: false });
+  const attempt = consumeOAuthAttempt();
+  const raw = await fetchApi<{ access_token: string; refresh_token: string }>('/auth/oauth/exchange', { method: 'POST', body: { code, code_verifier: attempt.verifier }, auth: false });
   const session = await canonicalSession(raw).catch(failure=>{if(failure instanceof MfaRequired)failure.pending.recovery=url.searchParams.get('type')==='recovery';throw failure;});
-  sessionStorage.removeItem('cyberapply-pkce');
   return { session, recovery: url.searchParams.get('type') === 'recovery' };
+  } finally { clearOAuthAttempt(); }
 }
 
 function Callback() {

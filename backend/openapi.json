@@ -6937,7 +6937,7 @@
           },
           "code_challenge": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{43,128}$",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
             "title": "Code Challenge"
           }
         },

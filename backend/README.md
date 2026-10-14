@@ -69,6 +69,35 @@ Use a generated `JWT_SECRET` and Fernet `ENCRYPTION_KEY` for your own environmen
 
 Keep the encryption key stable: changing it makes previously stored mailbox credentials unreadable. Python dependency versions are pinned in `requirements.lock`; the browser executable is a separate runtime.
 
+## Connect Google and Apple sign-in
+
+The local app can use hosted Supabase **only for authentication** while the API, SQLite database and uploaded files stay on this computer. Google and Apple use the same buttons for creating an account and returning to an existing account. The verified provider identity creates the CyberApply profile, preferences and automation records on first sign-in; existing provider users reuse those records.
+
+1. Open [Supabase Dashboard](https://supabase.com/dashboard), sign in privately, create a project named **CyberApply** in your organization, and save the database password privately. Connect the Supabase plugin in Codex if you want help configuring the project. An unconnected plugin does not give Codex access to the account.
+2. In Supabase **Authentication → URL Configuration**, set Site URL to `http://localhost:3000`. Add these exact redirect URLs:
+   - `http://localhost:3000/auth/callback`
+   - `http://127.0.0.1:3000/auth/callback` if you also use that address.
+   Use the same hostname and browser tab from starting sign-in through returning to the app. The local PKCE attempt expires after ten minutes; provider authorization codes have their own shorter lifetime and are single-use.
+3. For **Google**, create a Web application OAuth client in [Google Auth Platform](https://console.cloud.google.com/auth/overview). Configure the consent screen, `openid`, email and profile scopes, and test users if the consent audience is in testing. Add `http://localhost:3000` as an authorized JavaScript origin. Add the **Supabase** callback `https://<project-ref>.supabase.co/auth/v1/callback` as the authorized redirect URI. Paste the client ID and secret privately into Supabase **Authentication → Sign In / Providers → Google**, and enable it. The provider callback and the app callback are different URLs. [Official Google setup](https://supabase.com/docs/guides/auth/social-login/auth-google).
+4. For **Apple**, use an Apple Developer account: enable Sign in with Apple on the App ID, create a Services ID for the website, register the Supabase project domain and its HTTPS `/auth/v1/callback` return URL, then create a signing key and generate the Apple client secret. Enter the Services ID and client secret privately in Supabase's Apple provider configuration and enable it. Put the Services ID first if native App IDs are also listed. Apple's web OAuth secret needs renewal every six months; keep the signing key private. [Official Apple setup](https://supabase.com/docs/guides/auth/social-login/auth-apple). Apple returns through hosted Supabase, which redirects back to the local app.
+5. Configure the project's ignored `backend/.env` privately:
+
+   ```dotenv
+   AUTH_MODE=supabase
+   SUPABASE_URL=https://<project-ref>.supabase.co
+   SUPABASE_ANON_KEY=<project-publishable-or-legacy-anon-key>
+   OAUTH_REDIRECT_URLS=["http://localhost:3000/auth/callback","http://127.0.0.1:3000/auth/callback"]
+   ```
+
+   Use a project with an asymmetric JWT signing key (ES256/RS256); CyberApply retrieves public verification keys from Supabase. For an older project still issuing HS256 JWTs, `SUPABASE_JWT_SECRET` must also be set privately on the backend. A service-role/secret key is **not** needed for Google or Apple sign-in and must never be used as the anon key. Google/Apple secrets belong in Supabase, never the frontend, chat, GitHub or Linear. Keep the existing CyberApply `JWT_SECRET` and `ENCRYPTION_KEY` stable.
+6. Restart the API and worker so they read the same authentication configuration. Check `GET /api/v1/auth/capabilities`: enabled providers report `true` and `providers.<name>: "ready"`. `not_configured`, `disabled` and `unavailable` distinguish missing setup, a disabled provider and a temporary service failure. Readiness checks do not prove that client secrets or all console redirects are correct; complete the real sign-in checks below.
+
+**Existing local email accounts:** switching `AUTH_MODE` changes the identity authority. Local email/password accounts and their data are not automatically migrated or linked to provider identities. The API rejects a provider identity whose email already belongs to a different local user, rather than exposing that user's data. Back up the SQLite database/private storage and plan an authenticated migration before switching an installation with real accounts. For the first live provider test, use an email not already registered locally. Do not delete accounts or merge identities merely to bypass a conflict. Changing `AUTH_MODE` back to `local` restores the original local authority; it does not undo provider accounts created externally.
+
+**Live acceptance checks:** test Google and Apple first-time account creation and returning sign-in; provider cancellation; a second factor if enabled; refresh after the access token expires; logout; account confirmation and password recovery for provider email accounts. Confirm one CyberApply user/profile per verified provider ID and no credentials left in callback URLs. Apple Hide My Email addresses are accepted as provider identities. The app requests sign-in identity access, not mailbox access. Provider signup must be allowed in Supabase for new users to create accounts. Phone/SMS setup is separate.
+
+Local automated OAuth checks simulate provider responses without contacting Google or Apple. Real console configuration and sign-in must still be verified using your own connected project.
+
 ## User journey and API
 
 All personal endpoints require `Authorization: Bearer <access_token>`. Paths below are relative to `/api/v1`. Swagger documents request fields; `openapi.json` is the saved frontend contract. Resource IDs are UUIDs, dates represent UTC, list endpoints paginate, and another user's resources return 404. Validation responses omit submitted secrets.
