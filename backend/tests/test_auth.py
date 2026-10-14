@@ -147,6 +147,52 @@ def test_refresh_expiration(client, db, user):
     assert client.post("/api/v1/auth/refresh", json={"refresh_token": raw}).status_code == 401
 
 
+@pytest.mark.parametrize("opaque_token", ["aB3dE6gH9jK2", "r" * 64])
+def test_provider_refresh_forwards_opaque_token(client, settings, monkeypatch, opaque_token):
+    settings.auth_mode = "supabase"
+    settings.supabase_url = "https://project.example.com"
+    settings.supabase_anon_key = "sb_publishable_test-public-key"
+    calls = []
+
+    def provider(method, url, **kwargs):
+        calls.append((method, url, kwargs))
+        return httpx.Response(200, json={"access_token": "provider-issued-token", "refresh_token": "bC4eF7hJ0kL3"})
+
+    monkeypatch.setattr("app.domain.auth.httpx.request", provider)
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": opaque_token})
+    assert response.status_code == 200
+    assert response.json()["refresh_token"] == "bC4eF7hJ0kL3"
+    method, url, kwargs = calls[0]
+    assert method == "POST" and url.endswith("/auth/v1/token?grant_type=refresh_token")
+    assert kwargs["json"] == {"refresh_token": opaque_token}
+    assert kwargs["headers"] == {"apikey": settings.supabase_anon_key}
+
+
+@pytest.mark.parametrize("invalid_token", ["", "r" * 4097])
+def test_refresh_rejects_missing_or_oversized_token(client, monkeypatch, invalid_token):
+    calls = []
+    monkeypatch.setattr("app.domain.auth.httpx.request", lambda *a, **k: calls.append(a))
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": invalid_token})
+    assert response.status_code == 422
+    assert "input" not in response.text
+    assert not calls
+
+
+def test_unknown_short_local_refresh_token_is_not_authenticated(client):
+    assert client.post("/api/v1/auth/refresh", json={"refresh_token": "aB3dE6gH9jK2"}).status_code == 401
+
+
+def test_provider_still_rejects_invalid_opaque_refresh_token(client, settings, monkeypatch):
+    settings.auth_mode = "supabase"
+    settings.supabase_url = "https://project.example.com"
+    settings.supabase_anon_key = "public-key"
+    monkeypatch.setattr("app.domain.auth.httpx.request", lambda *a, **k: httpx.Response(
+        400, json={"error": "invalid_grant"}))
+    response = client.post("/api/v1/auth/refresh", json={"refresh_token": "aB3dE6gH9jK2"})
+    assert response.status_code == 400
+    assert "aB3dE6gH9jK2" not in response.text
+
+
 def test_new_reset_request_invalidates_old_reset_token(client, user, settings):
     client.post("/api/v1/auth/password/request-reset", json={"email": user.email})
     path = settings.storage_dir.parent / "auth-outbox"

@@ -7687,7 +7687,7 @@
           "refresh_token": {
             "type": "string",
             "maxLength": 4096,
-            "minLength": 20,
+            "minLength": 1,
             "title": "Refresh Token"
           }
         },

@@ -10,7 +10,7 @@ from urllib.parse import urlencode, urlparse
 from playwright.sync_api import expect, sync_playwright
 
 ACCESS = 'provider-access-token-' + 'a' * 40
-REFRESH = 'provider-refresh-token-' + 'r' * 40
+REFRESH = 'aB3dE6gH9jK2'  # Supabase's opaque refresh tokens can be 12 characters.
 USER = {'id': '10000000-0000-4000-8000-000000000099', 'email': 'verified-provider@example.com', 'email_verified': True}
 KEY = 'cyberapply-oauth-attempt'
 
@@ -31,7 +31,8 @@ def main():
             context = browser.new_context(viewport={'width': width, 'height': 844}, service_workers='block')
             page = context.new_page()
             errors, calls = [], []
-            state = {'fail_capabilities': False, 'start_error': False, 'bad_url': False, 'mfa': False, 'verified': False}
+            state = {'fail_capabilities': False, 'start_error': False, 'bad_url': False, 'mfa': False, 'verified': False,
+                     'refresh': REFRESH}
             page.on('pageerror', lambda e: errors.append(str(e)))
 
             def api(route):
@@ -56,7 +57,7 @@ def main():
                     if state['bad_url']:
                         data['authorization_url'] = 'javascript:alert(1)'
                 elif path == '/auth/oauth/exchange':
-                    data = {'access_token': ACCESS, 'refresh_token': REFRESH, 'user': {'id': 'forged', 'email': 'untrusted@example.com'}}
+                    data = {'access_token': ACCESS, 'refresh_token': state['refresh'], 'user': {'id': 'forged', 'email': 'untrusted@example.com'}}
                 elif path == '/auth/mfa/status':
                     assert route.request.headers.get('authorization') == 'Bearer ' + ACCESS
                     data = {'mode': 'supabase', 'verification_required': state['mfa'] and not state['verified'],
@@ -111,12 +112,27 @@ def main():
             page.wait_for_url(base + '/')
             expect(page).not_to_have_url(re.compile('code='))
             session = page.evaluate("JSON.parse(sessionStorage.getItem('cyberapply-session'))")
-            assert session['user'] == USER and session['access_token'] == ACCESS
+            assert session['user'] == USER and session['access_token'] == ACCESS and session['refresh_token'] == REFRESH
             assert page.evaluate(f"sessionStorage.getItem('{KEY}')") is None
             exchange = [body for path, body in calls if path == '/auth/oauth/exchange']
             assert len(exchange) == 1 and exchange[0]['code_verifier'] == attempt['verifier']
             assert not errors, errors
-            checks.append(f'{name} {mode} redirect, PKCE, single exchange and canonical verified session')
+            checks.append(f'{name} {mode} redirect, PKCE, single exchange and canonical verified session with opaque refresh token')
+            context.close()
+
+        for invalid_refresh in ['', 'r' * 4097]:
+            context, page, state, calls, errors = scenario()
+            state['refresh'] = invalid_refresh
+            page.goto(base, wait_until='networkidle')
+            page.get_by_role('button', name='Continue with Google', exact=True).click()
+            page.wait_for_url('https://identity.example/**')
+            page.goto(base + '/auth/callback?code=single-use-provider-code-123', wait_until='networkidle')
+            expect(page.get_by_role('alert').first).to_contain_text('sign-in session is incomplete')
+            assert page.evaluate("sessionStorage.getItem('cyberapply-session')") is None
+            assert page.evaluate(f"sessionStorage.getItem('{KEY}')") is None
+            assert not any(path in ['/auth/me', '/auth/mfa/status'] for path, _ in calls)
+            assert not errors, errors
+            checks.append('empty or oversized refresh token rejects session before persistence')
             context.close()
 
         for failure in ['start_error', 'bad_url']:

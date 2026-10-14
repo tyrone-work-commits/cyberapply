@@ -52,7 +52,8 @@ class Login(Strict):
 
 
 class Refresh(Strict):
-    refresh_token: str = Field(min_length=20, max_length=4096)
+    # Provider refresh tokens are opaque; Supabase can issue 12-character tokens.
+    refresh_token: str = Field(min_length=1, max_length=4096)
 
 
 class EmailRequest(Strict):

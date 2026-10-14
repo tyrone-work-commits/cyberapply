@@ -15,7 +15,8 @@ export class MfaRequired extends Error { constructor(public pending: MfaPending)
 
 export async function canonicalSession(raw: ProviderSession): Promise<AuthSession> {
   if (raw.mfa_required && raw.challenge_token) throw new MfaRequired({ mode: 'local', challenge_token: raw.challenge_token });
-  if (typeof raw.access_token !== 'string' || raw.access_token.length < 20 || raw.access_token.length > 16384 || typeof raw.refresh_token !== 'string' || raw.refresh_token.length < 20 || raw.refresh_token.length > 4096) {
+  // Refresh tokens are opaque; their length is not an identity or assurance check.
+  if (typeof raw.access_token !== 'string' || raw.access_token.length < 20 || raw.access_token.length > 16384 || typeof raw.refresh_token !== 'string' || raw.refresh_token.length === 0 || raw.refresh_token.length > 4096) {
     throw new Error('The sign-in session is incomplete. Please try signing in again.');
   }
   const status = await fetchApi<{ mode: string; verification_required?: boolean; factors?: { id: string; status: string; friendly_name?: string; factor_type?: string }[] }>('/auth/mfa/status', { auth: false }, raw.access_token);
