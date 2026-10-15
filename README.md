@@ -1,6 +1,6 @@
 # CyberApply
 
-Local cybersecurity job application workspace, with a responsive frontend and FastAPI backend.
+Cybersecurity job application workspace. The original local version has a responsive frontend and FastAPI backend; the private Covenda pilot is linked below.
 
 1. [Start the backend and worker](backend/README.md).
 2. Start the frontend from this folder:
@@ -23,3 +23,18 @@ Profile → Appearance offers account-synced themes, larger text and installatio
 ## Private internal delivery
 
 The Covenda internal version lives in [internal-workspace](internal-workspace/README.md). It uses ChatGPT identity, Sites hosting, D1 saved records/history and private R2 files, with the same per-user records exposed as agent tools. It is a focused internal pilot; the Next.js/FastAPI app described above is retained. No new Vercel/Render subscription is required for this pilot. Employer submission and live job ingestion remain unconnected. The internal README records the corrected plan, review flow, checks and limits.
+
+### Private pilot release — 15 October 2026
+
+Open [CyberApply · Covenda Internal Workspace](https://cyberapply-internal.covenda-1182.chatgpt.site/) and sign in with the ChatGPT account granted access. The deployed version is **1**. Access is restricted to the work owner and the named reviewer, Osioke (`osioke@gmail.com`); the reviewer's separate login has not been tested. Each person uses their own candidate records.
+
+The internal flow is **confirm candidate facts → add a job listing → pass or prepare a draft → edit and review → inspect saved history**. Five appearance themes are saved with the workspace. A ready draft still requires manual application; no employer submission is connected.
+
+Release evidence:
+
+- TypeScript and production build passed; **8 domain tests, 19 local HTTP checks and 9 local MCP checks** passed. Local checks cover review gates, ownership, private files, concurrent revisions and history.
+- Local browser checks confirmed candidate/draft save and exact draft text after refresh. The reviewed draft screen had no horizontal overflow at a 320-pixel viewport. No physical iPhone test was performed.
+- Hosted sign-in worked. Saving Ocean appearance through the live website produced revision 1; refreshing retained it, and the connected ChatGPT tools read the same revision and activity. The live narrow viewport had equal content and viewport widths (435 pixels).
+- Native Sites deployment status confirmed success and the private agent connection is installed and verified by actual remote reads. Source implementation: [2f54360](https://github.com/tyrone-work-commits/cyberapply/commit/2f543600aee8a3f14254dcf87b5d372478f86870), in [draft PR #1](https://github.com/tyrone-work-commits/cyberapply/pull/1).
+
+PDF/DOCX parsing, live job ingestion, mail, scheduled processing and employer submissions are not connected in this hosted pilot. The original local application's broader functionality and provider setup are preserved separately. Vercel billing remains paused; no Render service was deployed for this release.
