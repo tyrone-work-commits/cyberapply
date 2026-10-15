@@ -18,3 +18,8 @@ Google and Apple account creation/sign-in use Supabase Auth; follow [the provide
 Right swipes wait five seconds for **Undo** before processing. Job cards show automatic, demo or manual employer application availability. The app can choose the best reviewed résumé per role and create a factual targeted draft for review. Applications include interview/follow-up schedules and calendar downloads.
 
 Profile → Appearance offers account-synced themes, larger text and installation help. The production build keeps Saved job listings available offline, with choices explicitly reviewed after reconnecting. Profile → Account & security offers an authenticator, one-use recovery codes, private export and account erasure. The first live employer connection has been deferred by the user.
+
+
+## Private internal delivery
+
+The Covenda internal version lives in [internal-workspace](internal-workspace/README.md). It uses ChatGPT identity, Sites hosting, D1 saved records/history and private R2 files, with the same per-user records exposed as agent tools. It is a focused internal pilot; the Next.js/FastAPI app described above is retained. No new Vercel/Render subscription is required for this pilot. Employer submission and live job ingestion remain unconnected. The internal README records the corrected plan, review flow, checks and limits.
