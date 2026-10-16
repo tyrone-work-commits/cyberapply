@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8787';
+if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Onboarding tests are local only.');
+const owner=`entry-qa-${randomUUID()}`,other=`entry-qa-${randomUUID()}`;let checks=0;
+const ok=(value,message)=>{assert.ok(value,message);console.log(`PASS ${++checks}: ${message}`);};
+async function req(path,{who=owner,body}={}){const response=await fetch(base+path,{method:body?'POST':'GET',redirect:'manual',signal:AbortSignal.timeout(20000),headers:{...(who?{'oai-authenticated-user-id':who,'oai-authenticated-user-email':`${who}@example.test`}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const text=await response.text();let data;try{data=JSON.parse(text);}catch{data=text;}return{status:response.status,data,location:response.headers.get('location')};}
+let r=await req('/',{who:null});ok(r.status===200&&r.data.includes('Create account')&&r.data.includes('Sign in'),'root serves branded account access rather than the demo');
+r=await req('/onboarding',{who:null});ok(r.status>=300&&r.status<400&&r.location?.startsWith('/signin-with-chatgpt'),'anonymous onboarding starts real ChatGPT sign-in');
+r=await req('/workspace?mode=demo');ok(r.status>=300&&r.status<400&&r.location==='/onboarding','direct demo entry requires profile setup');
+r=await req('/onboarding');ok(r.status===200&&r.data.includes('Save profile and continue')&&!r.data.includes('href="/workspace?mode=demo"'),'workspace choice is not offered before profile completion');
+let current=(await req('/api/workspace?mode=personal')).data;const profile=structuredClone(current.state.profile);
+r=await req('/api/workspace?mode=personal',{body:{revision:current.revision,action:{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Fictional QA profile',targetRole:''}}});ok(r.status===400,'required role validation is enforced on server');
+r=await req('/api/workspace?mode=demo');const demo=r.data;
+r=await req('/api/workspace?mode=demo',{body:{revision:demo.revision,action:{type:'complete_onboarding',fullName:'QA Reviewer',headline:'',targetRole:'SOC Analyst'}}});ok(r.status===409,'demo data cannot be used as the account profile scope');
+r=await req('/api/workspace?mode=personal',{body:{revision:current.revision,action:{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Fictional QA profile',targetRole:'SOC Analyst'}}});ok(r.status===200&&r.data.state.accountProfile.fullName==='QA Reviewer','profile setup persists through the authenticated API');current=r.data;
+ok(JSON.stringify(current.state.profile)===JSON.stringify(profile),'onboarding preserves all existing candidate facts');
+r=await req('/onboarding');ok(r.status===200&&r.data.includes('Enter demo')&&r.data.includes('Open my workspace')&&r.data.includes('QA Reviewer'),'returning setup shows saved profile and both workspace choices');
+r=await req('/workspace?mode=demo');ok(r.status===200,'completed profile can open the demo workspace');
+r=await req('/workspace?mode=personal');ok(r.status===200,'completed profile can open the personal workspace');
+r=await req('/api/workspace?mode=personal',{who:other});ok(!r.data.state.accountProfile,'account profile is isolated by authenticated owner');
+r=await req('/api/history?mode=personal&revision=1');ok(r.status===200&&r.data.action==='complete_onboarding','profile completion is retained in immutable history');
+console.log(JSON.stringify({checks,localOnly:true}));

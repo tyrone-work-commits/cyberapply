@@ -10,7 +10,8 @@ export type Activity = { id: string; at: string; action: string; source: 'interf
 export type ResumeCheck = { title: string; points: number; possible: number; evidence: string; suggestion: string };
 export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[] };
 export type Submission = { id: string; jobId: string; company: string; role: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; simulated: true; seeded?: boolean };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; demo?: boolean; resumeReview?: ResumeReview; submissions?: Submission[] };
+export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; demo?: boolean; resumeReview?: ResumeReview; submissions?: Submission[]; accountProfile?: AccountProfile };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -19,6 +20,7 @@ const id = z.string().min(1).max(100);
 const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean() }).strict();
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
+  z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
   z.object({ type: z.literal('load_examples') }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean() }).strict(),
@@ -62,7 +64,11 @@ function getDraft(state: State, draftId: string) { const draft = state.drafts.fi
 export function reduceAction(before: State, action: Action, source: Activity['source'], at = new Date().toISOString()): { state: State; message: string } {
   const state = structuredClone(before);
   let message = '';
-  if (action.type === 'save_profile') {
+  if (action.type === 'complete_onboarding') {
+    if (state.demo) throw new DomainError('Set up your account profile outside the fictional demo workspace.', 409);
+    state.accountProfile = {fullName:action.fullName,headline:action.headline,targetRole:action.targetRole,completedAt:at};
+    message = 'Your account profile is saved. Choose the demo or your personal workspace.';
+  } else if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) delete state.resumeReview;

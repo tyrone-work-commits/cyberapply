@@ -52,3 +52,12 @@ Only fictional listings can be sent in demo mode. Sends create private simulated
 
 
 Version **2** deployed successfully on 16 October 2026. TypeScript/build, 14 domain tests and 50 local HTTP/MCP checks passed. Browser checks at 320 and 1366 pixels had no horizontal overflow. On the live site, adding a fictional Education section changed the CV score from 81 to 85; a new SOC draft was edited, reviewed and sent in demo mode. After refresh, receipt `DEMO-85ADE6A0` retained the exact draft version 3 and updated CV. Connected agent reads returned the same demo revision 6 and immutable receipt snapshot. The preloaded receipt is separately labelled as an example; it is not counted as a performed send. No physical-device or real-employer acceptance is claimed.
+
+
+### Sign-in and profile-first entry — 16 October 2026
+
+The [private app's root URL](https://cyberapply-internal.covenda-1182.chatgpt.site/) now starts with **Sign in / Create account**, using the existing ChatGPT identity connection. The flow is **account access → save account profile → choose Enter demo or Open my workspace**. A returning user retains the saved profile and can edit it from the choice screen.
+
+Profile setup stores name, optional professional headline and target role separately from candidate CV facts. It does not overwrite candidate records or the fictional demo. Direct workspace links require a saved account profile; authenticated APIs and agent tools keep their existing ownership checks. The demo is now at `/workspace?mode=demo`; personal records are at `/workspace?mode=personal`. Private Sites may present their platform access gate before the custom entry screen for signed-out visitors.
+
+TypeScript and production build passed. Seventeen domain tests and thirteen onboarding HTTP checks passed. Local browser acceptance covered create-account entry → profile save → workspace choice → populated demo, including saved profile after refresh. Entry and profile screens had no horizontal overflow at 320/1366-pixel viewports; the workspace-choice screen was also checked at 320 pixels. Hosted verification is recorded separately in Linear. No new OAuth provider, password store or hosting subscription was added.

@@ -54,3 +54,14 @@ Demo sends require a reviewed candidate profile, an exact ready draft version, a
 API requests select demo records with `?mode=demo`; unqualified API requests preserve personal-record compatibility. The website adds the demo scope by default. All 16 MCP tools accept optional `mode: demo|personal`, defaulting to demo to match the website. New tools review saved CV text, read simulated receipts and perform a simulated send. History and files use the selected scope and authenticated owner.
 
 Additional checks: `node --test tests/domain.test.mjs` (14 cases), `node tests/demo.test.mjs` (22 local HTTP/MCP checks), existing MCP checks (9) and HTTP regression checks (19). The HTTP regression harness keeps early cross-origin body rejection last because local Wrangler on Windows can stall its following request; requests have bounded timeouts, and no mutation retry is hidden. Live release results are recorded in the root repository README and Linear after deployment verification. No physical-phone or real-employer acceptance is claimed.
+
+
+## Account entry and profile setup — 16 October 2026
+
+The root URL is now the branded **Sign in / Create account** screen. Both routes use the existing ChatGPT identity flow; no separate password database or new Google/Apple OAuth integration was added. In an existing signed-in session, continuing uses that identity. Private Sites may show the platform's access/sign-in gate before the custom entry screen for a signed-out visitor.
+
+**Sign in / Create account → set up account profile → choose Enter demo or Open my workspace.** New visitors cannot enter either workspace page until their account profile is saved. Returning visitors retain their profile and proceed to the choice screen; Edit profile remains available.
+
+`/onboarding` stores full name, optional professional headline and target role as owner-specific account metadata in the personal workspace. It does not alter candidate CV facts, résumé review, prepared drafts or demo data. Validation, revision conflicts and immutable history use the existing server-side protections. `/workspace?mode=demo` opens the fictional demo, and `/workspace?mode=personal` opens personal records. The profile link in the app returns to the saved profile/workspace choice; the brand returns to the sign-in page.
+
+Local acceptance includes the sign-up button → profile save → choice → populated demo journey, saved profile after refresh, and phone/desktop overflow checks for entry, profile and choice screens. `node tests/onboarding.test.mjs` checks the root account screen, real authentication redirect, onboarding guard, server validation, saved profile/choice, isolation and history against a loopback compiled Worker. Hosted verification is recorded separately in the root README and Linear after publication.
