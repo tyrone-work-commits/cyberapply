@@ -39,3 +39,18 @@ The full local app's additional settings, MFA, inbox, scheduling and connectors 
 - Hosted deployment, hosted sign-in, named reviewer access and an installed remote agent call must be reported separately after native Sites verification.
 
 Run `node --test tests/domain.test.mjs`, `node tests/mcp.test.mjs`, and `node tests/http.test.mjs` from this directory. The latter two use a separately running compiled Worker on loopback port 8787 and create only fictional QA owners/records. Never aim test identity headers at a hosted Site.
+
+
+## Complete fictional demo — 16 October 2026
+
+The default website now opens a separate **demo workspace** for each signed-in viewer. It is seeded with Maya Okafor (fabricated candidate), a sample CV, a saved quality report, four fictional companies/jobs, a Saved listing, two editable application drafts and a clearly labelled preloaded simulated receipt. Example setup events are labelled separately from actual interface/agent actions. Original personal records remain available at `/?mode=personal`; they are never overwritten by the demo.
+
+**CV review → Explore → prepare → edit/save → mark exact draft ready → confirm simulated send → receipt/tracker → refresh/history.**
+
+CV review uses six deterministic text checks: identity/contact, section labels, measurable impact, action bullets, declared-skill coverage and length/bullets. Each check explains its points, evidence and suggested improvement. The score changes with saved input and is invalidated by profile edits or TXT imports. It is not a commercial ATS score, a hiring prediction or a review of PDF layout. The demo CV downloads as TXT; uploading UTF-8 TXT imports text for a fresh review. PDF/DOCX remain private file storage only; paste their text for analysis.
+
+Demo sends require a reviewed candidate profile, an exact ready draft version, a fictional listing and explicit simulated-send confirmation. They create an immutable receipt snapshot of the CV and application text in D1. Repeated sends for a job do not duplicate receipts. Editing later preserves the original snapshot. Downloadable receipts and export are private to the same owner and demo scope. There is no employer network call, email delivery, paid model service or real submission connector. New listings in demo must omit live source URLs and are labelled fictional.
+
+API requests select demo records with `?mode=demo`; unqualified API requests preserve personal-record compatibility. The website adds the demo scope by default. All 16 MCP tools accept optional `mode: demo|personal`, defaulting to demo to match the website. New tools review saved CV text, read simulated receipts and perform a simulated send. History and files use the selected scope and authenticated owner.
+
+Additional checks: `node --test tests/domain.test.mjs` (14 cases), `node tests/demo.test.mjs` (22 local HTTP/MCP checks), existing MCP checks (9) and HTTP regression checks (19). The HTTP regression harness keeps early cross-origin body rejection last because local Wrangler on Windows can stall its following request; requests have bounded timeouts, and no mutation retry is hidden. Live release results are recorded in the root repository README and Linear after deployment verification. No physical-phone or real-employer acceptance is claimed.

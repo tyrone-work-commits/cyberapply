@@ -6,8 +6,11 @@ export type Profile = { fullName: string; email: string; skills: string[]; prefe
 export type Job = { id: string; title: string; company: string; location: string; workMode: string; url: string; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'prepared'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean };
-export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[] };
+export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent' | 'example'; message: string };
+export type ResumeCheck = { title: string; points: number; possible: number; evidence: string; suggestion: string };
+export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[] };
+export type Submission = { id: string; jobId: string; company: string; role: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; simulated: true; seeded?: boolean };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; demo?: boolean; resumeReview?: ResumeReview; submissions?: Submission[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -24,6 +27,8 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
   z.object({ type: z.literal('set_theme'), theme: z.enum(themes) }).strict(),
+  z.object({ type: z.literal('review_resume') }).strict(),
+  z.object({ type: z.literal('simulate_apply'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('SIMULATE') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
 
@@ -60,6 +65,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
+    if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) delete state.resumeReview;
     // A changed candidate profile invalidates readiness of previously reviewed drafts.
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) state.drafts.forEach(draft => { if (draft.status === 'ready') { draft.status = 'draft'; draft.version++; draft.updatedAt = at; } });
     message = state.profile.reviewed ? 'Candidate facts reviewed and saved.' : 'Profile saved. Review the facts before preparing applications.';
@@ -74,10 +80,11 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message = 'Fictional sample jobs added. Your profile and existing jobs were preserved.';
   } else if (action.type === 'add_job') {
     if (state.jobs.length >= 200) throw new DomainError('This pilot supports 200 saved listings. Export your workspace before adding more.', 409);
+    if (state.demo && action.url) throw new DomainError('Demo listings are fictional. Leave the live source URL empty.');
     const url = safeJobUrl(action.url);
     if (url && state.jobs.some(job => job.url === url)) throw new DomainError('That listing URL is already in your workspace.', 409);
-    state.jobs.unshift({ id: crypto.randomUUID(), title: action.title, company: action.company, location: action.location, workMode: action.workMode, url, description: action.description, skills: unique(action.skills), sample: false, saved: false, disposition: 'open', createdAt: at });
-    message = 'Listing saved as provided. Its source and availability have not been independently verified.';
+    state.jobs.unshift({ id: crypto.randomUUID(), title: action.title, company: action.company, location: action.location, workMode: action.workMode, url, description: action.description, skills: unique(action.skills), sample: state.demo===true, saved: false, disposition: 'open', createdAt: at });
+    message = state.demo?'Fictional demo listing saved. No live vacancy or employer connection is claimed.':'Listing saved as provided. Its source and availability have not been independently verified.';
   } else if (action.type === 'save_job') {
     getJob(state, action.jobId).saved = action.saved;
     message = action.saved ? 'Job saved for later.' : 'Job removed from saved listings.';
@@ -119,8 +126,82 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message = 'Draft marked ready for manual application. It has not been submitted.';
   } else if (action.type === 'set_theme') {
     state.theme = action.theme; message = 'Appearance saved to your workspace.';
+  } else if (action.type === 'review_resume') {
+    if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
+    state.resumeReview = analyzeResume(state.profile, at);
+    message = `CV quality review saved: ${state.resumeReview.score}/100 using six text checks. This is not an ATS score.`;
+  } else if (action.type === 'simulate_apply') {
+    if (!state.demo) throw new DomainError('Simulated sending is available only in the separate demo workspace.', 409);
+    const draft = getDraft(state, action.draftId), job = getJob(state, draft.jobId);
+    if (!job.sample) throw new DomainError('Only a fictional sample company can receive a simulated application.', 409);
+    if (draft.version !== action.expectedVersion) throw new DomainError('This draft changed. Reload and review the exact version again.', 409);
+    const existing = state.submissions?.find(item => item.jobId === job.id);
+    if (existing) return { state, message: `This demo application already has simulated receipt ${existing.id}. No duplicate was sent.` };
+    if (draft.status !== 'ready' || !state.profile.reviewed) throw new DomainError('Review your candidate facts and mark this exact saved draft ready before sending the demo.', 409);
+    const receipt: Submission = { id: `DEMO-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, jobId: job.id, company: job.company, role: job.title, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), at, simulated: true };
+    state.submissions = [receipt, ...(state.submissions || [])];
+    message = `Demo application received by ${job.company} (simulated). Receipt ${receipt.id}. No external contact was made.`;
   }
   record(state, action.type, message, source, at);
   if (JSON.stringify(state).length > 750000) throw new DomainError('The pilot workspace has reached its record limit. Export your work before continuing.', 413);
   return {state, message};
+}
+
+export function analyzeResume(profile: Profile, at = new Date().toISOString()): ResumeReview {
+  const text = profile.resumeText.trim(), lines = text.split(/\n/).filter(line => line.trim()), words = text ? text.split(/\s+/).length : 0;
+  const email = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text);
+  const name = !!profile.fullName && text.toLowerCase().includes(profile.fullName.toLowerCase());
+  const sections = ['summary', 'experience', 'skills', 'education'].filter(section => new RegExp(`^\\s*${section}\\s*:?\\s*$`, 'im').test(text));
+  const bullets = lines.filter(line => /^\s*[-•*]/.test(line));
+  const actionLines = bullets.filter(line => /\b(investigated|built|reduced|improved|automated|documented|triaged|reviewed|monitored|implemented|led|analyzed|analysed|developed|supported)\b/i.test(line));
+  const measured = bullets.filter(line => /\b\d+[\d,.]*\s*(%|hours?|minutes?|alerts?|incidents?|users?|systems?|reports?|controls?|per\b)/i.test(line));
+  const covered = profile.skills.filter(skill => text.toLowerCase().includes(skill.toLowerCase()));
+  const checks: ResumeCheck[] = [
+    {title:'Identity and contact',points:(email?8:0)+(name?7:0),possible:15,evidence:`Name in CV: ${name?'found':'not found'}. Email in CV: ${email?'found':'not found'}.`,suggestion:'Include your name and a contact email in the CV text itself.'},
+    {title:'Clear sections',points:Math.round(15*sections.length/4),possible:15,evidence:`${sections.length}/4 headings found: ${sections.join(', ')||'none'}.`,suggestion:'Use clear Summary, Experience, Skills and Education headings, where relevant.'},
+    {title:'Evidence of impact',points:Math.min(20,measured.length*10),possible:20,evidence:`${measured.length} bullet(s) contain a number with a measurable unit.`,suggestion:'Add truthful scale or outcomes to relevant bullets. Never invent numbers to increase a score.'},
+    {title:'Specific action bullets',points:Math.min(20,actionLines.length*5),possible:20,evidence:`${actionLines.length} bullet(s) include a recognized action verb.`,suggestion:'Explain what you investigated, built, improved or documented, using concrete examples.'},
+    {title:'Declared skills in context',points:profile.skills.length?Math.round(15*covered.length/profile.skills.length):0,possible:15,evidence:`${covered.length}/${profile.skills.length} declared skills appear in the CV text.`,suggestion:'Support your relevant skills with project or experience evidence. Mention only skills you actually have.'},
+    {title:'Length and scanability',points:(words>=180&&words<=900?10:words>=80&&words<=1200?5:0)+(bullets.length>=3?5:0),possible:15,evidence:`${words} words and ${bullets.length} bullet(s). Text-only review cannot inspect PDF layout.`,suggestion:'For this demo, aim for concise sections and at least three readable bullets; suitable CV length varies with experience.'},
+  ];
+  return {score:checks.reduce((sum,check)=>sum+check.points,0),words,at,checks};
+}
+
+export const demoResume = `Maya Okafor — FICTIONAL DEMO CANDIDATE
+maya.okafor@example.test | Lagos, Nigeria
+
+SUMMARY
+Cybersecurity analyst focused on alert triage, clear incident notes and practical security improvements. Seeking a SOC analyst role. All experience below is fabricated for a product demonstration.
+
+EXPERIENCE
+Security Analyst — Example Harbor Labs (fictional), 2024–2026
+- Investigated SIEM alerts and documented incident response decisions for a fictional operations team.
+- Triaged 40 alerts per week in a simulated training environment.
+- Built Python scripts to organize incident notes and highlight follow-up actions.
+- Reviewed AWS IAM permissions and supported internal risk assessment exercises.
+
+PROJECTS
+Home lab — fictional portfolio example
+- Practiced log investigation, incident response and evidence documentation using synthetic security events.
+- Created a repeatable checklist for handoffs between analysts.
+
+SKILLS
+SIEM, Incident response, Python, AWS, IAM, Risk assessment
+
+This is sample content, not a real person's qualifications.`;
+
+export function demoState(at = new Date().toISOString()): State {
+  let state: State = {...emptyState(),demo:true,submissions:[],theme:'ocean'};
+  const apply = (action: Action) => {state=reduceAction(state,action,'example',at).state;};
+  apply({type:'load_examples'});
+  apply({type:'save_profile',profile:{fullName:'Maya Okafor',email:'maya.okafor@example.test',skills:['SIEM','Incident response','Python','AWS','IAM','Risk assessment'],preferredRoles:['SOC Analyst','Cloud Security Engineer'],resumeText:demoResume,reviewed:true}});
+  apply({type:'review_resume'});
+  for (const jobId of ['sample-cloud','sample-grc']) {
+    apply({type:'decide_job',jobId,decision:'prepare'});
+    const draft=state.drafts.find(item=>item.jobId===jobId)!;
+    apply({type:'mark_ready',draftId:draft.id,expectedVersion:draft.version,confirmation:'REVIEWED'});
+    if(jobId==='sample-grc') {apply({type:'simulate_apply',draftId:draft.id,expectedVersion:state.drafts.find(item=>item.id===draft.id)!.version,confirmation:'SIMULATE'});state.submissions![0].seeded=true;}
+  }
+  state.jobs.find(job=>job.id==='sample-soc')!.saved=true;
+  return state;
 }

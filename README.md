@@ -38,3 +38,14 @@ Release evidence:
 - Native Sites deployment status confirmed success and the private agent connection is installed and verified by actual remote reads. Source implementation: [2f54360](https://github.com/tyrone-work-commits/cyberapply/commit/2f543600aee8a3f14254dcf87b5d372478f86870), in [draft PR #1](https://github.com/tyrone-work-commits/cyberapply/pull/1).
 
 PDF/DOCX parsing, live job ingestion, mail, scheduled processing and employer submissions are not connected in this hosted pilot. The original local application's broader functionality and provider setup are preserved separately. Vercel billing remains paused; no Render service was deployed for this release.
+
+
+### Complete fictional demo — 16 October 2026
+
+The default [private app](https://cyberapply-internal.covenda-1182.chatgpt.site/) opens a populated, per-user demo: Maya Okafor's fictional CV, four fictional companies/jobs, saved roles, editable drafts, an explained CV quality report and a clearly labelled preloaded simulated receipt. Personal records remain separate at `/?mode=personal`.
+
+**CV review → Explore → prepare → edit/save → mark ready → confirm simulated send → saved receipt and exact CV/application snapshot → refresh/history.**
+
+CV quality is calculated from six transparent text checks with points, evidence and suggestions. Editing/importing CV text invalidates the old report; running review assesses the new saved text. This is a heuristic quality review, not an ATS score or hiring prediction. TXT imports work; PDF/DOCX files still require pasted text for analysis.
+
+Only fictional listings can be sent in demo mode. Sends create private simulated receipts, with duplicate protection and exact reviewed draft/CV snapshots. No company, email address or external service receives an application. Example setup actions are explicitly distinguished from actions performed during a demonstration. The agent tools default to the same demo records and expose CV review and simulated receipt operations. See [the internal README](internal-workspace/README.md#complete-fictional-demo--16-october-2026) for scope and checks.

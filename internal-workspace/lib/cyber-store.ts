@@ -1,14 +1,18 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { actionSchema, emptyState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
+import { actionSchema, emptyState, demoState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
 
-export type Identity = { userId: string; email: string; displayName: string };
+export type Identity = { userId: string; email: string; displayName: string; demo?: boolean };
 export type Snapshot = { revision: number; updatedAt: string; state: State };
 function db() { if (!env.DB) throw new DomainError('Workspace storage is unavailable.', 503); return env.DB; }
-export async function identity(): Promise<Identity> { const user = await getChatGPTUser(); if (!user) throw new DomainError('Sign in with ChatGPT to access your private workspace.', 401); return user; }
+export function workspaceIdentity(user: Identity, mode: unknown): Identity {
+  if (mode !== undefined && mode !== null && mode !== 'demo' && mode !== 'personal') throw new DomainError('Choose demo or personal workspace.');
+  return mode === 'demo' ? {...user,userId:`demo/v1/${user.userId}`,demo:true} : user;
+}
+export async function identity(request?: Request): Promise<Identity> { const user = await getChatGPTUser(); if (!user) throw new DomainError('Sign in with ChatGPT to access your private workspace.', 401); return workspaceIdentity(user,request?new URL(request.url).searchParams.get('mode'):undefined); }
 export async function load(user: Identity): Promise<Snapshot> {
   const now = new Date().toISOString();
-  await db().prepare('INSERT OR IGNORE INTO cyber_workspaces (owner_id,revision,payload,write_token,updated_at) VALUES (?,0,?,?,?)').bind(user.userId, JSON.stringify(emptyState(user.email)), crypto.randomUUID(), now).run();
+  await db().prepare('INSERT OR IGNORE INTO cyber_workspaces (owner_id,revision,payload,write_token,updated_at) VALUES (?,0,?,?,?)').bind(user.userId, JSON.stringify(user.demo?demoState(now):emptyState(user.email)), crypto.randomUUID(), now).run();
   const row = await db().prepare('SELECT revision,payload,updated_at FROM cyber_workspaces WHERE owner_id=?').bind(user.userId).first<{revision:number;payload:string;updated_at:string}>();
   if (!row) throw new DomainError('Workspace could not be loaded.', 503);
   return {revision:row.revision, updatedAt:row.updated_at, state:JSON.parse(row.payload)};
