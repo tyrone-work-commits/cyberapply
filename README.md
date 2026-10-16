@@ -61,3 +61,10 @@ The [private app's root URL](https://cyberapply-internal.covenda-1182.chatgpt.si
 Profile setup stores name, optional professional headline and target role separately from candidate CV facts. It does not overwrite candidate records or the fictional demo. Direct workspace links require a saved account profile; authenticated APIs and agent tools keep their existing ownership checks. The demo is now at `/workspace?mode=demo`; personal records are at `/workspace?mode=personal`. Private Sites may present their platform access gate before the custom entry screen for signed-out visitors.
 
 TypeScript and production build passed. Seventeen domain tests and thirteen onboarding HTTP checks passed. Local browser acceptance covered create-account entry → profile save → workspace choice → populated demo, including saved profile after refresh. Entry and profile screens had no horizontal overflow at 320/1366-pixel viewports; the workspace-choice screen was also checked at 320 pixels. Hosted verification is recorded separately in Linear. No new OAuth provider, password store or hosting subscription was added.
+
+
+### Themes across account entry, setup and workspaces — 17 October 2026
+
+The **Theme** button on sign-in/create-account and profile setup/choice offers **Paper, Midnight, Ocean, Forest and Ember**. Workspace palette controls are retained. A selected theme follows navigation and refresh on the same browser; workspace selections also retain their existing authenticated server save. An appearance-only preference cookie prevents the default palette from replacing a chosen theme between pages. No candidate data or authentication is stored in that cookie.
+
+TypeScript passed. Local browser checks covered all five selections, reload persistence, entry/profile/demo navigation in both directions, preservation of unsaved profile text, responsive chooser/entry sizing, Escape dismissal and focus return. Final build and hosted deployment are verified as part of the release. No unrelated backend or live-integration tests were rerun for this appearance change.
