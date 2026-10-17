@@ -26,8 +26,8 @@ export async function POST(request:Request){
     const id=crypto.randomUUID();createdKey=`owners/${encodeURIComponent(user.userId)}/${id}`;
     await files().put(createdKey,bytes,{httpMetadata:{contentType:type}});
     current.state.attachments.unshift({id,key:createdKey,name,type,size:file.size,createdAt:new Date().toISOString(),textExtracted:text!==undefined});
-    if(text!==undefined){delete current.state.resumeReview;current.state.profile.resumeText=text;current.state.profile.reviewed=false;current.state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;}});}
-    const message=text!==undefined?'Private TXT file saved. Review the imported résumé text before preparing applications.':'Private file saved. PDF/DOCX text extraction is not connected in this pilot; paste and review its text in your profile.';
+    if(text!==undefined){current.state.applications?.forEach(item=>{item.reason='materials_changed';});delete current.state.resumeReview;current.state.profile.resumeText=text;current.state.profile.reviewed=false;current.state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;}});}
+    const message=text!==undefined?'Private TXT file saved. Review the imported résumé text before applying.':'Private file saved. PDF/DOCX text extraction is not connected in this pilot; paste and review its text in your profile.';
     record(current.state,'upload_file',message,'interface');
     const saved=await save(user,expected,current.state,'upload_file');createdKey=undefined;
     return response({user,...saved,message});

@@ -1,76 +1,46 @@
-# CyberApply internal workspace
+# CyberApply — Covenda internal workspace
 
-## Corrected delivery plan
+This is a private, mobile-responsive CV and job-application workspace with shared agent tools. It uses existing ChatGPT identity and Sites hosting. Five themes remain available throughout account entry, profile setup and the workspace.
 
-This is a private Covenda tool and an agent-backed demonstration. It does not require new Vercel or Render subscriptions. The existing Next.js/FastAPI application remains a separate, preserved implementation in the CyberApply GitHub repository.
+## Current journey
 
-The first internal delivery lets a signed-in teammate enter and confirm their own candidate facts, save supplied job listings, compare declared skills, pass or prepare a draft with a five-second undo, edit the draft, mark it ready for manual application, and inspect/export saved history. The same records are available to the private CyberApply agent tools. It never submits applications or contacts employers.
+Sign in / Create account → save your account profile → open your own workspace → review candidate facts and CV → add a sourced job listing → swipe left to pass or right to **Apply** → view the saved request and its next action in Applications.
 
-Optional sample jobs are explicitly fictional and do not replace candidate facts. Imported listing sources are supplied by the user or agent, not automatically verified. Matching is deterministic skill coverage, not an ATS result or eligibility guarantee. No paid model API is configured; the connected ChatGPT agent can help with research/drafting using the user's existing approved tools.
+The demo has been removed from the application: no demo choice, seeded candidate, sample-job generator, simulated sending, simulated receipts or demonstration agent tools remain. Old workspace URLs redirect to `/workspace`; APIs reject the retired `mode=demo` scope with 410. Existing stored historical demo records are inaccessible through the app and have not been destructively purged. Legacy sample records are filtered from owned current/history/export views. Real personal records and saved versions remain available.
 
-## Runtime and privacy
+## LinkedIn and real application status
 
-The Sites Vinext/Workers runtime supplies ChatGPT identity. D1 stores per-user workspaces and immutable saved revisions; R2 stores private uploads. Every data operation uses the authenticated Site user ID, never a client-supplied owner ID. Concurrent writes require the current revision and cannot overwrite a newer saved version. Each accepted mutation and its snapshot are written in one D1 batch. There is no automatic local-data migration.
+The requested target is real LinkedIn vacancies in Explore and actual submission after a right swipe. **This target is not yet delivered.** On 17 October the user said Covenda has no known approved LinkedIn job-data/application provider or partner access and requested that this dependency be recorded in Linear (FDE-26/FDE-27).
 
-New Site access remains owner-private until an appropriate private review audience is configured through Sites. Site access and row ownership are separate: reviewers use their own records. No live candidate data is copied from the local SQLite database. No Google/Apple credentials, mailbox credentials or employer tokens are copied. Apple remains available in the original local application's sign-in screen; the internal Site uses ChatGPT sign-in.
+The current release accepts an original public HTTPS LinkedIn or employer listing URL and the details supplied by the user/agent. It does not fetch LinkedIn pages, search live jobs, connect a member account or submit to employers. A public listing is not an application integration.
 
-PDF and DOCX uploads are stored privately but not parsed by this pilot. TXT imports its text for review. Paste reviewed résumé text for matching. Files are limited to 5 MB; record/text/listing limits are enforced. The recent activity view shows 200 events; immutable D1 revision snapshots retain earlier history. Export includes the current owned records; file contents download through authenticated per-user routes.
+Right swipe and the visible **Apply** button now record an owner-specific request and exact candidate/application-text snapshot. Without a connected service it has `status: needs_action` and `reason: connection_required`. Repeating Apply does not duplicate requests or materials. Editing the CV, importing TXT or editing application text flags changed materials while preserving the requested snapshot. There is no fabricated Submitted/Applied success state. Opening the original application page is a manual fallback and never records proof of submission. Only pass decisions offer a five-second Undo.
 
-## Setup and checks
+No new paid services, account permissions or external submissions were configured. An approved live integration still needs source attribution, authorization, supported application routes, truthful answers, exact-material consent, duplicate prevention and verified submission evidence. Do not claim that LinkedIn's employer/ATS partner APIs provide arbitrary job-seeker auto-apply access.
 
-Use the Sites plugin's `project-setup.mjs`, `install-dependencies.mjs`, `build-site.mjs` and source workflow. `.openai/hosting.json` holds the stable Site ID and DB/BUCKET bindings. Local dev uses the starter's loopback-only mock ChatGPT identity; production auth is dispatch-owned. Local and hosted databases are separate.
+## CV review and saved records
 
-Generate schema migrations with `npm run db:generate`, build once, and apply pending SQL files to local D1 using the starter README commands. Build/package/deploy through Sites. Install/connect the provisioned private CyberApply plugin to verify a real remote tool call; a deployed URL alone does not prove the plugin connection.
+CV review explains six deterministic text checks: identity/contact, section headings, measurable impact, action bullets, declared skills and length/bullets. Scores are not ATS results or hiring predictions. UTF-8 TXT imports text; PDF/DOCX uploads are privately stored but not parsed. Paste their text for review. File limit: 5 MB.
 
-Tests: domain workflow tests; local HTTP tests for authentication, ownership, persistence, concurrent writes, historical revisions, private uploads and MCP discovery/actions; responsive browser checks and a live hosted persistence check. Record actual outcomes rather than assuming these checks pass.
+Sites supplies authenticated identity. D1 stores owner-scoped workspaces and immutable revisions; R2 stores private uploads. Writes require the current revision and cannot overwrite a newer save. All agent operations use the authenticated visitor's own workspace. The 14 current MCP tools include CV review, listing/draft operations and `get_application_requests`; old simulation/example tools are unavailable. Agent activity and UI activity use the same durable records.
 
-## Demonstration
+## Verification — 17 October 2026
 
-Sign in → save candidate facts → add a supplied or clearly fictional listing → explain the skill match → prepare a draft → edit/save → refresh/reopen → inspect the saved revision and history. Then use a connected agent tool to read the same record. A ready draft is not a submitted application. Employer submission, inbox integrations, automatic live job ingestion and scheduled processing are future integrations and remain unconnected here.
+- TypeScript passed and the production Vinext build completed.
+- 68 local automated checks passed: 14 domain, 19 HTTP/storage, 9 MCP, 13 onboarding and 13 live-workspace acceptance checks. All fixtures and dispatch identities were loopback-only.
+- Browser checks covered account entry without demo promotion, a single saved workspace choice, sourced listing input, right-swipe Apply at desktop and 320px width, an unsent request, editing and persistence after refresh. Explore with the Apply control and Applications had no horizontal overflow at 320px (305px content width). This was not a physical-phone test.
+- Actual LinkedIn ingestion, employer delivery and submission receipts were not tested because no approved connection is configured. Hosted publication verification is recorded in the root release history and Linear after deployment.
 
-The full local app's additional settings, MFA, inbox, scheduling and connectors are not represented as working hosted integrations in this first internal version. No Claude connection is claimed without a successful authorized tool call.
+Commands (from this directory):
 
-## Verification on 15 October 2026
+```
+node node_modules/typescript/bin/tsc --noEmit
+node --test tests/domain.test.mjs
+node scripts/run-framework.mjs build
+node tests/http.test.mjs
+node tests/mcp.test.mjs
+node tests/onboarding.test.mjs
+node tests/live-workspace.test.mjs
+```
 
-- TypeScript check and production Vinext build passed.
-- Eight domain tests cover factual review, skill coverage, duplicate drafts, review invalidation, time-bounded Undo and source validation.
-- Local compiled Worker HTTP checks cover D1 persistence/history/CAS conflicts and owner-scoped R2 uploads/downloads. MCP checks run separately from multipart-upload checks because Wrangler on Windows returned a mid-request restart on the following POST in the combined harness; no mutation retries are hidden in these tests.
-- Browser checks exercised candidate save, fictional-job preparation and exact draft-text persistence after refresh. A 320-pixel viewport had no horizontal overflow on the reviewed draft screen; mobile navigation and the five-theme chooser were inspected. This is not a physical-iPhone test.
-- Hosted deployment, hosted sign-in, named reviewer access and an installed remote agent call must be reported separately after native Sites verification.
-
-Run `node --test tests/domain.test.mjs`, `node tests/mcp.test.mjs`, and `node tests/http.test.mjs` from this directory. The latter two use a separately running compiled Worker on loopback port 8787 and create only fictional QA owners/records. Never aim test identity headers at a hosted Site.
-
-
-## Complete fictional demo — 16 October 2026
-
-The default website now opens a separate **demo workspace** for each signed-in viewer. It is seeded with Maya Okafor (fabricated candidate), a sample CV, a saved quality report, four fictional companies/jobs, a Saved listing, two editable application drafts and a clearly labelled preloaded simulated receipt. Example setup events are labelled separately from actual interface/agent actions. Original personal records remain available at `/?mode=personal`; they are never overwritten by the demo.
-
-**CV review → Explore → prepare → edit/save → mark exact draft ready → confirm simulated send → receipt/tracker → refresh/history.**
-
-CV review uses six deterministic text checks: identity/contact, section labels, measurable impact, action bullets, declared-skill coverage and length/bullets. Each check explains its points, evidence and suggested improvement. The score changes with saved input and is invalidated by profile edits or TXT imports. It is not a commercial ATS score, a hiring prediction or a review of PDF layout. The demo CV downloads as TXT; uploading UTF-8 TXT imports text for a fresh review. PDF/DOCX remain private file storage only; paste their text for analysis.
-
-Demo sends require a reviewed candidate profile, an exact ready draft version, a fictional listing and explicit simulated-send confirmation. They create an immutable receipt snapshot of the CV and application text in D1. Repeated sends for a job do not duplicate receipts. Editing later preserves the original snapshot. Downloadable receipts and export are private to the same owner and demo scope. There is no employer network call, email delivery, paid model service or real submission connector. New listings in demo must omit live source URLs and are labelled fictional.
-
-API requests select demo records with `?mode=demo`; unqualified API requests preserve personal-record compatibility. The website adds the demo scope by default. All 16 MCP tools accept optional `mode: demo|personal`, defaulting to demo to match the website. New tools review saved CV text, read simulated receipts and perform a simulated send. History and files use the selected scope and authenticated owner.
-
-Additional checks: `node --test tests/domain.test.mjs` (14 cases), `node tests/demo.test.mjs` (22 local HTTP/MCP checks), existing MCP checks (9) and HTTP regression checks (19). The HTTP regression harness keeps early cross-origin body rejection last because local Wrangler on Windows can stall its following request; requests have bounded timeouts, and no mutation retry is hidden. Live release results are recorded in the root repository README and Linear after deployment verification. No physical-phone or real-employer acceptance is claimed.
-
-
-## Account entry and profile setup — 16 October 2026
-
-The root URL is now the branded **Sign in / Create account** screen. Both routes use the existing ChatGPT identity flow; no separate password database or new Google/Apple OAuth integration was added. In an existing signed-in session, continuing uses that identity. Private Sites may show the platform's access/sign-in gate before the custom entry screen for a signed-out visitor.
-
-**Sign in / Create account → set up account profile → choose Enter demo or Open my workspace.** New visitors cannot enter either workspace page until their account profile is saved. Returning visitors retain their profile and proceed to the choice screen; Edit profile remains available.
-
-`/onboarding` stores full name, optional professional headline and target role as owner-specific account metadata in the personal workspace. It does not alter candidate CV facts, résumé review, prepared drafts or demo data. Validation, revision conflicts and immutable history use the existing server-side protections. `/workspace?mode=demo` opens the fictional demo, and `/workspace?mode=personal` opens personal records. The profile link in the app returns to the saved profile/workspace choice; the brand returns to the sign-in page.
-
-Local acceptance includes the sign-up button → profile save → choice → populated demo journey, saved profile after refresh, and phone/desktop overflow checks for entry, profile and choice screens. `node tests/onboarding.test.mjs` checks the root account screen, real authentication redirect, onboarding guard, server validation, saved profile/choice, isolation and history against a loopback compiled Worker. Hosted verification is recorded separately in the root README and Linear after publication.
-
-
-## Themes throughout the internal app — 17 October 2026
-
-Paper, Midnight, Ocean, Forest and Ember are available from the visible **Theme** button on account entry and profile/workspace-choice pages. The workspace retains its palette controls. The selected theme follows navigation between these screens and survives reload on the same browser.
-
-A validated appearance-only cookie (`cyberapply_theme`, one year, SameSite=Lax, Secure on HTTPS) lets the server render the chosen palette immediately. It contains no identity or session information. Without an explicit browser preference, the workspace uses its existing saved account theme. Choosing from the workspace still saves its theme through the existing authenticated revision API and also sets the browser preference. Entry/profile appearance changes do not write candidate records or advance profile revisions, so unsaved form text is preserved. Cross-device synchronization of entry-page preferences is not claimed.
-
-Browser verification covered all five palettes, refresh persistence, entry → profile → demo, workspace → profile → entry, preservation of unsaved profile text, 320-pixel chooser/entry and 1366-pixel entry overflow checks, Escape dismissal and focus return to the trigger. TypeScript passed; final production build and hosted release evidence are reported with the release. This is a reversible appearance change; unrelated backend, OAuth and application-submission suites were not rerun.
+HTTP/MCP/onboarding/acceptance scripts require a compiled Worker on loopback port 8787. Local Wrangler on Windows can stall the next request after early body rejection; the HTTP suite keeps that rejection last and all requests are bounded. No mutation retry is hidden in these checks.

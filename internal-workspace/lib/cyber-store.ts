@@ -1,21 +1,22 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { actionSchema, emptyState, demoState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
+import { actionSchema, emptyState, liveState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
 
-export type Identity = { userId: string; email: string; displayName: string; demo?: boolean };
+export type Identity = { userId: string; email: string; displayName: string };
 export type Snapshot = { revision: number; updatedAt: string; state: State };
 function db() { if (!env.DB) throw new DomainError('Workspace storage is unavailable.', 503); return env.DB; }
 export function workspaceIdentity(user: Identity, mode: unknown): Identity {
-  if (mode !== undefined && mode !== null && mode !== 'demo' && mode !== 'personal') throw new DomainError('Choose demo or personal workspace.');
-  return mode === 'demo' ? {...user,userId:`demo/v1/${user.userId}`,demo:true} : user;
+  if (mode === 'demo') throw new DomainError('This workspace is no longer available. Open your own workspace.', 410);
+  if (mode !== undefined && mode !== null && mode !== 'personal') throw new DomainError('Unknown workspace.');
+  return user;
 }
 export async function identity(request?: Request): Promise<Identity> { const user = await getChatGPTUser(); if (!user) throw new DomainError('Sign in with ChatGPT to access your private workspace.', 401); return workspaceIdentity(user,request?new URL(request.url).searchParams.get('mode'):undefined); }
 export async function load(user: Identity): Promise<Snapshot> {
   const now = new Date().toISOString();
-  await db().prepare('INSERT OR IGNORE INTO cyber_workspaces (owner_id,revision,payload,write_token,updated_at) VALUES (?,0,?,?,?)').bind(user.userId, JSON.stringify(user.demo?demoState(now):emptyState(user.email)), crypto.randomUUID(), now).run();
+  await db().prepare('INSERT OR IGNORE INTO cyber_workspaces (owner_id,revision,payload,write_token,updated_at) VALUES (?,0,?,?,?)').bind(user.userId, JSON.stringify(emptyState(user.email)), crypto.randomUUID(), now).run();
   const row = await db().prepare('SELECT revision,payload,updated_at FROM cyber_workspaces WHERE owner_id=?').bind(user.userId).first<{revision:number;payload:string;updated_at:string}>();
   if (!row) throw new DomainError('Workspace could not be loaded.', 503);
-  return {revision:row.revision, updatedAt:row.updated_at, state:JSON.parse(row.payload)};
+  return {revision:row.revision, updatedAt:row.updated_at, state:liveState(JSON.parse(row.payload))};
 }
 export async function save(user: Identity, expected: number, state: State, action: string): Promise<Snapshot> {
   if (!Number.isSafeInteger(expected) || expected < 0) throw new DomainError('A current workspace revision is required.');
@@ -38,12 +39,12 @@ export async function act(user: Identity, expected: number, input: unknown, sour
 }
 export async function history(user: Identity, before = 2147483647) {
   const rows = await db().prepare('SELECT revision,action,created_at FROM cyber_revisions WHERE owner_id=? AND revision<? ORDER BY revision DESC LIMIT 30').bind(user.userId,before).all();
-  return rows.results;
+  return rows.results.filter(item => !['load_examples','simulate_apply'].includes(String(item.action)));
 }
 export async function revision(user: Identity, number: number) {
   const row = await db().prepare('SELECT revision,payload,action,created_at FROM cyber_revisions WHERE owner_id=? AND revision=?').bind(user.userId,number).first<{revision:number;payload:string;action:string;created_at:string}>();
   if (!row) throw new DomainError('That saved version is not in your workspace.',404);
-  return {revision:row.revision,state:JSON.parse(row.payload) as State,action:row.action,at:row.created_at};
+  return {revision:row.revision,state:liveState(JSON.parse(row.payload)) as State,action:row.action,at:row.created_at};
 }
 export function files() { if (!env.BUCKET) throw new DomainError('Private file storage is unavailable.',503); return env.BUCKET; }
 export function ownedFile(state: State, id: string): Attachment { const file = state.attachments.find(item=>item.id===id); if(!file) throw new DomainError('File not found in your workspace.',404); return file; }

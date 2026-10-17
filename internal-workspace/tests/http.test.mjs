@@ -12,11 +12,11 @@ let count=0;function ok(value,message){assert.ok(value,message);console.log(`PAS
 const anonymous=await req('/api/workspace',{who:null});ok(anonymous.status===401,'anonymous data access denied');
 let current=(await req('/api/workspace')).data;ok(current.revision===0&&current.state.jobs.length===0,'new owner starts empty');
 async function act(action,expected=200){const result=await req('/api/workspace',{method:'POST',body:{revision:current.revision,action}});assert.equal(result.status,expected,JSON.stringify(result.data));if(expected===200)current=result.data;return result;}
-await act({type:'load_examples'});ok(current.state.jobs.length===4,'fictional examples load through D1');
-await act({type:'decide_job',jobId:'sample-soc',decision:'prepare'},409);ok(current.state.drafts.length===0,'unreviewed profile cannot prepare a draft');
+await act({type:'add_job',title:'QA SOC Analyst',company:'QA Company',location:'Remote',workMode:'Remote',url:'https://qa.example.test/jobs/analyst',description:'Local test fixture for security monitoring with SIEM and incident response.',skills:['SIEM','Incident response','Splunk']});const jobId=current.state.jobs[0].id;ok(current.state.jobs.length===1,'supplied listing saves through D1');
+await act({type:'decide_job',jobId,decision:'apply'},409);ok(current.state.drafts.length===0,'unreviewed profile cannot create an Apply request');
 await act({type:'save_profile',profile:{fullName:'QA Candidate',email:'candidate@example.test',skills:['SIEM','Python'],preferredRoles:['SOC Analyst'],resumeText:'QA candidate has supplied SIEM and incident response practice facts for testing.',reviewed:true}});
-await act({type:'decide_job',jobId:'sample-soc',decision:'prepare'});let draft=current.state.drafts[0];const originalRevision=current.revision,originalText=draft.text;
-await act({type:'decide_job',jobId:'sample-soc',decision:'prepare'});ok(current.state.drafts.length===1,'repeat prepare does not duplicate drafts');
+await act({type:'decide_job',jobId,decision:'apply'});let draft=current.state.drafts[0];const originalRevision=current.revision,originalText=draft.text;
+await act({type:'decide_job',jobId,decision:'apply'});ok(current.state.drafts.length===1&&current.state.applications.length===1&&current.state.applications[0].status==='needs_action','repeat Apply does not duplicate requests or materials');
 await act({type:'edit_draft',draftId:draft.id,text:'Exact revised draft text supplied by the QA candidate. Saved on the server.',expectedVersion:draft.version});draft=current.state.drafts[0];
 const refreshed=(await req('/api/workspace')).data;ok(refreshed.state.drafts[0].text===draft.text&&refreshed.revision===current.revision,'draft edits survive a fresh read');
 const past=await req(`/api/history?revision=${originalRevision}`);ok(past.status===200&&past.data.state.drafts[0].text===originalText,'earlier draft text is retained in immutable history');
