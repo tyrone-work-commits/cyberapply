@@ -3,9 +3,13 @@ import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { actionSchema, emptyState, liveState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
 import { discover, mergeDiscovery } from './job-discovery';
 import { defaultSearch } from './job-catalog';
+import { liveSearchCooldown, type SearchCooldown } from './search-cooldown';
 
 export type Identity = { userId: string; email: string; displayName: string };
-export type Snapshot = { revision: number; updatedAt: string; state: State };
+export type Snapshot = { revision: number; updatedAt: string; state: State; searchCooldown:SearchCooldown };
+class SearchCooldownError extends DomainError {
+  constructor(public cooldown:SearchCooldown){super('Live search is temporarily paused. Your last results are saved.',429);}
+}
 function db() { if (!env.DB) throw new DomainError('Workspace storage is unavailable.', 503); return env.DB; }
 export function workspaceIdentity(user: Identity, mode: unknown): Identity {
   if (mode === 'demo') throw new DomainError('This workspace is no longer available. Open your own workspace.', 410);
@@ -18,7 +22,8 @@ export async function load(user: Identity): Promise<Snapshot> {
   await db().prepare('INSERT OR IGNORE INTO cyber_workspaces (owner_id,revision,payload,write_token,updated_at) VALUES (?,0,?,?,?)').bind(user.userId, JSON.stringify(emptyState(user.email)), crypto.randomUUID(), now).run();
   const row = await db().prepare('SELECT revision,payload,updated_at FROM cyber_workspaces WHERE owner_id=?').bind(user.userId).first<{revision:number;payload:string;updated_at:string}>();
   if (!row) throw new DomainError('Workspace could not be loaded.', 503);
-  return {revision:row.revision, updatedAt:row.updated_at, state:liveState(JSON.parse(row.payload))};
+  const state=liveState(JSON.parse(row.payload));
+  return {revision:row.revision, updatedAt:row.updated_at, state, searchCooldown:liveSearchCooldown(state.discovery?.lastSearch.at)};
 }
 export async function save(user: Identity, expected: number, state: State, action: string): Promise<Snapshot> {
   if (!Number.isSafeInteger(expected) || expected < 0) throw new DomainError('A current workspace revision is required.');
@@ -29,7 +34,7 @@ export async function save(user: Identity, expected: number, state: State, actio
     db().prepare('INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM cyber_workspaces WHERE owner_id=? AND write_token=?)').bind(user.userId,revision,payload,action,at,user.userId,token),
   ]);
   if (results[0].meta.changes !== 1) throw new DomainError('Your workspace changed in another window or tool. Reload before trying again; your previous work is safe.', 409);
-  return {revision,updatedAt:at,state};
+  return {revision,updatedAt:at,state,searchCooldown:liveSearchCooldown(state.discovery?.lastSearch.at)};
 }
 export async function act(user: Identity, expected: number, input: unknown, source: Activity['source']) {
   const parsed = actionSchema.safeParse(input);
@@ -43,8 +48,7 @@ export async function discoverJobs(user:Identity,expected:number,settings:unknow
   if(!Number.isSafeInteger(expected)||expected<0)throw new DomainError('A current numeric workspace revision is required.');
   const current=await load(user);
   if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before searching.',409);
-  const elapsed=Date.now()-Date.parse(current.state.discovery?.lastSearch.at||'');
-  if(Number.isFinite(elapsed)&&elapsed<60000)throw new DomainError('Wait one minute between live searches. Your last results are saved.',429);
+  if(current.searchCooldown.remainingMs>0)throw new SearchCooldownError(current.searchCooldown);
   const result=await discover(settings??current.state.discovery?.settings??defaultSearch);
   const merged=mergeDiscovery(current.state,result.settings,result.results,result.at,source);
   return {...await save(user,expected,merged.state,'discover_jobs'),message:merged.message,report:merged.report};
@@ -61,4 +65,4 @@ export async function revision(user: Identity, number: number) {
 export function files() { if (!env.BUCKET) throw new DomainError('Private file storage is unavailable.',503); return env.BUCKET; }
 export function ownedFile(state: State, id: string): Attachment { const file = state.attachments.find(item=>item.id===id); if(!file) throw new DomainError('File not found in your workspace.',404); return file; }
 export function response(value: unknown, status = 200) { return Response.json(value,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}}); }
-export function failure(error: unknown) { if(error instanceof DomainError) return response({error:error.message},error.status); console.error('CyberApply request failed',error instanceof Error?error.name:'unknown'); return response({error:'The operation could not be completed. Your saved work has been retained.'},500); }
+export function failure(error: unknown) { if(error instanceof SearchCooldownError){const result=response({error:error.message,searchCooldown:error.cooldown},429);result.headers.set('Retry-After',String(Math.ceil(error.cooldown.remainingMs/1000)));return result;} if(error instanceof DomainError) return response({error:error.message},error.status); console.error('CyberApply request failed',error instanceof Error?error.name:'unknown'); return response({error:'The operation could not be completed. Your saved work has been retained.'},500); }

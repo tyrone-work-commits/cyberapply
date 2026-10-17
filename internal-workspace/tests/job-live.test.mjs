@@ -5,7 +5,7 @@ if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Loca
 const owner=`source-qa-${randomUUID()}`;let checks=0;
 const headers={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':`${owner}@example.test`};
 const ok=(v,m)=>{assert.ok(v,m);console.log(`PASS ${++checks}: ${m}`);};
-async function request(path,body,extra={}){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...headers,...(body?{'Content-Type':'application/json'}:{}),...extra},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)});return{status:r.status,data:await r.json()};}
+async function request(path,body,extra={}){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...headers,...(body?{'Content-Type':'application/json'}:{}),...extra},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)});return{status:r.status,retryAfter:r.headers.get('Retry-After'),data:await r.json()};}
 let current=(await request('/api/workspace')).data;
 const settings={boards:[{provider:'greenhouse',board:'huntress',region:'global',company:'Huntress'},{provider:'greenhouse',board:'recordedfuture',region:'global',company:'Recorded Future'},{provider:'lever',board:'safe',region:'global',company:'Safe Security'}],keyword:'',location:'',remoteOnly:false};
 ok((await request('/api/jobs/discover',{revision:current.revision,settings:{...settings,boards:[{...settings.boards[0],board:'http://localhost/'}]}})).status===400,'invalid source input rejected before fetch');
@@ -16,9 +16,15 @@ ok(new Set(current.state.jobs.map(job=>job.source.provider)).size===2,'both prov
 const refreshed=(await request('/api/workspace')).data;
 ok(JSON.stringify(refreshed.state.discovery)===JSON.stringify(current.state.discovery)&&refreshed.state.jobs.length===current.state.jobs.length,'real vacancies, search filters and source report survive reload');
 ok((await request('/api/jobs/discover',{revision:0,settings})).status===409,'stale search cannot overwrite saved work');
-ok((await request('/api/jobs/discover',{revision:current.revision,settings})).status===429,'repeat live search is rate limited');
+const waiting=await request('/api/jobs/discover',{revision:current.revision,settings});
+ok(waiting.status===429,'repeat live search is rate limited');
+ok(waiting.data.searchCooldown.remainingMs>0&&waiting.data.searchCooldown.remainingMs<=60000,'server returns remaining wait for the countdown');
+ok(Number(waiting.retryAfter)===Math.ceil(waiting.data.searchCooldown.remainingMs/1000),'Retry-After agrees with the countdown without exposing an early search');
+const duringWait=(await request('/api/workspace')).data;
+ok(duringWait.revision===current.revision&&duringWait.searchCooldown.remainingMs>0&&JSON.stringify(duringWait.state)===JSON.stringify(current.state),'reload resumes the countdown and a blocked search changes no saved records');
 const second=await request('/api/workspace',undefined,{'oai-authenticated-user-id':`other-${owner}`});
 ok(second.data.state.jobs.length===0&&!second.data.state.discovery,'imported jobs and filters are owner scoped');
+ok(second.data.searchCooldown.remainingMs===0,'one owner’s countdown does not block another owner');
 const exported=(await request('/api/export')).data;ok(exported.state.discovery.lastSearch.at===current.report.at,'export retains source search evidence');
 const rpc=await request('/mcp',{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'get_job_sources',arguments:{}}});
 ok(!rpc.data.result.isError&&JSON.parse(rpc.data.result.content[0].text).lastSearch.at===current.report.at,'agent reads the same durable source report');

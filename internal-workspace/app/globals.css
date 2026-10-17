@@ -43,3 +43,5 @@
 
 /* Upward card gestures save; downward gestures and the area around the card still scroll. */
 .swipe-card{user-select:none}.save-swipe-hint{font-size:11px;text-align:center;color:var(--muted);margin:0 0 12px}.swipe-label.save{color:var(--accent);font-size:16px;transform:rotate(-4deg);max-width:calc(100% - 40px)}
+
+.search-wait{margin-top:14px;font-size:11px}
