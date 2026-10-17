@@ -58,3 +58,14 @@ node tests/http.test.mjs
 ```
 
 HTTP scripts require a compiled Worker on loopback port 8787. `job-live.test.mjs` performs read-only real-provider requests and writes only a generated local QA owner's records. Run HTTP early-rejection checks last: local Windows Wrangler can restart after rejecting a browser origin, so the next suite should use a fresh server. No hidden mutation retries are used.
+
+
+## 17 October 2026 — Responsive swipes and centered Undo
+
+Explore now advances cards immediately on Reject/Apply, while saves run in an ordered background queue against confirmed revisions. Drag rendering stays inside the deck component and updates at most once per animation frame. Applying stays in Explore so the next vacancy is ready; unsent requests are available in Applications.
+
+The decision row is **Reject · Undo · Apply**, including when the last card has been dismissed. Undo reverses the latest rejection or unsent Apply request, without the old five-second timer. It removes an untouched generated draft only when that draft belongs to the cancelled request; existing/edited drafts and immutable history remain. It cannot reverse submitted applications or another job's newer decision.
+
+Stable operation IDs prevent duplicate choices and reconcile lost responses through a fresh read rather than blind write retries. On failure, unconfirmed choices return to the latest saved state. If a save cannot be checked, further choices wait for an explicit reload. A visible saving status distinguishes optimistic feedback from saved records; navigation warns while choices are pending. No persistent browser copy of CV data or background automation was added.
+
+Verification for this change: **91 checks passed** (19 domain, 7 deferred-network queue, 11 swipe HTTP, 19 existing HTTP/storage, 9 MCP, 13 onboarding, 13 live-workspace). TypeScript and production build passed. The deferred-network tests prove card changes and Undo happen before the server save resolves; tests cover rapid choices, lost responses, rollback, stale Undo, preserved edits, identity isolation and idempotence. Browser checks covered 320px and 1366px layouts, centered control order, keyboard rejection, Apply/Undo and an actual mobile right swipe followed by Undo/reload. No horizontal overflow was observed in those views. This is not a physical-device latency benchmark or a guarantee of zero network latency. Job-feed behavior and employer-submission access are unchanged; actual submission remains unconnected.

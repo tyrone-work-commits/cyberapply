@@ -87,3 +87,10 @@ Search results/settings survive refresh. Refresh deduplicates vacancies and pres
 Validation: 92 local automated checks, TypeScript and production build; actual public feeds produced 23 matching vacancies at the time checked. Phone-width browser checks covered source management, filtering to a real remote UK vacancy, a right-swipe Apply request and persistence after refresh, with no horizontal overflow. These were loopback checks, not a physical-device or employer-submission test.
 
 Automatic employer submission is still not connected: Apply records an unsent request, and the original employer form is available for manual completion. FDE-27 tracks authorized submission access and real acceptance evidence. No paid provider or new hosting service was enabled. Final hosted release details and GitHub source are recorded in Linear.
+
+
+## 17 October 2026 — Immediate swipe feedback and centered Undo
+
+The private internal app now advances the Explore card immediately while choices save in order in the background. The controls read **Reject · Undo · Apply**. Undo restores the latest rejection or unsent Apply request, keeps edited application text and leaves the earlier saved history intact. It remains available after the final card; the five-second timer has been removed.
+
+Deferred-network tests verify that card changes and Undo do not await saves. Operation IDs, duplicate protection, lost-response reconciliation, rollback and an explicit reload state protect saved work. TypeScript, production build and 91 automated checks passed for this change. Browser checks at 320px/1366px covered control placement, button/keyboard actions, an actual mobile right swipe, Undo, refresh persistence and no horizontal overflow. Physical-phone latency and actual employer submission were not tested. Release IDs and post-publication evidence are recorded in Linear.

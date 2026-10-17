@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8787';if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Loopback-only swipe acceptance.');
+const owner=`swipe-qa-${randomUUID()}`;let checks=0;
+const ok=(v,m)=>{assert.ok(v,m);console.log(`PASS ${++checks}: ${m}`);};
+async function req(path,body,who=owner){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{'oai-authenticated-user-id':who,'oai-authenticated-user-email':`${who}@example.test`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(15000)});return{status:r.status,data:await r.json()};}
+let packet=(await req('/api/workspace')).data;
+async function act(action,status=200){const r=await req('/api/workspace',{revision:packet.revision,action});assert.equal(r.status,status,JSON.stringify(r.data));if(status===200)packet=r.data;return r;}
+for(const n of [1,2])await act({type:'add_job',title:`Local Swipe QA ${n}`,company:'Local fixture',location:'Remote',workMode:'Remote',url:`https://qa.example.test/swipe/${n}`,description:'Local fixture for durable Reject, Apply and Undo checks.',skills:['SIEM']});
+await act({type:'save_profile',profile:{fullName:'Local QA',email:'qa@example.test',skills:['SIEM'],preferredRoles:[],resumeText:'Local QA supplied SIEM project facts for testing only.',reviewed:true}});
+const [first,second]=packet.state.jobs.map(j=>j.id);
+const reject={type:'decide_job',jobId:first,decision:'pass',operationId:randomUUID()};await act(reject);
+ok(packet.state.lastDecision.operationId===reject.operationId&&packet.state.jobs[0].disposition==='passed','Reject saves a durable latest-choice identifier');
+const undoReject={type:'undo_decision',jobId:first,decisionId:reject.operationId,operationId:randomUUID()};await act(undoReject);
+ok(packet.state.jobs[0].disposition==='open'&&!packet.state.lastDecision,'Undo restores a rejected vacancy');
+const apply={type:'decide_job',jobId:first,decision:'apply',operationId:randomUUID()};await act(apply);const requestRevision=packet.revision;const original=structuredClone(packet.state.applications[0]);await act(apply);
+ok(packet.state.applications.length===1&&packet.state.applications[0].id===original.id,'replayed save identifier never duplicates a request');
+await act({type:'undo_decision',jobId:first,decisionId:apply.operationId,operationId:randomUUID()});
+ok(packet.state.applications.length===0&&packet.state.drafts.length===0&&packet.state.jobs[0].disposition==='open','Undo removes only an unsent request and its untouched generated draft');
+ok((await req(`/api/history?revision=${requestRevision}`)).data.state.applications[0].id===original.id,'immutable history retains the original request after Undo');
+await act({type:'decide_job',jobId:first,decision:'apply',operationId:randomUUID()});const draft=packet.state.drafts[0];await act({type:'edit_draft',draftId:draft.id,expectedVersion:1,text:'User-written application edits must survive Undo of this unsent request.'});await act({type:'undo_decision',jobId:first,decisionId:packet.state.lastDecision.operationId,operationId:randomUUID()});
+ok(packet.state.drafts[0].text.includes('User-written')&&packet.state.applications.length===0,'Undo preserves user-edited draft text');
+await act({type:'decide_job',jobId:first,decision:'pass',operationId:randomUUID()});const older=packet.state.lastDecision.operationId;await act({type:'decide_job',jobId:second,decision:'pass',operationId:randomUUID()});
+ok((await act({type:'undo_decision',jobId:first,decisionId:older,operationId:randomUUID()},409)).status===409,'stale Undo cannot reverse an earlier choice');
+await act(undoReject);ok(packet.state.jobs.every(j=>j.disposition==='passed'),'replaying an earlier Undo is harmless after newer decisions');
+const other=(await req('/api/workspace',undefined,`other-${owner}`)).data;
+ok((await req('/api/workspace',{revision:other.revision,action:{type:'undo_decision',jobId:first,operationId:randomUUID()}},`other-${owner}`)).status===404,'another owner cannot undo this owner’s vacancy');
+ok((await act({...reject,decision:'apply'},409)).status===409,'operation identifier reuse for a different action is rejected');
+const reloaded=(await req('/api/workspace')).data;ok(reloaded.state.lastDecision.operationId===packet.state.lastDecision.operationId&&reloaded.connections.automaticApplications===false,'latest Undo choice survives refresh without implying employer submission');
+console.log(JSON.stringify({checks,localOnly:true}));

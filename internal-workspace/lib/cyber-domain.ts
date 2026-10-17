@@ -12,7 +12,8 @@ export type ResumeCheck = { title: string; points: number; possible: number; evi
 export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[] };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport } };
+export type LastDecision = { jobId:string; decision:'pass'|'apply'; operationId:string; previousDisposition:Job['disposition']; at:string; applicationId?:string; createdDraftId?:string };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -24,14 +25,15 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean() }).strict(),
-  z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']) }).strict(),
-  z.object({ type: z.literal('undo_decision'), jobId: id }).strict(),
+  z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), operationId:z.string().uuid().optional() }).strict(),
+  z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
   z.object({ type: z.literal('set_theme'), theme: z.enum(themes) }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
+export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'}>){return JSON.stringify([action.type,action.jobId,action.type==='decide_job'?action.decision:action.decisionId||null]);}
 
 export function emptyState(email = ''): State {
   return { profile: { fullName: '', email, skills: [], preferredRoles: [], resumeText: '', reviewed: false }, jobs: [], drafts: [], attachments: [], theme: 'paper', activity: [] };
@@ -62,6 +64,9 @@ function getDraft(state: State, draftId: string) { const draft = state.drafts.fi
 
 export function reduceAction(before: State, action: Action, source: Activity['source'], at = new Date().toISOString()): { state: State; message: string } {
   const state = liveState(before);
+  const operationId='operationId' in action?action.operationId:undefined;
+  const signature=action.type==='decide_job'||action.type==='undo_decision'?decisionSignature(action):'';
+  if(operationId){const previous=state.decisionOperations?.find(item=>item.id===operationId);if(previous){if(previous.signature!==signature)throw new DomainError('This choice identifier was already used for another action.',409);return {state,message:'This choice was already saved. No duplicate action was created.'};}}
   let message = '';
   if (action.type === 'complete_onboarding') {
     state.accountProfile = {fullName:action.fullName,headline:action.headline,targetRole:action.targetRole,completedAt:at};
@@ -86,6 +91,8 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message = action.saved ? 'Job saved for later.' : 'Job removed from saved listings.';
   } else if (action.type === 'decide_job') {
     const job = getJob(state, action.jobId);
+    const previousDisposition=job.disposition;
+    const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
       if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
       if (!state.profile.reviewed) throw new DomainError('Review and confirm your CV and candidate facts before applying.', 409);
@@ -93,27 +100,37 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       const existing = state.applications?.find(item => item.jobId === job.id);
       if (existing) return {state, message: 'This application already needs action in Applications. No duplicate request was created; nothing has been submitted.'};
       let draft = state.drafts.find(item => item.jobId === job.id);
+      let createdDraftId:string|undefined;
       if (!draft) {
         const match = matchJob(state, job);
         const skillsSentence = match.matched.length ? `My reviewed candidate information lists ${match.matched.join(', ')}.` : 'Please review my candidate information against the requirements of this role.';
-        draft = { id: crypto.randomUUID(), jobId: job.id, text: `Dear hiring team,\n\nI am interested in the ${job.title} position at ${job.company}. ${skillsSentence}\n\nI would welcome the opportunity to discuss the role.\n\nKind regards,\n${state.profile.fullName}`, status: 'draft', version: 1, createdAt: at, updatedAt: at };
+        draft = { id: `draft-${decisionId}`, jobId: job.id, text: `Dear hiring team,\n\nI am interested in the ${job.title} position at ${job.company}. ${skillsSentence}\n\nI would welcome the opportunity to discuss the role.\n\nKind regards,\n${state.profile.fullName}`, status: 'draft', version: 1, createdAt: at, updatedAt: at };
+        createdDraftId=draft.id;
         state.drafts.unshift(draft);
       }
-      const request: ApplicationRequest = { id: crypto.randomUUID(), jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), at, status: 'needs_action', reason: 'connection_required', sourceUrl: job.url };
+      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), at, status: 'needs_action', reason: 'connection_required', sourceUrl: job.url };
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
+      state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};
       message = 'Apply request saved. An approved application connection is required; no application has been sent. Open Applications for the next step.';
     } else {
       if (state.applications?.some(item => item.jobId === job.id)) throw new DomainError('An Apply request already exists for this job. Open Applications.', 409);
       job.previousDisposition = job.disposition; job.decidedAt = at; job.disposition = 'passed';
-      message = 'Job passed. You can undo this choice for five seconds.';
+      state.lastDecision={jobId:job.id,decision:'pass',operationId:decisionId,previousDisposition,at};
+      message = 'Job rejected. Undo can restore your latest choice.';
     }
   } else if (action.type === 'undo_decision') {
     const job = getJob(state, action.jobId);
-    if (job.disposition !== 'passed' || state.applications?.some(item => item.jobId === job.id)) throw new DomainError('Only a passed job can be undone.', 409);
-    const elapsed = Date.parse(at) - Date.parse(job.decidedAt || '');
-    if (!Number.isFinite(elapsed) || elapsed < 0 || elapsed > 5000 || !job.previousDisposition) throw new DomainError('The five-second Undo window has ended.', 409);
-    job.disposition = job.previousDisposition; delete job.previousDisposition; delete job.decidedAt;
+    const last=state.lastDecision;
+    if(!last||last.jobId!==job.id||(action.decisionId&&action.decisionId!==last.operationId))throw new DomainError('Only your latest job choice can be undone. Reload your saved workspace.',409);
+    if(last.decision==='apply'){
+      const request=state.applications?.find(item=>item.id===last.applicationId&&item.jobId===job.id);
+      if(!request||request.status!=='needs_action')throw new DomainError('Only an unsent Apply request can be undone.',409);
+      state.applications=state.applications!.filter(item=>item.id!==request.id);
+      // Preserve pre-existing or edited drafts; undo never erases the user's work.
+      state.drafts=state.drafts.filter(draft=>!(draft.id===last.createdDraftId&&draft.version===1&&draft.status==='draft'&&draft.text===request.text));
+    }else if(job.disposition!=='passed'||state.applications?.some(item=>item.jobId===job.id))throw new DomainError('This choice changed and can no longer be undone.',409);
+    job.disposition=last.previousDisposition;delete job.previousDisposition;delete job.decidedAt;delete state.lastDecision;
     message = 'Last job choice undone.';
   } else if (action.type === 'edit_draft') {
     const draft = getDraft(state, action.draftId);
@@ -134,6 +151,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     state.resumeReview = analyzeResume(state.profile, at);
     message = `CV quality review saved: ${state.resumeReview.score}/100 using six text checks. This is not an ATS score.`;
   }
+  if(operationId)state.decisionOperations=[...(state.decisionOperations||[]),{id:operationId,signature}].slice(-100);
   record(state, action.type, message, source, at);
   if (JSON.stringify(state).length > 750000) throw new DomainError('The pilot workspace has reached its record limit. Export your work before continuing.', 413);
   return {state, message};
