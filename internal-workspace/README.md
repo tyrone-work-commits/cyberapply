@@ -34,7 +34,11 @@ Greenhouse/Lever public job feeds do not grant application-submission permission
 
 ## CV review, identity and saved work
 
-CV review explains six deterministic text checks; scores are not ATS results or hiring predictions. UTF-8 TXT imports text. PDF/DOCX uploads are privately stored but not parsed; paste text for review. File limit: 5 MB.
+Upload a searchable PDF, DOCX or UTF-8 TXT CV and receive an automatic ATS-style readiness score out of 100, evidence for six text checks and prioritized recommendations. The saved CV text and report persist together. Saving CV edits updates the report; changed text clears the old file attribution. Uploading always requires a fresh accuracy confirmation before applying.
+
+The checks cover contact details (15), clear sections (15), measured impact (20), specific action bullets (20), skills with evidence (15) and length/readability (15). An incomplete profile does not block the initial review. Suggestions ask for truthful details rather than invented claims. This is deterministic English-language text guidance, not a proprietary employer ATS result, a job-specific match score, a hiring prediction or visual-layout/OCR assessment.
+
+Files are privately stored in R2 and parsed in the existing Worker, without sending CVs to an external scoring service. Limits: 5 MB/file, 20 PDF pages, 120,000 text characters, bounded DOCX ZIP/XML extraction and 20 saved files/account. Password-protected, unreadable or image-only documents need an unlocked/searchable export or pasted text. Failed uploads preserve the previous CV/report; revision conflicts cannot overwrite a newer record. Check extracted reading order, particularly with tables or columns. Parser libraries: unpdf 1.9.0, fflate 0.8.3 and saxes 6.0.0.
 
 Sites supplies identity and the existing workspace access policy. D1 records and immutable revisions are owner scoped; R2 files are private. Writes require the current revision. Sources are untrusted data, never agent instructions. Historical sample records remain hidden without destructively purging stored history. Local testing uses loopback-only dispatch fixtures, never hosted impersonation.
 
@@ -98,3 +102,17 @@ Typing cybersecurity (also cyber security, cyber-security, cybersecurity jobs, i
 Fetching is limited to three boards at once and retains requested source order. Existing fixed hosts, deadlines, response/pagination bounds, partial-failure behavior, owner isolation, one-minute countdown, 24-new-role import limit and saved-choice/draft preservation remain. No new paid provider or external submission was enabled.
 
 Validation: TypeScript and production build passed; **101 checks** passed (16 source/matching/concurrency, 22 domain, 6 cooldown, 10 deferred queue, 19 real-feed HTTP, 9 MCP, 19 HTTP/storage). All eight live feeds returned matches for cybersecurity: 517 published records and 117 matching roles at the time checked; the first isolated import added 24 roles, including all five added employers. Counts change over time. Browser checks at 320px/1366px verified the existing three-board selection expanding to eight, broad keyword results, live source reports, persistence after reload, all eight source names and no horizontal overflow. These are desktop-browser checks, not a physical-phone test. Publication evidence is recorded in Linear.
+
+
+## 18 October 2026 — Upload, score and improve a CV
+
+The CV review page now leads with Upload CV, automatically reads supported files, and shows a score, the highest-priority recommendations and all six checks with evidence. Candidate facts and the extracted text remain editable below the report. Saving changes re-assesses the current saved text. No fictional candidates or demo feed were added to the hosted application.
+
+Validation: TypeScript and production build passed, with **110 automated checks** (25 domain, 8 parser, 23 CV HTTP/persistence, 19 existing HTTP/storage, 9 MCP, 13 onboarding and 13 live-workspace checks). PDF, DOCX and TXT were uploaded to the compiled loopback Worker. Checks cover immediate scoring, persistence, ownership, failed/stale uploads preserving prior records, original file access, parser size/page/XML limits, no external fetch for PDF extraction, and continued application accuracy gates. Test fixtures are fictional and local only. Browser checks at 320px and 1366px confirmed no horizontal overflow, automatic PDF scoring and result focus, saved edits updating the report, and persistence after reload. Fictional CV fixtures were used only locally. Physical-device testing and OCR were not performed. Hosted deployment evidence is recorded in the root README and Linear after publication.
+
+Additional commands:
+
+```
+node --test tests/resume-extraction.test.mjs
+node tests/resume-http.test.mjs
+```

@@ -9,7 +9,7 @@ export type Draft = { id: string; jobId: string; text: string; status: 'draft' |
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean };
 export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };
 export type ResumeCheck = { title: string; points: number; possible: number; evidence: string; suggestion: string };
-export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[] };
+export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[]; source?:{fileId:string;name:string;format:'PDF'|'DOCX'|'TXT';pages?:number;warnings:string[]} };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
@@ -74,7 +74,10 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
-    if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) delete state.resumeReview;
+    if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) {
+      state.resumeReview=state.profile.resumeText.trim().length>=20?analyzeResume(state.profile,at):undefined;
+      if(state.resumeReview&&state.profile.resumeText===before.profile.resumeText&&before.resumeReview?.source)state.resumeReview.source=structuredClone(before.resumeReview.source);
+    }
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) state.applications?.forEach(item => { item.reason = 'materials_changed'; });
     // A changed candidate profile invalidates readiness of previously reviewed drafts.
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) state.drafts.forEach(draft => { if (draft.status === 'ready') { draft.status = 'draft'; draft.version++; draft.updatedAt = at; } });
@@ -155,8 +158,10 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     state.theme = action.theme; message = 'Appearance saved to your workspace.';
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
+    const reviewSource=state.resumeReview?.source;
     state.resumeReview = analyzeResume(state.profile, at);
-    message = `CV quality review saved: ${state.resumeReview.score}/100 using six text checks. This is not an ATS score.`;
+    if(reviewSource)state.resumeReview.source=reviewSource;
+    message = `CV readiness review saved: ${state.resumeReview.score}/100 using six explainable text checks. Employer ATS scores can differ.`;
   }
   if(operationId)state.decisionOperations=[...(state.decisionOperations||[]),{id:operationId,signature}].slice(-100);
   record(state, action.type, message, source, at);
@@ -165,21 +170,29 @@ export function reduceAction(before: State, action: Action, source: Activity['so
 }
 
 export function analyzeResume(profile: Profile, at = new Date().toISOString()): ResumeReview {
-  const text = profile.resumeText.trim(), lines = text.split(/\n/).filter(line => line.trim()), words = text ? text.split(/\s+/).length : 0;
-  const email = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text);
-  const name = !!profile.fullName && text.toLowerCase().includes(profile.fullName.toLowerCase());
-  const sections = ['summary', 'experience', 'skills', 'education'].filter(section => new RegExp(`^\\s*${section}\\s*:?\\s*$`, 'im').test(text));
-  const bullets = lines.filter(line => /^\s*[-•*]/.test(line));
-  const actionLines = bullets.filter(line => /\b(investigated|built|reduced|improved|automated|documented|triaged|reviewed|monitored|implemented|led|analyzed|analysed|developed|supported)\b/i.test(line));
-  const measured = bullets.filter(line => /\b\d+[\d,.]*\s*(%|hours?|minutes?|alerts?|incidents?|users?|systems?|reports?|controls?|per\b)/i.test(line));
-  const covered = profile.skills.filter(skill => text.toLowerCase().includes(skill.toLowerCase()));
-  const checks: ResumeCheck[] = [
-    {title:'Identity and contact',points:(email?8:0)+(name?7:0),possible:15,evidence:`Name in CV: ${name?'found':'not found'}. Email in CV: ${email?'found':'not found'}.`,suggestion:'Include your name and a contact email in the CV text itself.'},
-    {title:'Clear sections',points:Math.round(15*sections.length/4),possible:15,evidence:`${sections.length}/4 headings found: ${sections.join(', ')||'none'}.`,suggestion:'Use clear Summary, Experience, Skills and Education headings, where relevant.'},
-    {title:'Evidence of impact',points:Math.min(20,measured.length*10),possible:20,evidence:`${measured.length} bullet(s) contain a number with a measurable unit.`,suggestion:'Add truthful scale or outcomes to relevant bullets. Never invent numbers to increase a score.'},
-    {title:'Specific action bullets',points:Math.min(20,actionLines.length*5),possible:20,evidence:`${actionLines.length} bullet(s) include a recognized action verb.`,suggestion:'Explain what you investigated, built, improved or documented, using concrete examples.'},
-    {title:'Declared skills in context',points:profile.skills.length?Math.round(15*covered.length/profile.skills.length):0,possible:15,evidence:`${covered.length}/${profile.skills.length} declared skills appear in the CV text.`,suggestion:'Support your relevant skills with project or experience evidence. Mention only skills you actually have.'},
-    {title:'Length and scanability',points:(words>=180&&words<=900?10:words>=80&&words<=1200?5:0)+(bullets.length>=3?5:0),possible:15,evidence:`${words} words and ${bullets.length} bullet(s). Text-only review cannot inspect PDF layout.`,suggestion:'Aim for concise sections and at least three readable bullets; suitable CV length varies with experience.'},
+  const text=profile.resumeText.trim(),lines=text.split(/\n/).map(line=>line.trim()).filter(Boolean),words=text?text.split(/\s+/).length:0;
+  const email=/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text);
+  const phone=lines.slice(0,8).some(line=>(line.match(/\+?\(?\d[\d ()\-.]{5,}\d/g)||[]).some(value=>{const count=value.replace(/\D/g,'').length;return count>=7&&count<=15&&!/^\d{4}\s*[-–]\s*\d{4}$/.test(value.trim());}));
+  const groups:[string,string][]=[['Summary','summary|professional summary|profile|professional profile|objective'],['Experience','experience|work experience|professional experience|employment history|work history|projects|project experience'],['Skills','skills|technical skills|core skills|core competencies|technologies'],['Education','education|qualifications|education and certifications|education & certifications']];
+  const found=groups.filter(([,names])=>new RegExp(`^\\s*(?:${names})\\s*(?::.*)?$`,'im').test(text));
+  const missing=groups.filter(group=>!found.includes(group)).map(([name])=>name);
+  const bullets=lines.filter(line=>/^(?:[-•*●▪◦‣–—]|\d+[.)])\s+/.test(line));
+  const actionPattern=/\b(investigated|built|reduced|improved|automated|documented|triaged|reviewed|monitored|implemented|led|analyzed|analysed|developed|supported|configured|secured|detected|resolved|responded|assessed|managed|tested|remediated)\b/i;
+  const actionLines=bullets.filter(line=>actionPattern.test(line));
+  const measured=bullets.filter(line=>/\b\d+[\d,.]*\s*(%|hours?|minutes?|alerts?|incidents?|users?|systems?|reports?|controls?|endpoints?|vulnerabilities|per\b)/i.test(line));
+  const keywords=['SIEM','Splunk','Python','Linux','AWS','Azure','Incident response','Threat hunting','Vulnerability management','Penetration testing','IAM','NIST','ISO 27001','Security monitoring','EDR','SQL','Networking','Firewalls','SOC'];
+  const has=(value:string,where:string)=>new RegExp(`(^|[^a-z0-9])${value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}([^a-z0-9]|$)`,'i').test(where);
+  const declared=profile.skills.length?unique(profile.skills):keywords.filter(skill=>has(skill,text));
+  const covered=declared.filter(skill=>has(skill,text));
+  const context=covered.filter(skill=>lines.some(line=>actionPattern.test(line)&&has(skill,line)));
+  const coverage=profile.skills.length?covered.length/profile.skills.length:Math.min(1,covered.length/4);
+  const checks:ResumeCheck[]=[
+    {title:'Contact details',points:(email?10:0)+(phone?5:0),possible:15,evidence:`Email address: ${email?'found':'not found'}. Phone-like number: ${phone?'found':'not found'}.`,suggestion:`Add ${!email&&!phone?'a contact email and phone number':!email?'a contact email':'a contact phone number'} as readable text in your CV header. Check that the details are current.`},
+    {title:'Clear sections',points:Math.round(15*found.length/4),possible:15,evidence:`${found.length}/4 section types found: ${found.map(([name])=>name).join(', ')||'none'}.`,suggestion:`Add clear ${missing.join(', ')} headings where relevant. Use projects to demonstrate experience if you are early in your career.`},
+    {title:'Evidence of impact',points:Math.min(20,measured.length*10),possible:20,evidence:`${measured.length} bullet(s) include a number with a recognized measure.`,suggestion:'Add truthful scope or outcomes to relevant experience bullets: alerts reviewed, systems supported, time saved or incidents handled. Use numbers only when you can support them.'},
+    {title:'Specific action bullets',points:Math.min(20,actionLines.length*5),possible:20,evidence:`${actionLines.length} bullet(s) describe a recognized action.`,suggestion:'Start experience or project bullets with a specific action and explain what you did. For example: Investigated [type of incident] using [tool], then documented [your actual findings]. Replace brackets only with facts.'},
+    {title:'Skills with evidence',points:Math.round(8*coverage)+Math.min(7,context.length*4),possible:15,evidence:`${covered.length} ${profile.skills.length?'of '+profile.skills.length+' declared skills':'recognized cybersecurity skills'} found; ${context.length} appear in action-oriented lines.`,suggestion:'List relevant tools and skills that you actually have, then show where you used them in experience or projects. Avoid repeating keywords without evidence.'},
+    {title:'Length and readability',points:(words>=180&&words<=900?10:words>=80&&words<=1200?5:0)+(bullets.length>=3?5:0),possible:15,evidence:`${words} words; ${bullets.length} readable bullet(s). Graphics and visual layout are not scored.`,suggestion:[words<180?'Add concise, relevant experience or project detail. CV length depends on experience; avoid padding.':words>900?'Keep the strongest relevant content and remove repetition. CV length depends on experience.':'Keep your content concise and relevant.',bullets.length<3?'Use at least three readable bullets for experience or projects.':'Your bullet structure is readable; check that a plain-text copy reads in the right order.'].join(' ')},
   ];
   return {score:checks.reduce((sum,check)=>sum+check.points,0),words,at,checks};
 }

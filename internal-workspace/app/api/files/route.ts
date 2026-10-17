@@ -1,5 +1,6 @@
 import { identity, load, save, files, response, failure } from '@/lib/cyber-store';
-import { DomainError, record } from '@/lib/cyber-domain';
+import { DomainError, record, analyzeResume } from '@/lib/cyber-domain';
+import { extractResume } from '@/lib/resume-extraction';
 export const dynamic='force-dynamic';
 export async function POST(request:Request){
   let createdKey:string|undefined;
@@ -7,6 +8,7 @@ export async function POST(request:Request){
     const user=await identity(request);
     const origin=request.headers.get('origin');
     if(origin&&origin!==new URL(request.url).origin)throw new DomainError('Cross-origin writes are not allowed.',403);
+    if(!request.headers.get('content-type')?.startsWith('multipart/form-data'))throw new DomainError('Upload your CV using the file picker.',415);
     if(Number(request.headers.get('content-length')||0)>5300000)throw new DomainError('Choose a file smaller than 5 MB.',413);
     const form=await request.formData();const file=form.get('file');const expected=Number(form.get('revision'));
     if(!(file instanceof File)||!file.size||file.size>5000000)throw new DomainError('Choose a PDF, DOCX or UTF-8 TXT file smaller than 5 MB.');
@@ -14,20 +16,18 @@ export async function POST(request:Request){
     if(!Number.isSafeInteger(expected)||expected!==current.revision)throw new DomainError('Your workspace changed. Reload before uploading.',409);
     if(current.state.attachments.length>=20)throw new DomainError('This pilot supports 20 private files.',409);
     const name=file.name.replace(/[\x00-\x1f\x7f/\\]/g,'_').slice(0,180)||'resume.txt';
-    const extension=name.split('.').pop()?.toLowerCase();const bytes=new Uint8Array(await file.arrayBuffer());
-    let type='',text:string|undefined;
-    if(extension==='txt'){
-      try{text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);}catch{throw new DomainError('The TXT file must use UTF-8 text.');}
-      if(text.length>120000||text.includes('\0'))throw new DomainError('Use a UTF-8 résumé text file up to 120,000 characters.');
-      type='text/plain';
-    }else if(extension==='pdf'&&new TextDecoder().decode(bytes.slice(0,5))==='%PDF-')type='application/pdf';
-    else if(extension==='docx'&&bytes[0]===80&&bytes[1]===75)type='application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-    else throw new DomainError('The file content does not match a supported PDF, DOCX or TXT file.');
+    const bytes=new Uint8Array(await file.arrayBuffer());
+    const extracted=await extractResume(bytes,name),{text,type}=extracted;
     const id=crypto.randomUUID();createdKey=`owners/${encodeURIComponent(user.userId)}/${id}`;
     await files().put(createdKey,bytes,{httpMetadata:{contentType:type}});
-    current.state.attachments.unshift({id,key:createdKey,name,type,size:file.size,createdAt:new Date().toISOString(),textExtracted:text!==undefined});
-    if(text!==undefined){current.state.applications?.forEach(item=>{item.reason='materials_changed';});delete current.state.resumeReview;current.state.profile.resumeText=text;current.state.profile.reviewed=false;current.state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;}});}
-    const message=text!==undefined?'Private TXT file saved. Review the imported résumé text before applying.':'Private file saved. PDF/DOCX text extraction is not connected in this pilot; paste and review its text in your profile.';
+    const at=new Date().toISOString();
+    current.state.attachments.unshift({id,key:createdKey,name,type,size:file.size,createdAt:at,textExtracted:true});
+    current.state.applications?.forEach(item=>{item.reason='materials_changed';});
+    current.state.profile.resumeText=text;current.state.profile.reviewed=false;
+    current.state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;draft.updatedAt=at;}});
+    current.state.resumeReview=analyzeResume(current.state.profile,at);
+    current.state.resumeReview.source={fileId:id,name,format:extracted.format,pages:extracted.pages,warnings:extracted.warnings};
+    const message=`CV uploaded and reviewed: ${current.state.resumeReview.score}/100. Your recommendations are ready. Check the extracted text and candidate facts before applying.`;
     record(current.state,'upload_file',message,'interface');
     const saved=await save(user,expected,current.state,'upload_file');createdKey=undefined;
     return response({user,...saved,message});
