@@ -49,7 +49,7 @@ def test_provider_removed_phone_is_removed_locally(client, db, user, settings, m
     provider_settings(settings)
     user.phone = "+2348000000003"
     db.commit()
-    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: pytest.fail("A verified unchanged email does not need another provider lookup"))
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: httpx.Response(200, json={"id": user.id, "email": user.email, "factors": []}))
     response = client.get("/api/v1/auth/me", headers=provider_headers(settings, user.id, email=user.email))
     assert response.status_code == 200 and response.json()["phone"] is None
     db.refresh(user)
@@ -105,7 +105,11 @@ def test_provider_confirmation_cannot_verify_mismatched_or_invalid_identity(clie
         result = httpx.Response(200, json=provider_user)
     monkeypatch.setattr("httpx.get", lambda *args, **kwargs: result)
     response = client.get("/api/v1/auth/me", headers=provider_headers(settings, user.id, email=user.email))
-    assert response.status_code == 200 and response.json()["email_verified"] is False
+    assert response.status_code == (200 if kind == "wrong_email" else 503)
+    if kind == "wrong_email":
+        assert response.json()["email_verified"] is False
+    else:
+        assert response.json()["detail"]["code"] == "provider_unavailable"
     db.refresh(user)
     assert not user.email_verified
 
@@ -161,7 +165,7 @@ def test_identity_insert_race_recovers_at_flush(client, db, user, settings, monk
     monkeypatch.setattr(Session, "get", initial_lookup_misses)
     # No contact claims bypass the preliminary email/phone conflict lookup and
     # isolate the concurrent primary-key insert recovery path.
-    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: pytest.fail("The existing email is removed by this token; no provider lookup is needed"))
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: httpx.Response(200, json={"id": user.id, "factors": []}))
     response = client.get("/api/v1/auth/me", headers=provider_headers(settings, user.id))
     assert response.status_code == 200, response.text
     assert response.json()["id"] == user.id and hidden_once

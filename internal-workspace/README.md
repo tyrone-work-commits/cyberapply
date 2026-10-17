@@ -1,0 +1,100 @@
+# CyberApply — Covenda internal workspace
+
+Private mobile-responsive CV review, real cybersecurity vacancy discovery and application-request workspace. ChatGPT identity, Sites hosting, D1 history and private R2 files are retained. Paper, Midnight, Ocean, Forest and Ember remain available throughout the app.
+
+## Current journey
+
+Sign in / Create account → account profile → own workspace → review CV → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → review saved materials and the next action in Applications.
+
+LinkedIn-specific links, connection prompts and feed status have been removed from the internal application. Existing personal records and their original source URLs/history are preserved. Demo flows, fabricated listings, seeded candidates and simulated receipts remain removed; retired demo APIs return 410.
+
+## Real employer job discovery
+
+Explore searches public employer boards through documented Greenhouse and Lever GET APIs. Initial boards: **Huntress**, **Recorded Future**, **Safe Security**, **GuidePoint Security**, **KnowBe4**, **Abnormal AI**, **Wiz** and **Chainguard**. Users can manage up to ten Greenhouse/Lever board URLs (including Lever EU), filter by a role-title phrase or broad cybersecurity category and location, and select Remote only. Existing saved source selections can be expanded with Add recommended sources without resetting filters. Remote status uses explicit vacancy location/workplace data, not company boilerplate. Remote does not imply worldwide eligibility.
+
+Search is on request, not a scheduled background feed. Settings, per-board results and imported listings are saved per user and survive refresh; the agent uses the same records through `get_job_sources` and `discover_jobs`. There are 16 current MCP tools. Source calls send only board identifiers/pagination and do not send CVs, profile details, job-search filters or candidate credentials to providers.
+
+Import safeguards:
+
+- Fixed HTTPS API hosts, validated board identifiers and rejected redirects; no fetching arbitrary supplied listing URLs.
+- At most ten boards, with at most three feed requests active at a time; 15-second per-board deadlines, 8 MB/page, bounded Lever pagination, one-minute per-user search cooldown and up to 24 new roles per search.
+- Cybersecurity title/department filtering; title-phrase, location and remote filters. Import is limited to the selected employers, not the entire job market.
+- Stable provider/board/posting provenance, original listing and application links, timestamp checked, deduplication and refresh without overwriting bookmarks, decisions, drafts or Apply snapshots.
+- A successful complete board scan marks disappeared saved vacancies no longer listed and blocks new Apply requests. Failed/partial scans never close unseen roles. Existing requests and history remain.
+- HTML is decoded into plain text and never rendered as executable markup. Descriptions are capped at 6,500 characters with a visible full-source link/truncation notice. Recognized skill mentions are explained as keyword coverage, not necessarily requirements or an ATS score.
+- Pilot limits remain 200 stored jobs / 750 KB per workspace. Search reports show imports omitted by limits; narrow filters or follow original employer boards when needed.
+
+Official references: [Greenhouse Job Board API](https://docs.greenhouse.io/job-board), [Lever Postings API](https://github.com/lever/postings-api).
+
+## Applications: submission remains unconnected
+
+Right swipe / Apply records an owner-specific request and exact candidate/application-text snapshot. It remains **Needs action — connection required / not submitted**. Repeating Apply does not duplicate materials or requests. Editing CV text or application text flags changed materials while preserving the original snapshot.
+
+Greenhouse/Lever public job feeds do not grant application-submission permission. An employer's authorized application API access is still needed before an actual send can be enabled and validated. Opening the original employer application form is a manual fallback, never proof of submission. No employer submission, paid provider or additional hosting subscription was configured for this release. See FDE-27 in Linear.
+
+## CV review, identity and saved work
+
+CV review explains six deterministic text checks; scores are not ATS results or hiring predictions. UTF-8 TXT imports text. PDF/DOCX uploads are privately stored but not parsed; paste text for review. File limit: 5 MB.
+
+Sites supplies identity and the existing workspace access policy. D1 records and immutable revisions are owner scoped; R2 files are private. Writes require the current revision. Sources are untrusted data, never agent instructions. Historical sample records remain hidden without destructively purging stored history. Local testing uses loopback-only dispatch fixtures, never hosted impersonation.
+
+## Verification — 17 October 2026
+
+TypeScript and production build passed. Automated coverage: **92 checks** (14 domain + 12 job-source + 19 HTTP/storage + 9 MCP + 13 onboarding + 13 live-workspace + 12 live-source HTTP checks). Live-source acceptance fetched all three real employer feeds: 35 Huntress, 49 Recorded Future and 20 Safe Security published postings, producing 23 matching roles at the time checked. Counts can change.
+
+Browser checks covered 320px phone and 1366px desktop layouts, no horizontal overflow, unsupported-board validation, a real filtered remote UK role, bookmarking, an actual right swipe saving an unsent request, and request persistence after refresh. No physical-phone or real employer submission test is claimed. Hosted deployment and post-release checks are recorded in the root README and Linear after publication.
+
+Commands from this directory:
+
+```
+node node_modules/typescript/bin/tsc --noEmit
+node --test tests/domain.test.mjs tests/job-sources.test.mjs
+node scripts/run-framework.mjs build
+node tests/job-live.test.mjs
+node tests/mcp.test.mjs
+node tests/onboarding.test.mjs
+node tests/live-workspace.test.mjs
+node tests/http.test.mjs
+```
+
+HTTP scripts require a compiled Worker on loopback port 8787. `job-live.test.mjs` performs read-only real-provider requests and writes only a generated local QA owner's records. Run HTTP early-rejection checks last: local Windows Wrangler can restart after rejecting a browser origin, so the next suite should use a fresh server. No hidden mutation retries are used.
+
+
+## 17 October 2026 — Responsive swipes and centered Undo
+
+Explore now advances cards immediately on Reject/Apply, while saves run in an ordered background queue against confirmed revisions. Drag rendering stays inside the deck component and updates at most once per animation frame. Applying stays in Explore so the next vacancy is ready; unsent requests are available in Applications.
+
+The decision row is **Reject · Undo · Apply**, including when the last card has been dismissed. Undo reverses the latest rejection or unsent Apply request, without the old five-second timer. It removes an untouched generated draft only when that draft belongs to the cancelled request; existing/edited drafts and immutable history remain. It cannot reverse submitted applications or another job's newer decision.
+
+Stable operation IDs prevent duplicate choices and reconcile lost responses through a fresh read rather than blind write retries. On failure, unconfirmed choices return to the latest saved state. If a save cannot be checked, further choices wait for an explicit reload. A visible saving status distinguishes optimistic feedback from saved records; navigation warns while choices are pending. No persistent browser copy of CV data or background automation was added.
+
+Verification for this change: **91 checks passed** (19 domain, 7 deferred-network queue, 11 swipe HTTP, 19 existing HTTP/storage, 9 MCP, 13 onboarding, 13 live-workspace). TypeScript and production build passed. The deferred-network tests prove card changes and Undo happen before the server save resolves; tests cover rapid choices, lost responses, rollback, stale Undo, preserved edits, identity isolation and idempotence. Browser checks covered 320px and 1366px layouts, centered control order, keyboard rejection, Apply/Undo and an actual mobile right swipe followed by Undo/reload. No horizontal overflow was observed in those views. This is not a physical-device latency benchmark or a guarantee of zero network latency. Job-feed behavior and employer-submission access are unchanged; actual submission remains unconnected.
+
+
+## 17 October 2026 — Swipe up to save for later
+
+Explore supports three choices: **left to Reject, right to Apply, up to Save for later**. Swiping up or tapping the bookmark immediately moves the role to Saved and shows the next unsaved open card. The bookmark also updates immediately when removing a role from Saved. Saved roles remain out of Explore after refresh and employer-feed refresh; removing their bookmark makes open roles eligible again. The centered Undo restores the latest save as well as the existing Reject/Apply choices. Arrow Up provides the keyboard equivalent.
+
+Bookmarks now use the same ordered background queue and operation receipts as swipes. Slow responses do not hold the interface; duplicate clicks, lost responses, rollback and explicit recovery use the existing safeguards. Save/Undo preserves application requests, edited drafts and job disposition. Upward and horizontal card gestures are handled by the app; downward gestures and the area around the card allow page scrolling. Short drags and ambiguous diagonals make no decision.
+
+Validation: TypeScript and production build passed, along with **106 automated checks** (22 domain, 10 deferred-network queue, 4 direction thresholds, 16 swipe/bookmark HTTP, 9 MCP, 13 onboarding, 13 live-workspace, 19 HTTP/storage). Browser checks at 320px/1366px covered an actual upward drag, bookmark advancement, an enabled next bookmark, Arrow Up, Undo, Saved membership and persistence after refresh. No horizontal overflow was observed. These are desktop-browser viewport checks, not a physical-iPhone performance test. Actual employer submission remains unconnected. Publication evidence is recorded in Linear.
+
+
+## 17 October 2026 — Live-search countdown
+
+The live-search button shows **Search again in N seconds** during the one-minute wait and becomes available automatically at zero. Normal waiting is displayed beside the search controls rather than as a Something needs your attention warning. Form submission by Enter is guarded too. Existing results stay available while waiting; expiry enables the button without launching another search.
+
+Workspace responses return the server's remaining wait in milliseconds. Reload resumes the remaining interval rather than starting another minute; a structured 429 response and Retry-After header allow the interface to recover if the server still requires waiting. The countdown uses relative server timing rather than assuming the visitor's clock matches the server. Saved data, revision conflict checks and the server limit remain intact.
+
+Validation: TypeScript and production build passed; **94 automated checks** passed (6 countdown boundaries/clock offsets, 12 source normalization, 22 domain, 10 deferred queue, 16 actual-feed HTTP, 9 MCP, 19 HTTP/storage). Compiled loopback tests checked structured wait responses, matching Retry-After, reload timing, owner isolation and unchanged saved state after a blocked search. Real public Greenhouse/Lever feeds were read; no candidate information was sent. Browser checks covered the decreasing countdown, disabled button, Enter guard, persistence after reload, automatic re-enable with the note removed at zero, and 320px/1366px layouts without horizontal overflow. Physical-phone testing was not performed. Release details are recorded in Linear after publication.
+
+
+## 17 October 2026 — More employer sources and broad cybersecurity searches
+
+Added five verified employer feeds: GuidePoint Security, KnowBe4, Abnormal AI, Wiz and Chainguard. The starting list now contains eight employers, with support for up to ten Greenhouse/Lever boards. Existing saved selections are preserved; Add recommended sources expands them without duplicates or resetting keyword/location/remote filters. Source choices persist when the next search completes. The agent uses the same source limits and saved report.
+
+Typing cybersecurity (also cyber security, cyber-security, cybersecurity jobs, information security or infosec) now selects related security roles, such as SOC Analyst, Security Engineer, incident response and GRC roles. Specific role phrases, location and Remote only remain filters. Real source department names are retained so a relevant department can explain a generic title consistently after refresh. Empty-result guidance explains that location and remote filters can still exclude vacancies.
+
+Fetching is limited to three boards at once and retains requested source order. Existing fixed hosts, deadlines, response/pagination bounds, partial-failure behavior, owner isolation, one-minute countdown, 24-new-role import limit and saved-choice/draft preservation remain. No new paid provider or external submission was enabled.
+
+Validation: TypeScript and production build passed; **101 checks** passed (16 source/matching/concurrency, 22 domain, 6 cooldown, 10 deferred queue, 19 real-feed HTTP, 9 MCP, 19 HTTP/storage). All eight live feeds returned matches for cybersecurity: 517 published records and 117 matching roles at the time checked; the first isolated import added 24 roles, including all five added employers. Counts change over time. Browser checks at 320px/1366px verified the existing three-board selection expanding to eight, broad keyword results, live source reports, persistence after reload, all eight source names and no horizontal overflow. These are desktop-browser checks, not a physical-phone test. Publication evidence is recorded in Linear.

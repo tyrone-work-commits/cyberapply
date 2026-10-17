@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.errors import fail
+from app.core.operations import live_io
 from app.core.security import SecretBox, get_current_user
 from app.core.storage import Storage
 from app.core.time import utcnow
@@ -471,12 +472,13 @@ def send_draft(
         # captured is an outbox preview; sent_at deliberately remains null.
     else:
         try:
-            mail.send_message(
-                provider=connection.provider, allowed_providers=enabled_providers(), username=connection.email,
-                password=password, recipient=draft.recipient,
-                subject=draft.subject, body=draft.body, message_id=f"<{key}@local.cyberapply>",
-                attachments=attachments, enabled=True, timeout=settings.mail_timeout_seconds,
-            )
+            with live_io(user.id):
+                mail.send_message(
+                    provider=connection.provider, allowed_providers=enabled_providers(), username=connection.email,
+                    password=password, recipient=draft.recipient,
+                    subject=draft.subject, body=draft.body, message_id=f"<{key}@local.cyberapply>",
+                    attachments=attachments, enabled=True, timeout=settings.mail_timeout_seconds,
+                )
             draft.status = "sent"
             draft.sent_at = utcnow()
             draft.error = None

@@ -18,10 +18,11 @@ from sqlalchemy.orm.exc import StaleDataError
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.errors import fail
-from app.core.security import get_current_user
+from app.core.security import get_current_user, lock_active_user
 from app.core.time import utcnow
 from app.domain.matching import compute_match
 from app.models import (
+    AccountSettings,
     Application,
     ApplicationEvent,
     AutomationSettings,
@@ -57,6 +58,7 @@ class ApplicationCreate(StrictInput):
     resume_id: UUID
     mode: Literal["review", "automatic"] | None = None
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+    undo_window_seconds: Literal[0, 5] = 0
 
 
 class ApplicationEdit(StrictInput):
@@ -104,10 +106,24 @@ def application_view(row: Application, detail: bool = True) -> dict:
         "created_at": iso(row.created_at), "updated_at": iso(row.updated_at),
         "submission_started_at": iso(row.submission_started_at),
         "submitted_at": iso(row.submitted_at),
+        "send_after": iso(row.send_after),
+        "server_time": iso(utcnow()),
+        "undo_available": bool(row.send_after and row.send_after > utcnow() and row.status == "queued" and not row.claim_token),
+        "next_action": next_action(row),
     }
     if detail:
         result.update(resume_snapshot=row.resume_snapshot, answers=row.answers, cover_letter=row.cover_letter)
     return result
+
+
+def next_action(row: Application) -> dict:
+    if row.status == "queued" and row.send_after and row.send_after > utcnow():
+        return {"label": "Undo before the countdown ends", "action": "undo"}
+    if row.status == "needs_attention":
+        label = "Complete: " + ", ".join(row.missing_fields) if row.missing_fields else (row.error_message or "Check the employer connection")
+        return {"label": label, "action": "edit" if row.missing_fields else "connection"}
+    return {"label": {"needs_review": "Review and approve your application", "uncertain": "Check the receipt before another attempt", "failed": "Review the failure before retrying", "applied": "Schedule a follow-up or interview", "cancelled": "This application was cancelled"}.get(row.status, "We are processing your application"),
+            "action": {"needs_review": "review", "uncertain": "reconcile", "failed": "retry", "applied": "schedule"}.get(row.status, "wait")}
 
 
 def owned_application(db: Session, application_id: str, user_id: str) -> Application:
@@ -120,6 +136,7 @@ def owned_application(db: Session, application_id: str, user_id: str) -> Applica
 def automation_settings(db: Session, user_id: str, lock: bool = False) -> AutomationSettings:
     row = db.get(AutomationSettings, user_id)
     if row is None:
+        lock_active_user(db, db.get(User, user_id))
         row = AutomationSettings(user_id=user_id, mode="review", paused=False, daily_limit=10, min_match_score=60, updated_at=utcnow())
         db.add(row)
         db.flush()
@@ -198,6 +215,7 @@ def create_application(payload: ApplicationCreate, db: Session = Depends(get_db)
 def enqueue_application(payload: ApplicationCreate, db: Session, user: User,
                         idempotency_header: str | None = None, *, discovery: bool = False):
     """Reserve a durable application through the same validated path as the API."""
+    lock_active_user(db, user)
     user_key = payload.idempotency_key or idempotency_header or str(uuid4())
     if not 8 <= len(user_key) <= 128:
         fail(422, "invalid_idempotency_key", "Idempotency key must contain 8 to 128 characters")
@@ -222,13 +240,21 @@ def enqueue_application(payload: ApplicationCreate, db: Session, user: User,
         db.refresh(user)
         db.refresh(profile)
         db.refresh(resume)
-        if not user.active or settings.mode != "automatic" or not profile.confirmed or not resume.reviewed or not resume.is_main:
+        main = db.scalar(select(Resume.id).where(Resume.user_id == user.id, Resume.reviewed.is_(True), Resume.is_main.is_(True)))
+        account = db.get(AccountSettings, user.id)
+        choose_best = account is None or account.auto_resume
+        if not user.active or settings.mode != "automatic" or not profile.confirmed or not resume.reviewed or not main or (not choose_best and not resume.is_main):
             fail(409, "automatic_setup_required", "Automatic discovery requires a reviewed main resume and confirmed profile")
+        if choose_best:
+            from app.domain.product import ranked_resumes
+            if ranked_resumes(db, user.id, job)["recommended_id"] != resume.id:
+                fail(409, "resume_selection_changed", "The recommended reviewed resume changed; this role will be checked again")
         passed = db.scalar(select(SavedJob.id).where(SavedJob.user_id == user.id, SavedJob.job_id == job.id, SavedJob.decision == "passed"))
         if passed:
             fail(409, "job_passed", "This job was passed by the user")
     duplicate = db.scalar(select(Application).where(Application.user_id == user.id, Application.job_id == job.id))
-    if duplicate:
+    undone = duplicate is not None and duplicate.status == "cancelled" and duplicate.error_code == "swipe_undone" and duplicate.attempts == 0
+    if duplicate and not undone:
         if duplicate.idempotency_key == key and duplicate.resume_id == resume.id and (payload.mode is None or duplicate.mode == payload.mode):
             return application_view(duplicate)
         fail(409, "duplicate_application", "An application for this job already exists; open that record")
@@ -256,13 +282,21 @@ def enqueue_application(payload: ApplicationCreate, db: Session, user: User,
         "profile_data": copy.deepcopy(profile.data), "captured_at": iso(utcnow()),
         "document_id": document.id if document else None, "document_sha256": document.sha256 if document else None,
     }
-    row = Application(id=str(uuid4()), user_id=user.id, job_id=job.id, resume_id=resume.id,
-                      mode=mode, status="queued", resume_snapshot=snapshot, answers={}, cover_letter="",
-                      match_snapshot=copy.deepcopy(match), missing_fields=[], connector_key=job.connector_key,
-                      idempotency_key=key, attempts=0, created_at=utcnow(), updated_at=utcnow())
+    if payload.undo_window_seconds and mode != "automatic":
+        fail(422, "invalid_undo_mode", "The swipe countdown is available for automatic applications")
+    now = utcnow()
+    values = dict(user_id=user.id, job_id=job.id, resume_id=resume.id, mode=mode, status="queued",
+                  resume_snapshot=snapshot, answers={}, cover_letter="", match_snapshot=copy.deepcopy(match),
+                  missing_fields=[], connector_key=job.connector_key, idempotency_key=key, attempts=0,
+                  error_code=None, error_message=None, claim_token=None, claim_until=None,
+                  send_after=now + timedelta(seconds=payload.undo_window_seconds) if payload.undo_window_seconds else None,
+                  created_at=now, updated_at=now)
+    row = duplicate if undone else Application(id=str(uuid4()))
+    for name, value in values.items():
+        setattr(row, name, value)
     db.add(row)
     event(db, row, "queued", "Application queued for preparation", data={"mode": mode, "is_demo": job.is_demo,
-          "source": "automatic_discovery" if discovery else "user"})
+          "source": "automatic_discovery" if discovery else "user", "undo_window_seconds": payload.undo_window_seconds})
     try:
         db.commit()
     except IntegrityError:
@@ -306,6 +340,26 @@ def application_summary(db: Session = Depends(get_db), user: User = Depends(get_
 @router.get("/{application_id}")
 def get_application(application_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return application_view(owned_application(db, str(application_id), user.id))
+
+
+@router.post("/{application_id}/undo")
+def undo_swipe(application_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    row = owned_application(db, str(application_id), user.id)
+    if row.status == "cancelled" and row.error_code == "swipe_undone":
+        return application_view(row)
+    now = utcnow()
+    result = db.execute(update(Application).where(Application.id == row.id, Application.user_id == user.id,
+        Application.version == row.version, Application.status == "queued", Application.send_after > now,
+        Application.attempts == 0, Application.claim_token.is_(None)).values(
+        status="cancelled", error_code="swipe_undone", error_message=None, send_after=None,
+        updated_at=now, version=row.version + 1).execution_options(synchronize_session=False))
+    if result.rowcount != 1:
+        db.rollback()
+        fail(409, "undo_expired", "The countdown ended. Check Applications for the current status.")
+    db.refresh(row)
+    event(db, row, "swipe_undone", "Right swipe undone before processing; no application was sent", previous="queued")
+    commit(db)
+    return application_view(row)
 
 
 @router.get("/{application_id}/events")

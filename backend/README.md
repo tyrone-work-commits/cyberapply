@@ -2,6 +2,27 @@
 
 Backend for a cybersecurity job application app, combining SORCE's discovery, application tracking, inbox and profile flow with Jobscan-style résumé analysis and explainable matching. This directory contains the API, database, workers, integrations and tests. The responsive interface is implemented in `../frontend`; see its README for launch instructions and frontend verification.
 
+## Product controls — 12 October 2026
+
+Revision **792aecd432a1** adds account preferences, MFA factors/challenges, application schedules, deletion state, résumé target roles and submission holds. Migration preservation, downgrade/re-upgrade, schema checks and offline PostgreSQL DDL passed; the existing local SQLite database was backed up privately before migration. **157 backend tests passed**, including concurrency, owner isolation, MFA replay/recovery, provider factor enforcement/freshness, export/erasure, uploads during deletion and worker holds.
+
+| API | Behavior |
+| -- | -- |
+| Job responses → `submission` | Server-derived capability and validated manual employer URL; no secrets or user-controlled connector permission. |
+| `POST /applications` → `undo_window_seconds: 5` | Five-second server hold for automatic swipes; defaults to zero for existing callers. Workers cannot claim or process early. |
+| `POST /applications/{id}/undo` | Atomically cancels only unclaimed held work; restores the role, frees quota and preserves history. Reaccept uses a fresh request key. |
+| `GET /jobs/{id}/resume-recommendations` | Ranks owned, reviewed résumés against the job and preferences. |
+| `POST /resumes/{id}/tailoring-preview`, `/tailor` | Version-checked factual preview and new unreviewed text draft; never invents experience or changes an existing uploaded file. |
+| `/application-tasks` | Owned interview/follow-up CRUD with explicit timezone input, durable one-time in-app reminders and escaped/folded calendar exports with alarms. |
+| `/account/settings` | Theme/device mode, normal/large text and automatic résumé selection synchronized through the API. |
+| `/auth/mfa/*` | Encrypted local TOTP setup, replay protection, scoped expiring challenges, bounded attempts, hashed one-use recovery codes and session revocation. Provider verification uses authoritative factor state. |
+| `POST /account/export` | Streams a private ZIP containing owned data/files; excludes authentication and connection secrets. Requires password plus a new factor proof when enabled, or recent provider authentication. |
+| `DELETE /account` | Requires explicit confirmation and fresh proof; disables sessions/work first, then erases owned records/files. Returns pending when active I/O or storage prevents completion; the worker retries. |
+
+Erasure retains a minimal inactive user identifier to block old provider tokens from recreating an account. It cannot retract applications already delivered to employers or delete external Google/Apple identities. Worker adapters renew their leases during live I/O; expired submissions receive a grace period before crash recovery. Failed document deletion retains its storage key for retry/erasure. Export and deletion do not touch another user's data.
+
+The first live employer connection is deferred at the user's request. No live employer submission, provider credential validation, PostgreSQL runtime deployment or physical-phone installation is claimed by these checks.
+
 ## Start locally on this computer
 
 The project virtual environment is already installed at `../.venv`. From the project directory, open two PowerShell terminals:
@@ -48,6 +69,35 @@ Use a generated `JWT_SECRET` and Fernet `ENCRYPTION_KEY` for your own environmen
 
 Keep the encryption key stable: changing it makes previously stored mailbox credentials unreadable. Python dependency versions are pinned in `requirements.lock`; the browser executable is a separate runtime.
 
+## Connect Google and Apple sign-in
+
+The local app can use hosted Supabase **only for authentication** while the API, SQLite database and uploaded files stay on this computer. Google and Apple use the same buttons for creating an account and returning to an existing account. The verified provider identity creates the CyberApply profile, preferences and automation records on first sign-in; existing provider users reuse those records.
+
+1. Open [Supabase Dashboard](https://supabase.com/dashboard), sign in privately, create a project named **CyberApply** in your organization, and save the database password privately. Connect the Supabase plugin in Codex if you want help configuring the project. An unconnected plugin does not give Codex access to the account.
+2. In Supabase **Authentication → URL Configuration**, set Site URL to `http://localhost:3000`. Add these exact redirect URLs:
+   - `http://localhost:3000/auth/callback`
+   - `http://127.0.0.1:3000/auth/callback` if you also use that address.
+   Use the same hostname and browser tab from starting sign-in through returning to the app. The local PKCE attempt expires after ten minutes; provider authorization codes have their own shorter lifetime and are single-use.
+3. For **Google**, create a Web application OAuth client in [Google Auth Platform](https://console.cloud.google.com/auth/overview). Configure the consent screen, `openid`, email and profile scopes, and test users if the consent audience is in testing. Add `http://localhost:3000` as an authorized JavaScript origin. Add the **Supabase** callback `https://<project-ref>.supabase.co/auth/v1/callback` as the authorized redirect URI. Paste the client ID and secret privately into Supabase **Authentication → Sign In / Providers → Google**, and enable it. The provider callback and the app callback are different URLs. [Official Google setup](https://supabase.com/docs/guides/auth/social-login/auth-google).
+4. For **Apple**, use an Apple Developer account: enable Sign in with Apple on the App ID, create a Services ID for the website, register the Supabase project domain and its HTTPS `/auth/v1/callback` return URL, then create a signing key and generate the Apple client secret. Enter the Services ID and client secret privately in Supabase's Apple provider configuration and enable it. Put the Services ID first if native App IDs are also listed. Apple's web OAuth secret needs renewal every six months; keep the signing key private. [Official Apple setup](https://supabase.com/docs/guides/auth/social-login/auth-apple). Apple returns through hosted Supabase, which redirects back to the local app.
+5. Configure the project's ignored `backend/.env` privately:
+
+   ```dotenv
+   AUTH_MODE=supabase
+   SUPABASE_URL=https://<project-ref>.supabase.co
+   SUPABASE_ANON_KEY=<project-publishable-or-legacy-anon-key>
+   OAUTH_REDIRECT_URLS=["http://localhost:3000/auth/callback","http://127.0.0.1:3000/auth/callback"]
+   ```
+
+   Use a project with an asymmetric JWT signing key (ES256/RS256); CyberApply retrieves public verification keys from Supabase. For an older project still issuing HS256 JWTs, `SUPABASE_JWT_SECRET` must also be set privately on the backend. A service-role/secret key is **not** needed for Google or Apple sign-in and must never be used as the anon key. Google/Apple secrets belong in Supabase, never the frontend, chat, GitHub or Linear. Keep the existing CyberApply `JWT_SECRET` and `ENCRYPTION_KEY` stable.
+6. Restart the API and worker so they read the same authentication configuration. Check `GET /api/v1/auth/capabilities`: enabled providers report `true` and `providers.<name>: "ready"`. `not_configured`, `disabled` and `unavailable` distinguish missing setup, a disabled provider and a temporary service failure. Readiness checks do not prove that client secrets or all console redirects are correct; complete the real sign-in checks below.
+
+**Existing local email accounts:** switching `AUTH_MODE` changes the identity authority. Local email/password accounts and their data are not automatically migrated or linked to provider identities. The API rejects a provider identity whose email already belongs to a different local user, rather than exposing that user's data. Back up the SQLite database/private storage and plan an authenticated migration before switching an installation with real accounts. For the first live provider test, use an email not already registered locally. Do not delete accounts or merge identities merely to bypass a conflict. Changing `AUTH_MODE` back to `local` restores the original local authority; it does not undo provider accounts created externally.
+
+**Live acceptance checks:** test Google and Apple first-time account creation and returning sign-in; provider cancellation; a second factor if enabled; refresh after the access token expires; logout; account confirmation and password recovery for provider email accounts. Confirm one CyberApply user/profile per verified provider ID and no credentials left in callback URLs. Apple Hide My Email addresses are accepted as provider identities. The app requests sign-in identity access, not mailbox access. Provider signup must be allowed in Supabase for new users to create accounts. Phone/SMS setup is separate.
+
+Local automated OAuth checks simulate provider responses without contacting Google or Apple. Real console configuration and sign-in must still be verified using your own connected project.
+
 ## User journey and API
 
 All personal endpoints require `Authorization: Bearer <access_token>`. Paths below are relative to `/api/v1`. Swagger documents request fields; `openapi.json` is the saved frontend contract. Resource IDs are UUIDs, dates represent UTC, list endpoints paginate, and another user's resources return 404. Validation responses omit submitted secrets.
@@ -77,6 +127,8 @@ The lifecycle is:
 It can also reach `failed`, `cancelled` or `uncertain`. `applied` requires a valid confirmation from the configured connector. Immutable application snapshots protect queued submissions from later résumé/profile edits. Before submission, the worker also checks current preferences, eligibility, quota, pause state and job availability.
 
 Automatic mode scans existing accessible listings while the worker runs, selects eligible jobs against explicit preferred roles and other saved preferences using the reviewed main résumé, and respects quota and passed/duplicate jobs. Scans are bounded and retain progress across restarts. Passing a discovered job stops its pending automatic submission; switching to review or clearing preferred roles requires review of pending discovered applications. Import additional listings through the API. This backend does not crawl every job board or guarantee support for every employer form.
+
+Explore right swipes explicitly queue the displayed job with `mode: automatic`, without changing the global discovery setting. All submission checks above still apply. `GET /jobs?exclude_handled=true` omits only the current user's passed jobs and existing applications before pagination; saved roles and normal search remain available.
 
 ### Local email account walkthrough
 
@@ -209,5 +261,7 @@ From `backend`:
 Tests cover account/token security, tenant isolation, document parsing, profile confirmation, preferences, matching, job imports, application snapshots and transitions, quota/duplicate protection, browser/webhook receipts, inbox/drafts, notifications and support. An integrated API journey checks registration through a confirmed fictional application and interview tracking. External APIs use mocks; the browser fixture is fully intercepted.
 
 Latest local verification (2026-10-11): **138 tests passed**, Ruff passed, Alembic schema check passed at revision `1c59d9862ace`, the standalone worker completed a drain, and live local HTTP checks passed for readiness and API documentation. Fresh/legacy migration upgrades, a downgrade/re-upgrade, and offline PostgreSQL DDL were also checked. Provider credentials and a running PostgreSQL/Docker environment remain separate integration prerequisites.
+
+Swipe integration verification (2026-10-12): **139 tests passed**, including owner-specific handled-job filtering and correct totals/pagination. Ruff passed and the OpenAPI contract was refreshed. This change requires no schema migration.
 
 The responsive frontend maps Explore, Search, Applications, Inbox and Profile to these APIs. It presents review/attention/uncertain states, distinguishes simulated applications and captured mail, retains PKCE verifiers during authentication, and asks users to confirm extracted résumé facts. See `../frontend/README.md` for the five themes, local launch commands and browser checks. The backend verification above records the completed backend-first handoff; the frontend was built afterward.

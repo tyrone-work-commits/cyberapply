@@ -7,11 +7,32 @@ from sqlalchemy import select
 
 from app.domain import job_sources
 from app.domain.matching import compute_match
-from app.models import Job, Profile, Resume
+from app.models import Job, Profile, Resume, SavedJob
 
 
 def job_payload(**changes):
     return {"title": "Cybersecurity Analyst", "company": "Example Security", "description": "Monitor SIEM and perform incident response.", "required_skills": ["SIEM", "incident response"], "apply_url": "https://careers.example.com/security", **changes}
+
+
+def test_explore_excludes_only_this_users_passed_and_applied_jobs(client, headers, other_headers, db, user):
+    from app.models import Application
+
+    jobs = [Job(**job_payload(title=f"Cybersecurity Analyst {index}"), owner_id=None, source="fixture", source_id=str(index)) for index in range(4)]
+    db.add_all(jobs)
+    db.flush()
+    resume = Resume(user_id=user.id, title="Reviewed", extracted_text="SIEM", reviewed=True)
+    db.add(resume)
+    db.flush()
+    db.add(SavedJob(user_id=user.id, job_id=jobs[0].id, decision="passed"))
+    db.add(SavedJob(user_id=user.id, job_id=jobs[1].id, decision="saved"))
+    db.add(Application(user_id=user.id, job_id=jobs[2].id, resume_id=resume.id, idempotency_key="explore-existing", status="queued"))
+    db.commit()
+    response = client.get("/api/v1/jobs?exclude_handled=true&limit=1", headers=headers).json()
+    assert response["total"] == 2
+    next_page = client.get("/api/v1/jobs?exclude_handled=true&limit=1&offset=1", headers=headers).json()
+    assert {response["items"][0]["id"], next_page["items"][0]["id"]} == {jobs[1].id, jobs[3].id}
+    assert client.get("/api/v1/jobs", headers=headers).json()["total"] == 4
+    assert client.get("/api/v1/jobs?exclude_handled=true", headers=other_headers).json()["total"] == 4
 
 
 def test_profile_confirmation_is_explicit_and_owner_scoped(client, headers, other_headers):

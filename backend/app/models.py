@@ -69,6 +69,7 @@ class Resume(Identity, Created, Updated, Base):
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_main: Mapped[bool] = mapped_column(Boolean, default=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    target_role: Mapped[str] = mapped_column(String(300), default="", server_default="")
 
 
 class Job(Identity, Created, Updated, Base):
@@ -149,6 +150,7 @@ class Application(Identity, Created, Updated, Base):
     claim_until: Mapped[object | None] = mapped_column(DateTime)
     submission_started_at: Mapped[object | None] = mapped_column(DateTime)
     submitted_at: Mapped[object | None] = mapped_column(DateTime)
+    send_after: Mapped[datetime | None] = mapped_column(DateTime)
     __mapper_args__ = {"version_id_col": version}
 
 
@@ -237,6 +239,65 @@ class RefreshSession(Identity, Created, Base):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     expires_at: Mapped[object] = mapped_column(DateTime)
     revoked_at: Mapped[object | None] = mapped_column(DateTime)
+    assurance: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    security_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    authenticated_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AccountSettings(Updated, Base):
+    __tablename__ = "account_settings"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    theme: Mapped[str] = mapped_column(String(20), default="paper", server_default="paper")
+    text_size: Mapped[str] = mapped_column(String(20), default="normal", server_default="normal")
+    auto_resume: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    theme_initialized: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+
+
+class MfaFactor(Updated, Base):
+    __tablename__ = "mfa_factors"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    secret_encrypted: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    setup_expires_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_counter: Mapped[int] = mapped_column(Integer, default=-1)
+    recovery_hashes: Mapped[list] = mapped_column(JSON, default=list)
+    failed_checks: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime)
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
+class AuthChallenge(Identity, Created, Base):
+    __tablename__ = "auth_challenges"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    purpose: Mapped[str] = mapped_column(String(30))
+    security_version: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ApplicationTask(Identity, Created, Updated, Base):
+    __tablename__ = "application_tasks"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    application_id: Mapped[str] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(200))
+    due_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    remind_at: Mapped[datetime] = mapped_column(DateTime)
+    notes: Mapped[str] = mapped_column(Text, default="")
+    done: Mapped[bool] = mapped_column(Boolean, default=False)
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class AccountDeletion(Updated, Base):
+    __tablename__ = "account_deletions"
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    storage_keys: Mapped[list] = mapped_column(JSON, default=list)
+    captured_email: Mapped[str | None] = mapped_column(String(320))
+    error: Mapped[str | None] = mapped_column(String(300))
+    requested_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class VerificationToken(Identity, Created, Base):

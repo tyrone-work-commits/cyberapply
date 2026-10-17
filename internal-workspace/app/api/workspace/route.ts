@@ -1,0 +1,7 @@
+import { z } from 'zod';
+import { identity, load, act, response, failure } from '@/lib/cyber-store';
+import { DomainError, connectionStatus } from '@/lib/cyber-domain';
+export const dynamic = 'force-dynamic';
+const requestSchema = z.object({revision:z.number().int().nonnegative(),action:z.unknown()}).strict();
+export async function GET(request:Request){try{const user=await identity(request);return response({user,...await load(user),connections:connectionStatus});}catch(error){return failure(error);}}
+export async function POST(request:Request){try{const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)throw new DomainError('Cross-origin writes are not allowed.',403);if(!request.headers.get('content-type')?.startsWith('application/json'))throw new DomainError('Send JSON with the application/json content type.',415);if(Number(request.headers.get('content-length')||0)>800000)throw new DomainError('Request is too large.',413);const raw=await request.text();if(raw.length>800000)throw new DomainError('Request is too large.',413);let decoded:unknown;try{decoded=JSON.parse(raw);}catch{throw new DomainError('Invalid JSON.');}const body=requestSchema.safeParse(decoded);if(!body.success)throw new DomainError('A valid revision and action are required.');const user=await identity(request);return response({user,...await act(user,body.data.revision,body.data.action,'interface'),connections:connectionStatus});}catch(error){return failure(error);}}

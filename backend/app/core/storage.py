@@ -29,6 +29,8 @@ class Storage:
                                       "apikey": self.settings.supabase_service_key, "Content-Type": content_type},
                 timeout=20, follow_redirects=False,
             )
+            if method == "DELETE" and response.status_code == 404:
+                return b""
             response.raise_for_status()
             return response.content
         except httpx.HTTPError:

@@ -21,7 +21,7 @@ from pydantic import (
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.core.security import get_current_user
+from app.core.security import get_current_user, lock_active_user
 from app.core.time import utcnow
 from app.models import Preferences, Profile, User
 
@@ -186,6 +186,7 @@ def profile_response(profile: Profile) -> dict:
 def get_profile(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     profile = db.get(Profile, user.id)
     if profile is None:
+        lock_active_user(db, user)
         profile = Profile(user_id=user.id, data={}, confirmed=False, updated_at=utcnow())
         db.add(profile)
         db.commit()
@@ -209,6 +210,7 @@ def update_profile(payload: ProfileUpdate, db: Session = Depends(get_db), user: 
 def get_preferences(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     preferences = db.get(Preferences, user.id)
     if preferences is None:
+        lock_active_user(db, user)
         preferences = Preferences(user_id=user.id, data=PreferencesData().model_dump(), updated_at=utcnow())
         db.add(preferences)
         db.commit()
