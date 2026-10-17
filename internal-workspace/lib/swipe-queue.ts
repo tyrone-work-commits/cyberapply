@@ -1,6 +1,6 @@
 import { reduceAction, decisionSignature, type Action, type State } from './cyber-domain';
 
-export type SwipeAction=Extract<Action,{type:'decide_job'|'undo_decision'}>;
+export type SwipeAction=Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'}>;
 export type SwipeSnapshot={revision:number;updatedAt:string;state:State};
 export type SyncState={pending:number;blocked:boolean};
 type Pending={action:SwipeAction;at:string};
@@ -22,6 +22,7 @@ export class SwipeQueue<T extends SwipeSnapshot>{
   const action={...input,operationId:input.operationId||crypto.randomUUID()} as SwipeAction;
   const at=new Date().toISOString();
   const job=this.projected.state.jobs.find(job=>job.id===action.jobId);
+  if(action.type==='save_job'&&job?.saved===action.saved)return;
   if(action.type==='decide_job'&&((action.decision==='pass'&&job?.disposition==='passed')||(action.decision==='apply'&&this.projected.state.applications?.some(item=>item.jobId===action.jobId))))return;
   // Validate before removing a card; reviewed facts and original source gates still apply.
   const result=reduceAction(this.projected.state,action,'interface',at);

@@ -45,3 +45,21 @@ test('rapid duplicate clicks create one pending choice, and replacement cannot r
 test('CV review gates still run before showing an Apply choice',()=>{
  let count=0;const h=setup(async()=>{count++;return initial();},async()=>initial());const packet=initial();packet.state.profile.reviewed=false;h.queue.replace(packet);assert.throws(()=>h.queue.enqueue({type:'decide_job',jobId:'a',decision:'apply'}),/Review/);assert.equal(h.status.pending,0);assert.equal(h.view.state.jobs[0].disposition,'open');assert.equal(count,0);
 });
+
+
+test('bookmark saves and Undo change the deck immediately while the first response is stalled',async()=>{
+ const gate=deferred();let server=initial(),calls=0;const h=setup(async(base,action)=>{if(!calls++)await gate.promise;assert.equal(base.revision,server.revision);server=saved(server,action);return server;},async()=>server);
+ h.queue.enqueue({type:'save_job',jobId:'a',saved:true});h.queue.enqueue({type:'save_job',jobId:'a',saved:true});
+ assert.equal(h.view.state.jobs.filter(j=>j.disposition==='open'&&!j.saved)[0].id,'b');assert.equal(h.status.pending,1);assert.equal(server.state.jobs[0].saved,false);
+ const last=h.view.state.lastDecision;h.queue.enqueue({type:'undo_decision',jobId:'a',decisionId:last.operationId});assert.equal(h.view.state.jobs[0].saved,false);assert.equal(h.status.pending,2);
+ gate.resolve();await tick();assert.equal(h.status.pending,0);assert.equal(server.state.jobs[0].saved,false);assert.equal(server.revision,2);
+});
+test('rapid bookmark, reject and unsave choices serialize without hiding newer choices',async()=>{
+ const gate=deferred();let server=initial(),calls=0;const h=setup(async(base,action)=>{if(!calls++)await gate.promise;assert.equal(base.revision,server.revision);server=saved(server,action);return server;},async()=>server);
+ h.queue.enqueue({type:'save_job',jobId:'a',saved:true});h.queue.enqueue({type:'decide_job',jobId:'b',decision:'pass'});h.queue.enqueue({type:'save_job',jobId:'a',saved:false});
+ assert.equal(h.view.state.jobs[0].saved,false);assert.equal(h.view.state.jobs[1].disposition,'passed');gate.resolve();await tick();assert.equal(server.state.jobs[0].saved,false);assert.equal(server.state.jobs[1].disposition,'passed');assert.equal(server.revision,3);
+});
+test('a lost bookmark response reconciles once and a failed bookmark rolls back',async()=>{
+ let server=initial(),calls=0;const h=setup(async(base,action)=>{calls++;server=saved(server,action);throw Error('Lost response');},async()=>server);h.queue.enqueue({type:'save_job',jobId:'a',saved:true});await tick();assert.equal(h.view.state.jobs[0].saved,true);assert.equal(h.errors.length,0);assert.equal(calls,1);
+ const failed=setup(async()=>{throw Error('Save failed');},async()=>initial());failed.queue.enqueue({type:'save_job',jobId:'a',saved:true});await tick();assert.equal(failed.view.state.jobs[0].saved,false);assert.equal(failed.status.pending,0);assert.match(failed.errors[0],/latest saved state/);
+});

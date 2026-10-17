@@ -12,7 +12,7 @@ export type ResumeCheck = { title: string; points: number; possible: number; evi
 export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[] };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
-export type LastDecision = { jobId:string; decision:'pass'|'apply'; operationId:string; previousDisposition:Job['disposition']; at:string; applicationId?:string; createdDraftId?:string };
+export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
@@ -24,7 +24,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
-  z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean() }).strict(),
+  z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
@@ -33,7 +33,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
-export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'}>){return JSON.stringify([action.type,action.jobId,action.type==='decide_job'?action.decision:action.decisionId||null]);}
+export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'}>){return JSON.stringify([action.type,action.jobId,action.type==='save_job'?action.saved:action.type==='decide_job'?action.decision:action.decisionId||null]);}
 
 export function emptyState(email = ''): State {
   return { profile: { fullName: '', email, skills: [], preferredRoles: [], resumeText: '', reviewed: false }, jobs: [], drafts: [], attachments: [], theme: 'paper', activity: [] };
@@ -65,7 +65,7 @@ function getDraft(state: State, draftId: string) { const draft = state.drafts.fi
 export function reduceAction(before: State, action: Action, source: Activity['source'], at = new Date().toISOString()): { state: State; message: string } {
   const state = liveState(before);
   const operationId='operationId' in action?action.operationId:undefined;
-  const signature=action.type==='decide_job'||action.type==='undo_decision'?decisionSignature(action):'';
+  const signature=action.type==='decide_job'||action.type==='undo_decision'||action.type==='save_job'?decisionSignature(action):'';
   if(operationId){const previous=state.decisionOperations?.find(item=>item.id===operationId);if(previous){if(previous.signature!==signature)throw new DomainError('This choice identifier was already used for another action.',409);return {state,message:'This choice was already saved. No duplicate action was created.'};}}
   let message = '';
   if (action.type === 'complete_onboarding') {
@@ -87,7 +87,10 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     state.jobs.unshift({ id: crypto.randomUUID(), title: action.title, company: action.company, location: action.location, workMode: action.workMode, url, description: action.description, skills: unique(action.skills), sample: false, saved: false, disposition: 'open', createdAt: at });
     message = 'Listing saved with its source. Availability has not been independently verified.';
   } else if (action.type === 'save_job') {
-    getJob(state, action.jobId).saved = action.saved;
+    const job=getJob(state,action.jobId);
+    if(action.saved&&!job.saved)state.lastDecision={jobId:job.id,decision:'save',operationId:operationId||crypto.randomUUID(),previousDisposition:job.disposition,previousSaved:job.saved,at};
+    if(!action.saved&&state.lastDecision?.jobId===job.id&&state.lastDecision.decision==='save')delete state.lastDecision;
+    job.saved = action.saved;
     message = action.saved ? 'Job saved for later.' : 'Job removed from saved listings.';
   } else if (action.type === 'decide_job') {
     const job = getJob(state, action.jobId);
@@ -129,8 +132,12 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       state.applications=state.applications!.filter(item=>item.id!==request.id);
       // Preserve pre-existing or edited drafts; undo never erases the user's work.
       state.drafts=state.drafts.filter(draft=>!(draft.id===last.createdDraftId&&draft.version===1&&draft.status==='draft'&&draft.text===request.text));
+    }else if(last.decision==='save'){
+      if(!job.saved||job.disposition!==last.previousDisposition)throw new DomainError('This saved choice changed and can no longer be undone.',409);
+      job.saved=last.previousSaved??false;
     }else if(job.disposition!=='passed'||state.applications?.some(item=>item.jobId===job.id))throw new DomainError('This choice changed and can no longer be undone.',409);
-    job.disposition=last.previousDisposition;delete job.previousDisposition;delete job.decidedAt;delete state.lastDecision;
+    if(last.decision!=='save'){job.disposition=last.previousDisposition;delete job.previousDisposition;delete job.decidedAt;}
+    delete state.lastDecision;
     message = 'Last job choice undone.';
   } else if (action.type === 'edit_draft') {
     const draft = getDraft(state, action.draftId);

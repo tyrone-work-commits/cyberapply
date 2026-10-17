@@ -31,3 +31,19 @@ test('Undo of an unsent request preserves edited drafts and immutable input snap
 test('Undo preserves a draft that existed before the Apply request',()=>{let s=ready();s.drafts=[{id:'existing-draft',jobId:s.jobs[0].id,text:'Candidate-owned existing application text.',version:3,status:'draft',createdAt:at,updatedAt:at}];s=apply(s);const undone=act(s,{type:'undo_decision',jobId:s.jobs[0].id});assert.equal(undone.drafts[0].id,'existing-draft');assert.equal(undone.drafts[0].version,3);});
 test('Undo never treats a submitted application as reversible',()=>{const s=apply(ready());s.applications[0].status='submitted';assert.throws(()=>act(s,{type:'undo_decision',jobId:s.jobs[0].id}),/unsent/);});
 test('operation identifiers prevent duplicate decisions, repeated Undo and identifier reuse',()=>{let s=ready();const jobId=s.jobs[0].id;const operationId=crypto.randomUUID();const choice={type:'decide_job',jobId,decision:'apply',operationId};s=act(s,choice);const once=structuredClone(s);assert.deepEqual(act(s,choice),once);const undo={type:'undo_decision',jobId,decisionId:operationId,operationId:crypto.randomUUID()};s=act(s,undo);assert.deepEqual(act(s,undo),s);assert.equal(s.jobs[0].disposition,'open');assert.throws(()=>act(s,{...choice,decision:'pass'}),/identifier/);});
+
+
+test('saving for later leaves the open deck, can be undone, and does not require a reviewed CV',()=>{
+ let s=ready();s.profile.reviewed=false;const jobId=s.jobs[0].id,operationId=crypto.randomUUID();const before=structuredClone(s);
+ s=act(s,{type:'save_job',jobId,saved:true,operationId});
+ assert.equal(s.jobs.filter(j=>j.disposition==='open'&&!j.saved).length,0);assert.equal(s.lastDecision.decision,'save');assert.equal(s.jobs[0].disposition,'open');assert.equal(s.drafts.length,0);assert.equal(s.applications?.length||0,0);assert.equal(before.jobs[0].saved,false);
+ const restored=act(s,{type:'undo_decision',jobId,decisionId:operationId,operationId:crypto.randomUUID()});assert.equal(restored.jobs[0].saved,false);assert.equal(restored.jobs[0].disposition,'open');assert.equal(restored.lastDecision,undefined);
+});
+test('bookmark receipts reconcile retries and reject changed intent with the same identifier',()=>{
+ let s=ready();const action={type:'save_job',jobId:s.jobs[0].id,saved:true,operationId:crypto.randomUUID()};s=act(s,action);assert.deepEqual(act(s,action),s);assert.throws(()=>act(s,{...action,saved:false}),/identifier/);
+ s=act(s,{type:'save_job',jobId:s.jobs[0].id,saved:false,operationId:crypto.randomUUID()});assert.equal(s.jobs[0].saved,false);assert.equal(s.lastDecision,undefined);
+});
+test('saving and undoing a bookmark preserve an existing Apply request, edits and disposition',()=>{
+ let s=apply(ready());const jobId=s.jobs[0].id;s=act(s,{type:'edit_draft',draftId:s.drafts[0].id,expectedVersion:1,text:'User-owned draft edits must survive saving and unsaving.'});const before=structuredClone(s);
+ s=act(s,{type:'save_job',jobId,saved:true});s=act(s,{type:'undo_decision',jobId,decisionId:s.lastDecision.operationId});assert.deepEqual(s.drafts,before.drafts);assert.deepEqual(s.applications,before.applications);assert.equal(s.jobs[0].disposition,'apply_requested');assert.equal(s.jobs[0].saved,false);
+});
