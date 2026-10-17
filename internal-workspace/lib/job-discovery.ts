@@ -24,6 +24,7 @@ export function normalizeJob(raw:Row,board:EmployerBoard,at:string):Job|null {
  if(!externalId||externalId.length>100)return null;
  const greenhouse=board.provider==='greenhouse';
  const title=plain(greenhouse?raw.title:raw.text).slice(0,200),url=validUrl(greenhouse?raw.absolute_url:raw.hostedUrl);
+ const department=plain(greenhouse?(Array.isArray(raw.departments)?raw.departments.map((d:Row)=>d?.name||'').join(' '):''):String(raw.categories?.team||'')).slice(0,500);
  const applyUrl=validUrl(greenhouse?raw.absolute_url:raw.applyUrl)||url;
  const rawDescription=greenhouse?plain(raw.content):[plain(raw.descriptionPlain||raw.description),...(Array.isArray(raw.lists)?raw.lists.slice(0,30).map((item:Row)=>`${plain(item.text)}\n${plain(item.content)}`):[]),plain(raw.additionalPlain||raw.additional)].filter(Boolean).join('\n\n');
  if(!title||!url||rawDescription.length<20)return null;
@@ -34,7 +35,7 @@ export function normalizeJob(raw:Row,board:EmployerBoard,at:string):Job|null {
  const workMode=mode(greenhouse?location:String(raw.workplaceType||location));
  const description=rawDescription.slice(0,MAX_DESCRIPTION);
  const skills=skillWords.filter(skill=>new RegExp(`(^|[^a-z0-9])${skill.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}([^a-z0-9]|$)`,'i').test(rawDescription));
- return {id:`${boardKey(board)}:${externalId}`,title,company:greenhouse?plain(raw.company_name||board.company).slice(0,200):board.company,location,workMode,url,applyUrl,description,skills,sample:false,saved:false,disposition:'open',createdAt:at,source:{provider:board.provider,board:board.board,region:board.region,externalId,boardUrl:boardUrl(board),checkedAt:at,availability:'open',postedAt:timestamp(greenhouse?raw.first_published:raw.createdAt),descriptionTruncated:rawDescription.length>MAX_DESCRIPTION}};
+ return {id:`${boardKey(board)}:${externalId}`,title,company:greenhouse?plain(raw.company_name||board.company).slice(0,200):board.company,department,location,workMode,url,applyUrl,description,skills,sample:false,saved:false,disposition:'open',createdAt:at,source:{provider:board.provider,board:board.board,region:board.region,externalId,boardUrl:boardUrl(board),checkedAt:at,availability:'open',postedAt:timestamp(greenhouse?raw.first_published:raw.createdAt),descriptionTruncated:rawDescription.length>MAX_DESCRIPTION}};
 }
 async function jsonFeed(url:string,fetcher:typeof fetch,signal:AbortSignal){
  // Workers supports manual/follow. Reject redirects explicitly to keep requests on the fixed API host.
@@ -68,14 +69,18 @@ export async function fetchBoard(board:EmployerBoard,search:JobSearch,at:string,
   if(rows.length>3000){rows=rows.slice(0,3000);report.complete=false;}
   report.fetched=rows.length;
   const seen=rows.filter(row=>row&&row.id!==undefined).map(row=>String(row.id));
-  const jobs=rows.map(row=>{const job=normalizeJob(row,board,at);const dept=board.provider==='greenhouse'?(Array.isArray(row?.departments)?row.departments.map((d:Row)=>d.name).join(' '):''):String(row?.categories?.team||'');return job&&cybersecurityRole(job.title,dept)&&matchesSearch(job,search)?job:null;}).filter((job):job is Job=>job!==null);
+  const jobs=rows.map(row=>{const job=normalizeJob(row,board,at);return job&&cybersecurityRole(job.title,job.department)&&matchesSearch(job,search)?job:null;}).filter((job):job is Job=>job!==null);
   report.matching=jobs.length;
   return {board,jobs:[...new Map(jobs.map(job=>[job.id,job])).values()],seen,report};
  }catch(error){console.warn('Employer feed unavailable',boardKey(board),error instanceof Error?`${error.name}: ${error.message.slice(0,250)}`:'Unknown network error');return {board,jobs:[],seen:[],report:{...report,status:'error',complete:false,message:error instanceof Error&&error.name==='TimeoutError'?'Employer feed timed out. Try again.':error instanceof Error&&/^Employer|^The employer/.test(error.message)?error.message:'Could not read this employer feed. Check the board URL or try again later.'}};}
 }
 export async function discover(settings:unknown,fetcher:typeof fetch=fetch,at=new Date().toISOString()){
- const parsed=searchSchema.safeParse(settings);if(!parsed.success)throw new DomainError('Choose one to five valid employer boards and valid search filters.');
- const results=await Promise.all(parsed.data.boards.map(board=>fetchBoard(board,parsed.data,at,fetcher)));
+ const parsed=searchSchema.safeParse(settings);if(!parsed.success)throw new DomainError('Choose one to ten valid employer boards and valid search filters.');
+ // Keep the larger source list within the existing Worker memory/network budget.
+ const results:BoardResult[]=new Array(parsed.data.boards.length);let next=0;
+ await Promise.all(Array.from({length:Math.min(3,parsed.data.boards.length)},async()=>{
+  while(next<parsed.data.boards.length){const index=next++;results[index]=await fetchBoard(parsed.data.boards[index],parsed.data,at,fetcher);}
+ }));
  return {settings:parsed.data,results,at};
 }
 export function mergeDiscovery(before:State,search:JobSearch,results:BoardResult[],at:string,source:Activity['source']){

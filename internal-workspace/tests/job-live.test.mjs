@@ -7,12 +7,15 @@ const headers={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':
 const ok=(v,m)=>{assert.ok(v,m);console.log(`PASS ${++checks}: ${m}`);};
 async function request(path,body,extra={}){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...headers,...(body?{'Content-Type':'application/json'}:{}),...extra},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)});return{status:r.status,retryAfter:r.headers.get('Retry-After'),data:await r.json()};}
 let current=(await request('/api/workspace')).data;
-const settings={boards:[{provider:'greenhouse',board:'huntress',region:'global',company:'Huntress'},{provider:'greenhouse',board:'recordedfuture',region:'global',company:'Recorded Future'},{provider:'lever',board:'safe',region:'global',company:'Safe Security'}],keyword:'',location:'',remoteOnly:false};
+const settings={boards:[{provider:'greenhouse',board:'huntress',region:'global',company:'Huntress'},{provider:'greenhouse',board:'recordedfuture',region:'global',company:'Recorded Future'},{provider:'lever',board:'safe',region:'global',company:'Safe Security'},...['guidepointsecurity','knowbe4','abnormalsecurity','wizinc','chainguard'].map(board=>({provider:'greenhouse',board,region:'global',company:board}))],keyword:'cybersecurity',location:'',remoteOnly:false};
 ok((await request('/api/jobs/discover',{revision:current.revision,settings:{...settings,boards:[{...settings.boards[0],board:'http://localhost/'}]}})).status===400,'invalid source input rejected before fetch');
 const first=await request('/api/jobs/discover',{revision:current.revision,settings});assert.equal(first.status,200,JSON.stringify(first.data));current=first.data;console.log(JSON.stringify(current.report));
 ok(current.report.boards.every(board=>board.status==='ok'&&board.fetched>0),'real Greenhouse and Lever feeds returned published vacancies');
 ok(current.report.added>0&&current.state.jobs.every(job=>job.source&&job.url.startsWith('https://')&&job.applyUrl),'real roles imported with original source and application links');
 ok(new Set(current.state.jobs.map(job=>job.source.provider)).size===2,'both providers represented in real imports');
+ok(settings.boards.length===8&&current.report.boards.length===8&&current.report.boards.every(board=>board.matching>0),'all eight live boards return matches for the broad cybersecurity query');
+ok(current.state.jobs.some(job=>job.title.toLowerCase().includes('security')&&!job.title.toLowerCase().includes('cybersecurity')),'cybersecurity finds related security titles without requiring the literal word');
+ok(['guidepointsecurity','knowbe4','abnormalsecurity','wizinc','chainguard'].every(board=>current.state.jobs.some(job=>job.source.board===board)),'the first import includes vacancies from all five added employers');
 const refreshed=(await request('/api/workspace')).data;
 ok(JSON.stringify(refreshed.state.discovery)===JSON.stringify(current.state.discovery)&&refreshed.state.jobs.length===current.state.jobs.length,'real vacancies, search filters and source report survive reload');
 ok((await request('/api/jobs/discover',{revision:0,settings})).status===409,'stale search cannot overwrite saved work');

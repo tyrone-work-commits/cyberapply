@@ -7,7 +7,7 @@ for(const name of ['cyber-domain','job-catalog','job-discovery']){
  const out=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'");
  await writeFile(`.sites-runtime/source-tests/${name}.mjs`,out);
 }
-const {boardFromUrl,searchSchema,defaultSearch,boardKey,matchesSearch}=await import('../.sites-runtime/source-tests/job-catalog.mjs');
+const {boardFromUrl,searchSchema,defaultSearch,boardKey,matchesSearch,addRecommendedSources,recommendedBoards,MAX_EMPLOYER_BOARDS,broadCybersecurityQuery}=await import('../.sites-runtime/source-tests/job-catalog.mjs');
 const {normalizeJob,discover,mergeDiscovery,fetchBoard}=await import('../.sites-runtime/source-tests/job-discovery.mjs');
 const {emptyState,reduceAction}=await import('../.sites-runtime/source-tests/cyber-domain.mjs');
 const at='2026-10-17T17:00:00.000Z';
@@ -73,4 +73,34 @@ test('oversized and malformed feeds are reported without importing or claiming s
 test('imports bound description length, new roles, and do not trust caller-supplied source records',async()=>{
  const result=await discover(search,async()=>json({jobs:Array.from({length:40},(_,i)=>({...raw,id:i,absolute_url:`https://job-boards.greenhouse.io/qa/jobs/${i}`,content:'Python security requirements. '.repeat(400)}))}),at);
  const merged=mergeDiscovery(emptyState(),search,result.results,at,'interface');assert.equal(merged.report.added,24);assert.equal(merged.report.omitted,16);assert.ok(merged.state.jobs.every(job=>job.description.length<=6500&&job.source.descriptionTruncated));assert.equal(merged.state.discovery.lastSearch.at,at);
+});
+
+
+test('cybersecurity is a broad category while location, remote and specific role terms remain exact',()=>{
+ const filters={keyword:'CyberSecurity',location:'',remoteOnly:false};
+ for(const title of ['SOC Analyst','Security Engineer','Incident Response Analyst','GRC Analyst','Threat Researcher','DevSecOps Engineer'])assert.equal(matchesSearch({title,location:'Remote US',workMode:'Remote'},filters),true,title);
+ for(const keyword of ['cyber security','cyber-security','cybersecurity jobs','information security','infosec']){assert.equal(broadCybersecurityQuery(keyword),true);assert.equal(matchesSearch({title:'SOC Analyst',location:'Remote US',workMode:'Remote'},{...filters,keyword}),true);}
+ assert.equal(matchesSearch({title:'Account Executive',department:'Sales',location:'Remote US',workMode:'Remote'},filters),false);
+ assert.equal(matchesSearch({title:'Security Engineer',location:'UK',workMode:'Remote'},{...filters,location:'Texas'}),false);
+ assert.equal(matchesSearch({title:'Security Engineer',location:'Texas',workMode:'Hybrid'},{...filters,remoteOnly:true}),false);
+ assert.equal(matchesSearch({title:'Security Analyst',location:'Texas',workMode:'Remote'},{...filters,keyword:'Security Engineer'}),false);
+});
+test('source departments survive normalization and keep broad search consistent after refresh',async()=>{
+ const data={...raw,title:'Senior Software Engineer',departments:[{name:'<b>Security Research</b>'}]};
+ const found=await discover({...search,keyword:'cybersecurity'},async()=>json({jobs:[data,{...data,id:2,departments:[{name:'Business Systems'}]}]}),at);
+ assert.equal(found.results[0].jobs.length,1);const job=found.results[0].jobs[0];assert.equal(job.department,'Security Research');assert.equal(matchesSearch(job,found.settings),true);
+ const saved=mergeDiscovery(emptyState(),found.settings,found.results,at,'interface').state;assert.equal(matchesSearch(JSON.parse(JSON.stringify(saved.jobs[0])),found.settings),true);
+});
+test('eight verified presets and ten-board limits are shared without resetting saved filters or custom boards',()=>{
+ assert.equal(defaultSearch.boards.length,8);assert.equal(new Set(defaultSearch.boards.map(boardKey)).size,8);assert.equal(MAX_EMPLOYER_BOARDS,10);
+ assert.ok(['guidepointsecurity','knowbe4','abnormalsecurity','wizinc','chainguard'].every(name=>recommendedBoards.some(b=>b.board===name)));
+ const legacy={...defaultSearch,boards:defaultSearch.boards.slice(0,3),keyword:'cybersecurity',location:'Texas',remoteOnly:true};const expanded=addRecommendedSources(legacy);
+ assert.equal(legacy.boards.length,3);assert.equal(expanded.boards.length,8);assert.equal(expanded.keyword,legacy.keyword);assert.equal(expanded.location,'Texas');assert.equal(expanded.remoteOnly,true);assert.deepEqual(addRecommendedSources(expanded),expanded);
+ const custom={...legacy,boards:Array.from({length:9},(_,i)=>({...board,board:`custom${i}`}))};assert.equal(addRecommendedSources(custom).boards.length,10);assert.deepEqual(addRecommendedSources(custom).boards.slice(0,9),custom.boards);
+ const ten={...legacy,boards:Array.from({length:10},(_,i)=>({...board,board:`board${i}`}))};assert.equal(searchSchema.safeParse(ten).success,true);assert.equal(searchSchema.safeParse({...ten,boards:[...ten.boards,{...board,board:'eleventh'}]}).success,false);
+});
+test('larger searches run at most three feeds concurrently and retain requested source ordering',async()=>{
+ let active=0,peak=0;const boards=Array.from({length:10},(_,i)=>({...board,board:`qa${i}`}));
+ const found=await discover({...search,boards},async url=>{active++;peak=Math.max(peak,active);await new Promise(resolve=>setImmediate(resolve));active--;return url.includes('/qa4/')?json({},503):json({jobs:[raw]});},at);
+ assert.equal(peak,3);assert.equal(found.results.length,10);assert.deepEqual(found.results.map(r=>r.board.board),boards.map(b=>b.board));assert.equal(found.results[4].report.status,'error');assert.ok(found.results.filter((_,i)=>i!==4).every(r=>r.report.status==='ok'));
 });

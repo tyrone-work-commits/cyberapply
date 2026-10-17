@@ -4,7 +4,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 export const themes = ['paper', 'midnight', 'ocean', 'forest', 'ember'] as const;
 export type Theme = typeof themes[number];
 export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean };
-export type Job = { id: string; title: string; company: string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
+export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean };
 export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };

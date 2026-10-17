@@ -10,14 +10,14 @@ LinkedIn-specific links, connection prompts and feed status have been removed fr
 
 ## Real employer job discovery
 
-Explore searches public employer boards through documented Greenhouse and Lever GET APIs. Initial boards: **Huntress**, **Recorded Future** and **Safe Security**. Users can manage up to five Greenhouse/Lever board URLs (including Lever EU), filter by a role-title phrase and location, and select Remote only. Remote status uses explicit vacancy location/workplace data, not company boilerplate. Remote does not imply worldwide eligibility.
+Explore searches public employer boards through documented Greenhouse and Lever GET APIs. Initial boards: **Huntress**, **Recorded Future**, **Safe Security**, **GuidePoint Security**, **KnowBe4**, **Abnormal AI**, **Wiz** and **Chainguard**. Users can manage up to ten Greenhouse/Lever board URLs (including Lever EU), filter by a role-title phrase or broad cybersecurity category and location, and select Remote only. Existing saved source selections can be expanded with Add recommended sources without resetting filters. Remote status uses explicit vacancy location/workplace data, not company boilerplate. Remote does not imply worldwide eligibility.
 
 Search is on request, not a scheduled background feed. Settings, per-board results and imported listings are saved per user and survive refresh; the agent uses the same records through `get_job_sources` and `discover_jobs`. There are 16 current MCP tools. Source calls send only board identifiers/pagination and do not send CVs, profile details, job-search filters or candidate credentials to providers.
 
 Import safeguards:
 
 - Fixed HTTPS API hosts, validated board identifiers and rejected redirects; no fetching arbitrary supplied listing URLs.
-- At most five boards; 15-second per-board deadlines, 8 MB/page, bounded Lever pagination, one-minute per-user search cooldown and up to 24 new roles per search.
+- At most ten boards, with at most three feed requests active at a time; 15-second per-board deadlines, 8 MB/page, bounded Lever pagination, one-minute per-user search cooldown and up to 24 new roles per search.
 - Cybersecurity title/department filtering; title-phrase, location and remote filters. Import is limited to the selected employers, not the entire job market.
 - Stable provider/board/posting provenance, original listing and application links, timestamp checked, deduplication and refresh without overwriting bookmarks, decisions, drafts or Apply snapshots.
 - A successful complete board scan marks disappeared saved vacancies no longer listed and blocks new Apply requests. Failed/partial scans never close unseen roles. Existing requests and history remain.
@@ -87,3 +87,14 @@ The live-search button shows **Search again in N seconds** during the one-minute
 Workspace responses return the server's remaining wait in milliseconds. Reload resumes the remaining interval rather than starting another minute; a structured 429 response and Retry-After header allow the interface to recover if the server still requires waiting. The countdown uses relative server timing rather than assuming the visitor's clock matches the server. Saved data, revision conflict checks and the server limit remain intact.
 
 Validation: TypeScript and production build passed; **94 automated checks** passed (6 countdown boundaries/clock offsets, 12 source normalization, 22 domain, 10 deferred queue, 16 actual-feed HTTP, 9 MCP, 19 HTTP/storage). Compiled loopback tests checked structured wait responses, matching Retry-After, reload timing, owner isolation and unchanged saved state after a blocked search. Real public Greenhouse/Lever feeds were read; no candidate information was sent. Browser checks covered the decreasing countdown, disabled button, Enter guard, persistence after reload, automatic re-enable with the note removed at zero, and 320px/1366px layouts without horizontal overflow. Physical-phone testing was not performed. Release details are recorded in Linear after publication.
+
+
+## 17 October 2026 — More employer sources and broad cybersecurity searches
+
+Added five verified employer feeds: GuidePoint Security, KnowBe4, Abnormal AI, Wiz and Chainguard. The starting list now contains eight employers, with support for up to ten Greenhouse/Lever boards. Existing saved selections are preserved; Add recommended sources expands them without duplicates or resetting keyword/location/remote filters. Source choices persist when the next search completes. The agent uses the same source limits and saved report.
+
+Typing cybersecurity (also cyber security, cyber-security, cybersecurity jobs, information security or infosec) now selects related security roles, such as SOC Analyst, Security Engineer, incident response and GRC roles. Specific role phrases, location and Remote only remain filters. Real source department names are retained so a relevant department can explain a generic title consistently after refresh. Empty-result guidance explains that location and remote filters can still exclude vacancies.
+
+Fetching is limited to three boards at once and retains requested source order. Existing fixed hosts, deadlines, response/pagination bounds, partial-failure behavior, owner isolation, one-minute countdown, 24-new-role import limit and saved-choice/draft preservation remain. No new paid provider or external submission was enabled.
+
+Validation: TypeScript and production build passed; **101 checks** passed (16 source/matching/concurrency, 22 domain, 6 cooldown, 10 deferred queue, 19 real-feed HTTP, 9 MCP, 19 HTTP/storage). All eight live feeds returned matches for cybersecurity: 517 published records and 117 matching roles at the time checked; the first isolated import added 24 roles, including all five added employers. Counts change over time. Browser checks at 320px/1366px verified the existing three-board selection expanding to eight, broad keyword results, live source reports, persistence after reload, all eight source names and no horizontal overflow. These are desktop-browser checks, not a physical-phone test. Publication evidence is recorded in Linear.

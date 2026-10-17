@@ -45,3 +45,5 @@
 .swipe-card{user-select:none}.save-swipe-hint{font-size:11px;text-align:center;color:var(--muted);margin:0 0 12px}.swipe-label.save{color:var(--accent);font-size:16px;transform:rotate(-4deg);max-width:calc(100% - 40px)}
 
 .search-wait{margin-top:14px;font-size:11px}
+
+.source-query-help{font-size:11px;margin-top:12px}.source-suggestions{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 0 0;font-size:11px;color:var(--muted)}@media(max-width:640px){.source-suggestions{align-items:stretch;flex-direction:column;gap:10px}}
