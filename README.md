@@ -22,7 +22,7 @@ Profile → Appearance offers account-synced themes, larger text and installatio
 
 ## Private internal delivery
 
-The Covenda internal version lives in [internal-workspace](internal-workspace/README.md). It uses ChatGPT identity, Sites hosting, D1 saved records/history and private R2 files, with the same per-user records exposed as agent tools. It is a focused internal pilot; the Next.js/FastAPI app described above is retained. No new Vercel/Render subscription is required for this pilot. Employer submission and live job ingestion remain unconnected. The internal README records the corrected plan, review flow, checks and limits.
+The Covenda internal version lives in [internal-workspace](internal-workspace/README.md). It uses ChatGPT identity, Sites hosting, D1 saved records/history and private R2 files, with the same per-user records exposed as agent tools. It is a focused internal pilot; the Next.js/FastAPI app described above is retained. No new Vercel/Render subscription is required for this pilot. Greenhouse and Lever employer-board discovery is now available; employer submission remains unconnected. The internal README records the corrected plan, review flow, checks and limits.
 
 ### Private pilot release — 15 October 2026
 
@@ -76,3 +76,14 @@ The internal CyberApply app now opens only each visitor's own workspace. Demo en
 Explore now says **Apply**, including right-swipe feedback and the visible action button. Requests save exact materials and persist in Applications, with a clear **Needs action — connection required / not submitted** state. Duplicates are prevented and subsequent edits flag changed materials. This is not yet automatic submission: Covenda has no known approved LinkedIn source/submission access, and the user asked to record that dependency in Linear (FDE-26/FDE-27). No LinkedIn session, paid provider or employer endpoint was connected.
 
 Verified locally: TypeScript, production build, 68 automated checks (14 domain + 19 HTTP + 9 MCP + 13 onboarding + 13 live-workspace acceptance), actual right swipes at desktop/320px width, edit/refresh persistence and no horizontal overflow in the reviewed phone layouts. The Windows npm shim failed before invoking the build, so the same configured build script was run directly with Node and passed. Hosted release verification and the published source commit are recorded in Linear after publication. No live LinkedIn or employer acceptance test is claimed.
+
+
+## 17 October 2026 — Real Greenhouse and Lever vacancies
+
+The current private internal app replaces LinkedIn-specific UI, links and feed prompts with **Find live jobs** using public Greenhouse/Lever employer boards. Initial employers are Huntress, Recorded Future and Safe Security. Users can manage up to five boards, filter role/location/remote work and retain source attribution, original application links and last-checked availability. No candidate information is sent during discovery.
+
+Search results/settings survive refresh. Refresh deduplicates vacancies and preserves choices/drafts; disappeared vacancies are marked unavailable only after a complete successful scan. Partial feed failures retain saved work. The connected agent exposes the same durable source settings/reports and discovery action. Existing CVs, history, themes and the original local application are retained.
+
+Validation: 92 local automated checks, TypeScript and production build; actual public feeds produced 23 matching vacancies at the time checked. Phone-width browser checks covered source management, filtering to a real remote UK vacancy, a right-swipe Apply request and persistence after refresh, with no horizontal overflow. These were loopback checks, not a physical-device or employer-submission test.
+
+Automatic employer submission is still not connected: Apply records an unsent request, and the original employer form is available for manual completion. FDE-27 tracks authorized submission access and real acceptance evidence. No paid provider or new hosting service was enabled. Final hosted release details and GitHub source are recorded in Linear.

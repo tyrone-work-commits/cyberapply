@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 
 export const themes = ['paper', 'midnight', 'ocean', 'forest', 'ember'] as const;
 export type Theme = typeof themes[number];
 export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean };
-export type Job = { id: string; title: string; company: string; location: string; workMode: string; url: string; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
+export type Job = { id: string; title: string; company: string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean };
 export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };
@@ -11,12 +12,12 @@ export type ResumeCheck = { title: string; points: number; possible: number; evi
 export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[] };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport } };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
 const skills = z.array(z.string().trim().min(1).max(100)).max(80);
-const id = z.string().min(1).max(100);
+const id = z.string().min(1).max(300);
 const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean() }).strict();
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
@@ -50,7 +51,7 @@ export function matchJob(state: State, job: Job) {
   const text = ` ${normalize(state.profile.resumeText)} `;
   const matched = job.skills.filter(skill => declared.includes(normalize(skill)) || text.includes(` ${normalize(skill)} `));
   const missing = job.skills.filter(skill => !matched.includes(skill));
-  return { score: state.profile.reviewed && job.skills.length ? Math.round(100 * matched.length / job.skills.length) : null, matched, missing, requirements: job.skills.length, basis: 'Coverage of the listing skills you entered, compared with reviewed résumé text and declared skills. This is not an ATS score, a hiring probability, or verification of eligibility.' };
+  return { score: state.profile.reviewed && job.skills.length ? Math.round(100 * matched.length / job.skills.length) : null, matched, missing, requirements: job.skills.length, basis: 'Coverage of supplied skills or recognized keywords mentioned in an imported description, compared with reviewed résumé text and declared skills. Mentions are not necessarily requirements. This is not an ATS score, a hiring probability, or verification of eligibility.' };
 }
 export function record(state: State, action: string, message: string, source: Activity['source'], at = new Date().toISOString()) {
   state.activity.unshift({ id: crypto.randomUUID(), at, action, message, source });
@@ -86,6 +87,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if (action.type === 'decide_job') {
     const job = getJob(state, action.jobId);
     if (action.decision === 'apply') {
+      if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
       if (!state.profile.reviewed) throw new DomainError('Review and confirm your CV and candidate facts before applying.', 409);
       if (!safeJobUrl(job.url)) throw new DomainError('Add the original job listing URL before applying.', 409);
       const existing = state.applications?.find(item => item.jobId === job.id);
@@ -158,7 +160,7 @@ export function analyzeResume(profile: Profile, at = new Date().toISOString()): 
 }
 
 
-export const connectionStatus = { linkedinJobs: 'not_connected', applicationSubmission: 'not_connected', automaticApplications: false, message: 'Covenda needs approved LinkedIn job-data and application access. No jobs are fetched and no applications are sent automatically.' } as const;
+export const connectionStatus = { jobDiscovery: {greenhouse:'available',lever:'available',method:'public_employer_boards',refresh:'on_request'}, applicationSubmission: 'not_connected', automaticApplications: false, message: 'Search published Greenhouse and Lever employer boards on request. Automatic employer submission requires authorized access; Apply requests are not proof of submission.' } as const;
 
 export function liveState(input: State): State {
   const state = structuredClone(input) as State & {demo?: boolean; submissions?: unknown};

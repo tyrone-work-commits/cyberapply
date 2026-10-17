@@ -6,7 +6,7 @@ const owner=`live-qa-${randomUUID()}`;let checks=0;
 const ok=(v,m)=>{assert.ok(v,m);console.log(`PASS ${++checks}: ${m}`);};
 async function req(path,body){const r=await fetch(base+path,{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{'oai-authenticated-user-id':owner,'oai-authenticated-user-email':`${owner}@example.test`,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const text=await r.text();let data;try{data=JSON.parse(text);}catch{data=text;}return{status:r.status,data};}
 let s=(await req('/api/workspace')).data;
-ok(s.state.jobs.length===0&&s.connections.linkedinJobs==='not_connected'&&!s.connections.automaticApplications,'no fabricated feed or claimed connection');
+ok(s.state.jobs.length===0&&s.connections.jobDiscovery.greenhouse==='available'&&!s.connections.automaticApplications,'no fabricated feed or claimed connection');
 for(const path of ['/api/workspace?mode=demo','/api/history?mode=demo','/api/export?mode=demo','/api/files/x?mode=demo'])ok((await req(path)).status===410,`${path} is retired`);
 ok((await req('/api/workspace',{revision:s.revision,action:{type:'load_examples'}})).status===400,'example seeding action removed');
 ok((await req('/api/workspace',{revision:s.revision,action:{type:'simulate_apply',draftId:'x',expectedVersion:1,confirmation:'SIMULATE'}})).status===400,'simulated sending action removed');

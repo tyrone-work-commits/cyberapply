@@ -1,0 +1,27 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8787';
+if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Local-only live import checks. Never impersonate a hosted identity.');
+const owner=`source-qa-${randomUUID()}`;let checks=0;
+const headers={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':`${owner}@example.test`};
+const ok=(v,m)=>{assert.ok(v,m);console.log(`PASS ${++checks}: ${m}`);};
+async function request(path,body,extra={}){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{...headers,...(body?{'Content-Type':'application/json'}:{}),...extra},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(60000)});return{status:r.status,data:await r.json()};}
+let current=(await request('/api/workspace')).data;
+const settings={boards:[{provider:'greenhouse',board:'huntress',region:'global',company:'Huntress'},{provider:'greenhouse',board:'recordedfuture',region:'global',company:'Recorded Future'},{provider:'lever',board:'safe',region:'global',company:'Safe Security'}],keyword:'',location:'',remoteOnly:false};
+ok((await request('/api/jobs/discover',{revision:current.revision,settings:{...settings,boards:[{...settings.boards[0],board:'http://localhost/'}]}})).status===400,'invalid source input rejected before fetch');
+const first=await request('/api/jobs/discover',{revision:current.revision,settings});assert.equal(first.status,200,JSON.stringify(first.data));current=first.data;console.log(JSON.stringify(current.report));
+ok(current.report.boards.every(board=>board.status==='ok'&&board.fetched>0),'real Greenhouse and Lever feeds returned published vacancies');
+ok(current.report.added>0&&current.state.jobs.every(job=>job.source&&job.url.startsWith('https://')&&job.applyUrl),'real roles imported with original source and application links');
+ok(new Set(current.state.jobs.map(job=>job.source.provider)).size===2,'both providers represented in real imports');
+const refreshed=(await request('/api/workspace')).data;
+ok(JSON.stringify(refreshed.state.discovery)===JSON.stringify(current.state.discovery)&&refreshed.state.jobs.length===current.state.jobs.length,'real vacancies, search filters and source report survive reload');
+ok((await request('/api/jobs/discover',{revision:0,settings})).status===409,'stale search cannot overwrite saved work');
+ok((await request('/api/jobs/discover',{revision:current.revision,settings})).status===429,'repeat live search is rate limited');
+const second=await request('/api/workspace',undefined,{'oai-authenticated-user-id':`other-${owner}`});
+ok(second.data.state.jobs.length===0&&!second.data.state.discovery,'imported jobs and filters are owner scoped');
+const exported=(await request('/api/export')).data;ok(exported.state.discovery.lastSearch.at===current.report.at,'export retains source search evidence');
+const rpc=await request('/mcp',{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'get_job_sources',arguments:{}}});
+ok(!rpc.data.result.isError&&JSON.parse(rpc.data.result.content[0].text).lastSearch.at===current.report.at,'agent reads the same durable source report');
+const history=await request(`/api/history?revision=${current.revision}`);ok(history.data.state.jobs.length===current.state.jobs.length,'immutable history includes the real import');
+ok(current.connections.applicationSubmission==='not_connected'&&!current.connections.automaticApplications,'live listing discovery does not claim employer submission access');
+console.log(JSON.stringify({checks,localOnly:true,liveReadOnlyFeeds:true,report:current.report,roles:current.state.jobs.map(job=>({title:job.title,company:job.company,source:job.source.provider,url:job.url}))}));

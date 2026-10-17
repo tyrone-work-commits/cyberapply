@@ -7,7 +7,7 @@ const owner=`mcp-qa-${randomUUID()}`;
 async function rpc(method,args={},signed=false){const response=await fetch(`${base}/mcp`,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/json, text/event-stream',...(signed?{'oai-authenticated-user-id':owner,'oai-authenticated-user-email':`${owner}@example.test`}:{})},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params:args})});const raw=await response.text();let body;try{body=JSON.parse(raw);}catch{throw Error(`${response.status}: ${raw}`);}return{status:response.status,body};}
 let count=0;const ok=(value,message)=>{assert.ok(value,message);console.log(`PASS ${++count}: ${message}`);};
 ok((await rpc('initialize',{protocolVersion:'2025-03-26',capabilities:{},clientInfo:{name:'QA',version:'1'}})).body.result.protocolVersion==='2025-03-26','MCP stateless initialization');
-const listing=await rpc('tools/list');ok(listing.body.result.tools.length===14&&!JSON.stringify(listing).includes(owner),'14 live-workspace tools discoverable without private records');
+const listing=await rpc('tools/list');ok(listing.body.result.tools.length===16&&!JSON.stringify(listing).includes(owner),'16 live-workspace tools discoverable without private records');
 ok((await rpc('tools/call',{name:'get_workspace',arguments:{}})).status===401,'data calls require identity');
 const call=async(name,args)=>{const result=await rpc('tools/call',{name,arguments:{mode:'personal',...args}},true);assert.equal(result.status,200);return result.body.result;};
 let result=await call('get_workspace',{});ok(!result.isError,'authorized read works');const first=JSON.parse(result.content[0].text);

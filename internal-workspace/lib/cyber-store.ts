@@ -1,6 +1,8 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { actionSchema, emptyState, liveState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
+import { discover, mergeDiscovery } from './job-discovery';
+import { defaultSearch } from './job-catalog';
 
 export type Identity = { userId: string; email: string; displayName: string };
 export type Snapshot = { revision: number; updatedAt: string; state: State };
@@ -36,6 +38,16 @@ export async function act(user: Identity, expected: number, input: unknown, sour
   if (current.revision !== expected) throw new DomainError('Your workspace changed. Reload before saving.', 409);
   const result = reduceAction(current.state, parsed.data, source);
   return {...await save(user, expected, result.state, parsed.data.type),message:result.message};
+}
+export async function discoverJobs(user:Identity,expected:number,settings:unknown,source:Activity['source']) {
+  if(!Number.isSafeInteger(expected)||expected<0)throw new DomainError('A current numeric workspace revision is required.');
+  const current=await load(user);
+  if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before searching.',409);
+  const elapsed=Date.now()-Date.parse(current.state.discovery?.lastSearch.at||'');
+  if(Number.isFinite(elapsed)&&elapsed<60000)throw new DomainError('Wait one minute between live searches. Your last results are saved.',429);
+  const result=await discover(settings??current.state.discovery?.settings??defaultSearch);
+  const merged=mergeDiscovery(current.state,result.settings,result.results,result.at,source);
+  return {...await save(user,expected,merged.state,'discover_jobs'),message:merged.message,report:merged.report};
 }
 export async function history(user: Identity, before = 2147483647) {
   const rows = await db().prepare('SELECT revision,action,created_at FROM cyber_revisions WHERE owner_id=? AND revision<? ORDER BY revision DESC LIMIT 30').bind(user.userId,before).all();

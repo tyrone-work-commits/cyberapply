@@ -1,46 +1,60 @@
 # CyberApply — Covenda internal workspace
 
-This is a private, mobile-responsive CV and job-application workspace with shared agent tools. It uses existing ChatGPT identity and Sites hosting. Five themes remain available throughout account entry, profile setup and the workspace.
+Private mobile-responsive CV review, real cybersecurity vacancy discovery and application-request workspace. ChatGPT identity, Sites hosting, D1 history and private R2 files are retained. Paper, Midnight, Ocean, Forest and Ember remain available throughout the app.
 
 ## Current journey
 
-Sign in / Create account → save your account profile → open your own workspace → review candidate facts and CV → add a sourced job listing → swipe left to pass or right to **Apply** → view the saved request and its next action in Applications.
+Sign in / Create account → account profile → own workspace → review CV → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → review saved materials and the next action in Applications.
 
-The demo has been removed from the application: no demo choice, seeded candidate, sample-job generator, simulated sending, simulated receipts or demonstration agent tools remain. Old workspace URLs redirect to `/workspace`; APIs reject the retired `mode=demo` scope with 410. Existing stored historical demo records are inaccessible through the app and have not been destructively purged. Legacy sample records are filtered from owned current/history/export views. Real personal records and saved versions remain available.
+LinkedIn-specific links, connection prompts and feed status have been removed from the internal application. Existing personal records and their original source URLs/history are preserved. Demo flows, fabricated listings, seeded candidates and simulated receipts remain removed; retired demo APIs return 410.
 
-## LinkedIn and real application status
+## Real employer job discovery
 
-The requested target is real LinkedIn vacancies in Explore and actual submission after a right swipe. **This target is not yet delivered.** On 17 October the user said Covenda has no known approved LinkedIn job-data/application provider or partner access and requested that this dependency be recorded in Linear (FDE-26/FDE-27).
+Explore searches public employer boards through documented Greenhouse and Lever GET APIs. Initial boards: **Huntress**, **Recorded Future** and **Safe Security**. Users can manage up to five Greenhouse/Lever board URLs (including Lever EU), filter by a role-title phrase and location, and select Remote only. Remote status uses explicit vacancy location/workplace data, not company boilerplate. Remote does not imply worldwide eligibility.
 
-The current release accepts an original public HTTPS LinkedIn or employer listing URL and the details supplied by the user/agent. It does not fetch LinkedIn pages, search live jobs, connect a member account or submit to employers. A public listing is not an application integration.
+Search is on request, not a scheduled background feed. Settings, per-board results and imported listings are saved per user and survive refresh; the agent uses the same records through `get_job_sources` and `discover_jobs`. There are 16 current MCP tools. Source calls send only board identifiers/pagination and do not send CVs, profile details, job-search filters or candidate credentials to providers.
 
-Right swipe and the visible **Apply** button now record an owner-specific request and exact candidate/application-text snapshot. Without a connected service it has `status: needs_action` and `reason: connection_required`. Repeating Apply does not duplicate requests or materials. Editing the CV, importing TXT or editing application text flags changed materials while preserving the requested snapshot. There is no fabricated Submitted/Applied success state. Opening the original application page is a manual fallback and never records proof of submission. Only pass decisions offer a five-second Undo.
+Import safeguards:
 
-No new paid services, account permissions or external submissions were configured. An approved live integration still needs source attribution, authorization, supported application routes, truthful answers, exact-material consent, duplicate prevention and verified submission evidence. Do not claim that LinkedIn's employer/ATS partner APIs provide arbitrary job-seeker auto-apply access.
+- Fixed HTTPS API hosts, validated board identifiers and rejected redirects; no fetching arbitrary supplied listing URLs.
+- At most five boards; 15-second per-board deadlines, 8 MB/page, bounded Lever pagination, one-minute per-user search cooldown and up to 24 new roles per search.
+- Cybersecurity title/department filtering; title-phrase, location and remote filters. Import is limited to the selected employers, not the entire job market.
+- Stable provider/board/posting provenance, original listing and application links, timestamp checked, deduplication and refresh without overwriting bookmarks, decisions, drafts or Apply snapshots.
+- A successful complete board scan marks disappeared saved vacancies no longer listed and blocks new Apply requests. Failed/partial scans never close unseen roles. Existing requests and history remain.
+- HTML is decoded into plain text and never rendered as executable markup. Descriptions are capped at 6,500 characters with a visible full-source link/truncation notice. Recognized skill mentions are explained as keyword coverage, not necessarily requirements or an ATS score.
+- Pilot limits remain 200 stored jobs / 750 KB per workspace. Search reports show imports omitted by limits; narrow filters or follow original employer boards when needed.
 
-## CV review and saved records
+Official references: [Greenhouse Job Board API](https://docs.greenhouse.io/job-board), [Lever Postings API](https://github.com/lever/postings-api).
 
-CV review explains six deterministic text checks: identity/contact, section headings, measurable impact, action bullets, declared skills and length/bullets. Scores are not ATS results or hiring predictions. UTF-8 TXT imports text; PDF/DOCX uploads are privately stored but not parsed. Paste their text for review. File limit: 5 MB.
+## Applications: submission remains unconnected
 
-Sites supplies authenticated identity. D1 stores owner-scoped workspaces and immutable revisions; R2 stores private uploads. Writes require the current revision and cannot overwrite a newer save. All agent operations use the authenticated visitor's own workspace. The 14 current MCP tools include CV review, listing/draft operations and `get_application_requests`; old simulation/example tools are unavailable. Agent activity and UI activity use the same durable records.
+Right swipe / Apply records an owner-specific request and exact candidate/application-text snapshot. It remains **Needs action — connection required / not submitted**. Repeating Apply does not duplicate materials or requests. Editing CV text or application text flags changed materials while preserving the original snapshot.
+
+Greenhouse/Lever public job feeds do not grant application-submission permission. An employer's authorized application API access is still needed before an actual send can be enabled and validated. Opening the original employer application form is a manual fallback, never proof of submission. No employer submission, paid provider or additional hosting subscription was configured for this release. See FDE-27 in Linear.
+
+## CV review, identity and saved work
+
+CV review explains six deterministic text checks; scores are not ATS results or hiring predictions. UTF-8 TXT imports text. PDF/DOCX uploads are privately stored but not parsed; paste text for review. File limit: 5 MB.
+
+Sites supplies identity and the existing workspace access policy. D1 records and immutable revisions are owner scoped; R2 files are private. Writes require the current revision. Sources are untrusted data, never agent instructions. Historical sample records remain hidden without destructively purging stored history. Local testing uses loopback-only dispatch fixtures, never hosted impersonation.
 
 ## Verification — 17 October 2026
 
-- TypeScript passed and the production Vinext build completed.
-- 68 local automated checks passed: 14 domain, 19 HTTP/storage, 9 MCP, 13 onboarding and 13 live-workspace acceptance checks. All fixtures and dispatch identities were loopback-only.
-- Browser checks covered account entry without demo promotion, a single saved workspace choice, sourced listing input, right-swipe Apply at desktop and 320px width, an unsent request, editing and persistence after refresh. Explore with the Apply control and Applications had no horizontal overflow at 320px (305px content width). This was not a physical-phone test.
-- Actual LinkedIn ingestion, employer delivery and submission receipts were not tested because no approved connection is configured. Hosted publication verification is recorded in the root release history and Linear after deployment.
+TypeScript and production build passed. Automated coverage: **92 checks** (14 domain + 12 job-source + 19 HTTP/storage + 9 MCP + 13 onboarding + 13 live-workspace + 12 live-source HTTP checks). Live-source acceptance fetched all three real employer feeds: 35 Huntress, 49 Recorded Future and 20 Safe Security published postings, producing 23 matching roles at the time checked. Counts can change.
 
-Commands (from this directory):
+Browser checks covered 320px phone and 1366px desktop layouts, no horizontal overflow, unsupported-board validation, a real filtered remote UK role, bookmarking, an actual right swipe saving an unsent request, and request persistence after refresh. No physical-phone or real employer submission test is claimed. Hosted deployment and post-release checks are recorded in the root README and Linear after publication.
+
+Commands from this directory:
 
 ```
 node node_modules/typescript/bin/tsc --noEmit
-node --test tests/domain.test.mjs
+node --test tests/domain.test.mjs tests/job-sources.test.mjs
 node scripts/run-framework.mjs build
-node tests/http.test.mjs
+node tests/job-live.test.mjs
 node tests/mcp.test.mjs
 node tests/onboarding.test.mjs
 node tests/live-workspace.test.mjs
+node tests/http.test.mjs
 ```
 
-HTTP/MCP/onboarding/acceptance scripts require a compiled Worker on loopback port 8787. Local Wrangler on Windows can stall the next request after early body rejection; the HTTP suite keeps that rejection last and all requests are bounded. No mutation retry is hidden in these checks.
+HTTP scripts require a compiled Worker on loopback port 8787. `job-live.test.mjs` performs read-only real-provider requests and writes only a generated local QA owner's records. Run HTTP early-rejection checks last: local Windows Wrangler can restart after rejecting a browser origin, so the next suite should use a fresh server. No hidden mutation retries are used.
