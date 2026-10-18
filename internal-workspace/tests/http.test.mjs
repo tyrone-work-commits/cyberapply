@@ -22,7 +22,7 @@ const refreshed=(await req('/api/workspace')).data;ok(refreshed.state.drafts[0].
 const past=await req(`/api/history?revision=${originalRevision}`);ok(past.status===200&&past.data.state.drafts[0].text===originalText,'earlier draft text is retained in immutable history');
 const isolated=await req('/api/workspace',{who:other});ok(isolated.data.state.jobs.length===0&&isolated.data.state.drafts.length===0,'second owner cannot see candidate records');
 const missing=await req(`/api/history?revision=${originalRevision}`,{who:other});ok(missing.status===404,'second owner cannot read first owner snapshot');
-const simultaneous=await Promise.all(['ocean','forest'].map(theme=>req('/api/workspace',{method:'POST',body:{revision:current.revision,action:{type:'set_theme',theme}}})));ok(simultaneous.map(r=>r.status).sort().join(',')==='200,409','concurrent saves permit one winner and reject stale overwrite');current=(await req('/api/workspace')).data;
+const simultaneous=await Promise.all(['First','Second'].map(name=>req('/api/workspace',{method:'POST',body:{revision:current.revision,action:{type:'complete_onboarding',fullName:`QA ${name}`,headline:'Local concurrency check',targetRole:'SOC Analyst'}}})));ok(simultaneous.map(r=>r.status).sort().join(',')==='200,409','concurrent saves permit one winner and reject stale overwrite');current=(await req('/api/workspace')).data;
 const afterRace=(await req('/api/history')).data.items;ok(afterRace.filter(item=>item.revision===current.revision).length===1,'conflicting save does not create duplicate or phantom history');
 await act({type:'mark_ready',draftId:draft.id,expectedVersion:1,confirmation:'REVIEWED'},409);ok(true,'stale draft review rejected');
 await act({type:'mark_ready',draftId:draft.id,expectedVersion:draft.version,confirmation:'REVIEWED'});ok(current.state.drafts[0].status==='ready','exact current draft can be marked ready without submitting');
@@ -31,5 +31,5 @@ const downloaded=await req(`/api/files/${file.id}`);ok(downloaded.status===200&&
 const bad=new FormData();bad.set('revision',String(current.revision));bad.set('file',new File(['not a PDF'],'fake.pdf'));ok((await req('/api/files',{method:'POST',body:bad})).status===422,'mislabelled upload rejected');
 const exported=await req('/api/export');ok(exported.status===200&&exported.data.state.drafts.length===1&&exported.headers.get('content-disposition')?.includes('attachment'),'owned current records export as a download');
 // Keep the rejected cross-origin POST last: local Wrangler on Windows can stall the next request after an early body rejection.
-ok((await req('/api/workspace',{method:'POST',body:{revision:current.revision,action:{type:'set_theme',theme:'ember'}},headers:{Origin:'https://unrelated.example'}})).status===403,'cross-origin browser mutation denied');
+ok((await req('/api/workspace',{method:'POST',body:{revision:current.revision,action:{type:'review_resume'}},headers:{Origin:'https://unrelated.example'}})).status===403,'cross-origin browser mutation denied');
 console.log(JSON.stringify({checks:count,owner,latestRevision:current.revision,localOnly:true}));

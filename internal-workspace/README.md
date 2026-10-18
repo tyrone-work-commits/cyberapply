@@ -1,6 +1,6 @@
 # CyberApply — Covenda internal workspace
 
-Private mobile-responsive CV review, real cybersecurity vacancy discovery and application-request workspace. ChatGPT identity, Sites hosting, D1 history and private R2 files are retained. Paper, Midnight, Ocean, Forest and Ember remain available throughout the app.
+Private mobile-responsive CV review, real cybersecurity vacancy discovery and application-request workspace. ChatGPT identity, Sites hosting, D1 history and private R2 files are retained. The app uses one fixed appearance: the existing light background, white panels and green accents. Theme controls and theme-changing actions have been removed; earlier appearance metadata remains only in saved records/history.
 
 ## Current journey
 
@@ -132,3 +132,12 @@ Additional commands:
 node --test tests/file-actions.test.mjs
 node tests/file-actions-http.test.mjs
 ```
+
+
+## 18 October 2026 — Keep the current colors and remove theme customization
+
+The internal app now has one fixed appearance: the existing light background (`#f6f7f3`), white panels, dark text (`#20372e`) and green accents (`#27634d`). The entire original color-token block is unchanged. Theme controls were removed from sign-in/create-account, profile setup and both workspace locations. The theme provider, cookie preference reader, chooser components and alternate palettes were removed. Older browser/workspace preferences can no longer change the displayed colors.
+
+The old `set_theme` action is rejected. Existing appearance metadata remains in historical records; no candidate data, CV files, reports, jobs, application materials or history was rewritten. No other workspace function or access policy was changed. The original local Next.js/FastAPI application is preserved separately.
+
+Validation: TypeScript and production build passed; **72 checks** passed (25 domain, 19 account/onboarding/fixed-appearance, 19 HTTP/storage and 9 MCP). Checks cover absent selectors across entry/setup/workspace, ignored legacy cookies, rejected theme changes without a saved-state/revision change, sign-in/profile gates, ownership, concurrency, private files/history and agent tools. Browser measurements on sign-in, profile setup and the loaded workspace matched the hosted baseline exactly: background rgb(246,247,243), text rgb(32,55,46), accent #27634d and white panels. No theme controls remained; 320px and 1366px views had no horizontal overflow, and reload kept the same colors. These are browser viewport checks, not a physical-device test. Publication evidence is recorded in the root README and Linear.

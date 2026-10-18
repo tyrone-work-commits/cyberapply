@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 
-export const themes = ['paper', 'midnight', 'ocean', 'forest', 'ember'] as const;
-export type Theme = typeof themes[number];
+// Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
+export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
 export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean };
 export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
@@ -29,7 +29,6 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
-  z.object({ type: z.literal('set_theme'), theme: z.enum(themes) }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
@@ -154,8 +153,6 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if (!state.profile.reviewed || draft.text.trim().length < 20) throw new DomainError('Review your profile and complete the draft first.', 409);
     draft.status = 'ready'; draft.version++; draft.updatedAt = at;
     message = 'Draft marked ready for manual application. It has not been submitted.';
-  } else if (action.type === 'set_theme') {
-    state.theme = action.theme; message = 'Appearance saved to your workspace.';
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
     const reviewSource=state.resumeReview?.source;
