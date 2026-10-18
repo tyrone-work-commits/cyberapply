@@ -23,6 +23,8 @@ const targeted=await upload(targetedCV,'target-role.txt');assert.equal(targeted.
 ok(current.state.profile.fullName==='Amara Okafor'&&current.state.profile.email==='amara.okafor@example.test','a newly uploaded CV replaces prior contact fields when stated');
 ok(current.state.profile.preferredRoles[0]==='SOC Analyst'&&current.state.profile.skills.includes('Python')&&!current.state.profile.reviewed,'explicit target role and skills persist without confirming candidate accuracy');
 ok((await req('/api/workspace')).data.state.profile.preferredRoles[0]==='SOC Analyst','autofilled facts survive workspace refresh');
+const categorized=await upload(`Amara Okafor\namara.okafor@example.test\nSoftware Engineer\nTECHNICAL SKILLS\nProgramming Languages: Python, JavaScript\nFrontend: React, Next.js\nBackend: FastAPI, Node.js\nDatabases: PostgreSQL\nEXPERIENCE\n- Built secure services.`, 'categorized.txt');assert.equal(categorized.status,200,JSON.stringify(categorized.data));current=categorized.data;
+ok(current.state.profile.preferredRoles[0]==='Software Engineer'&&['Python','Next.js','Node.js','PostgreSQL'].every(skill=>current.state.profile.skills.includes(skill))&&!current.state.profile.reviewed,'categorized skills and a common CV role headline fill candidate facts without confirming them');
 const original=structuredClone(current);
 for(const [bytes,name,expected] of [[pdfCV(''),'scanned.pdf',422],['not a pdf','wrong.pdf',422],['x'.repeat(120001),'long.txt',413],[docxCV(),'stale.docx',409]]){
  const result=await upload(bytes,name,name==='stale.docx'?current.revision-1:current.revision);ok(result.status===expected,`${name} is rejected with ${expected}`);

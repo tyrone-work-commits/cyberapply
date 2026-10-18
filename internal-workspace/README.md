@@ -175,3 +175,9 @@ Uploading a readable PDF, DOCX or TXT now fills Candidate facts from explicitly 
 Local verification: TypeScript and production build passed; 47 domain/extraction/queue tests, 30 CV-upload HTTP checks and 18 swipe HTTP checks passed. A fictional local browser upload showed the populated name, email, skills and preferred role, with the accuracy checkbox clear. Apply opened Applications directly with a new **Not submitted** entry that remained after refresh. Employer submission remains unconnected (FDE-27).
 
 Private Site source `57405c3b7bf9caa7035f7aabc81b3536c1a5476a` deployed as version 18 (`appgdep_6ad4dcc936c88191bbb03235fe5cb4c7`). Hosted read-only verification showed the updated upload guidance and an existing Applications record still marked **Not submitted**. No real CV upload or new hosted Apply request was used for testing.
+
+## 18 October 2026 — Categorized skills and common role headlines
+
+CV autofill now reads a plain professional headline such as **Software Engineer** and removes category labels from the skills under **Technical skills**. Names such as Next.js and Node.js remain intact. The candidate still reviews every populated field and confirms accuracy separately; a summary mention alone does not become a preferred role.
+
+TypeScript, production build, 48 domain/extraction/queue tests and 31 local CV-upload HTTP checks passed, including a categorized-skills upload. Private Site source `d4ae7ccc76038b05f1c1b8d9ae36a4f1973165d5` deployed successfully as version 19 (`appgdep_6ad4de94717881918a99ea71b9742c30`). No employer submission connection was added.

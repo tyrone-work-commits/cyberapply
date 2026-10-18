@@ -19,3 +19,8 @@ test('a CV headline can supply a stated role without mistaking it for a name',()
  const facts=extractCandidateFacts(`Amara Okafor\nCloud Security Engineer\namara@example.com\nTECHNICAL SKILLS: AWS, Linux, Python\nEXPERIENCE\n- Built controls.`);
  assert.equal(facts.fullName,'Amara Okafor');assert.deepEqual(facts.preferredRoles,['Cloud Security Engineer']);assert.deepEqual(facts.skills,['AWS','Linux','Python']);
 });
+test('common role headlines and labelled skill categories yield clean candidate values',()=>{
+ const facts=extractCandidateFacts(`Amara Okafor\nSoftware Engineer\namara@example.com\nTECHNICAL SKILLS\nProgramming Languages: Python, JavaScript\nFrontend: React, Next.js\nBackend: FastAPI, Node.js\nDatabases: PostgreSQL\nEXPERIENCE\n- Built secure services.`);
+ assert.deepEqual(facts.preferredRoles,['Software Engineer']);
+ assert.deepEqual(facts.skills,['Python','JavaScript','React','Next.js','FastAPI','Node.js','PostgreSQL']);
+});

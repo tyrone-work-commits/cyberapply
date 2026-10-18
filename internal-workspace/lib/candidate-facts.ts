@@ -6,7 +6,8 @@ const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const sectionPattern = /^(?:summary|professional summary|profile|professional profile|objective|experience|work experience|professional experience|employment history|work history|projects|education|qualifications|certifications?|awards|publications|references|interests|languages|volunteering)\s*:?$/i;
 const skillsHeading = /^(?:technical skills|core skills|key skills|skills|core competencies|technical competencies|technologies)(?:\s*:\s*(.*))?$/i;
 const roleHeading = /^(?:target roles?|preferred roles?|desired roles?|target positions?|desired positions?|roles? sought|professional title)\s*:\s*(.+)$/i;
-const roleTitle = /\b(?:cyber\s*security|cybersecurity|information security|security|soc|grc|penetration|incident response|threat intelligence|cloud security)\b.*\b(?:analyst|engineer|specialist|consultant|architect|researcher|tester|manager|lead|officer)\b|\b(?:penetration tester|incident responder)\b/i;
+const roleTitle = /^(?:(?:junior|senior|lead|principal|staff|associate)\s+)?(?:(?:cyber\s*security|cybersecurity|information security|security|soc|grc|cloud security|software|data|network|systems|application|devops|platform|incident response|threat intelligence)\s+)?(?:analyst|engineer|specialist|consultant|architect|researcher|tester|manager|officer|developer|administrator|responder)$|^(?:(?:junior|senior|lead|principal|staff|associate)\s+)?penetration tester$/i;
+const skillCategory = /^(?:programming languages?|languages?|frontend|front end|backend|back end|databases?|machine learning(?:\s*&\s*data)?|data|tools?(?:\s*&\s*platforms?)?|platforms?|frameworks?|cloud|security tools?|other skills?)\s*:\s*/i;
 
 function cleanLine(line: string) { return line.replace(/\s+/g, ' ').trim(); }
 function cleanItem(value: string) { return value.replace(/^[\s•*\-–—]+/, '').replace(/[.;:]+$/, '').trim(); }
@@ -46,8 +47,8 @@ export function extractCandidateFacts(text: string): Partial<CandidateFacts> {
       if (sectionPattern.test(line) || skillsHeading.test(line) || roleHeading.test(line)) break;
       values.push(line);
     }
-    const items = values.join('\n').split(/[,;|•\n]/).map(cleanItem).map(item => item.replace(/^(?:tools|languages|platforms|frameworks)\s*:\s*/i, '').trim())
-      .filter(item => item.length >= 2 && item.length <= 65 && item.split(/\s+/).length <= 6 && !/[.!?@]/.test(item) && !/\b(?:experience|experienced|worked|using|developed|responsible|supported|managed)\b/i.test(item) && !/^(?:and|or|none)$/i.test(item));
+    const items = values.join('\n').split(/[,;|•\n]/).map(cleanItem).map(item => item.replace(skillCategory, '').trim())
+      .filter(item => item.length >= 2 && item.length <= 65 && item.split(/\s+/).length <= 6 && !/[!?@]/.test(item) && !/\b(?:experience|experienced|worked|using|developed|responsible|supported|managed)\b/i.test(item) && !/^(?:and|or|none)$/i.test(item));
     const deduped = [...new Map(items.map(item => [item.toLocaleLowerCase(), item])).values()].slice(0, 40);
     if (deduped.length) facts.skills = deduped;
   }

@@ -188,3 +188,9 @@ Uploading a readable PDF, DOCX or TXT in CV review now fills clearly stated full
 TypeScript, production build, 47 domain/extraction/queue tests, 30 CV-upload HTTP checks and 18 swipe HTTP checks passed locally. A fictional local browser upload showed name, email, skills and preferred role filled; Apply then opened Applications with a new **Not submitted** request that survived refresh. This validates the local behavior, not employer receipt. Real submission remains dependent on approved employer access (FDE-27).
 
 Private Site source `57405c3b7bf9caa7035f7aabc81b3536c1a5476a` deployed successfully as version 18 (`appgdep_6ad4dcc936c88191bbb03235fe5cb4c7`). A read-only hosted check showed the updated CV-review guidance and the existing Applications record with its **Not submitted** status; no real CV was uploaded and no hosted Apply request was created during this check.
+
+## 18 October 2026 — CV category and role refinement (private version 19)
+
+The CV autofill parser now recognizes common professional role headlines such as **Software Engineer** and removes labels such as **Programming Languages**, **Frontend**, **Backend** and **Databases** from listed skills. It retains technology names with periods, including Next.js and Node.js. Extracted facts remain suggestions until the candidate confirms them; unmentioned preferred roles are not invented from summary prose.
+
+The additional parser check passed, along with 48 domain/extraction/queue tests, TypeScript and production build. The local Worker passed 31 CV-upload HTTP checks, including a categorized skills CV and role headline. Private Site source `d4ae7ccc76038b05f1c1b8d9ae36a4f1973165d5` deployed successfully as version 19 (`appgdep_6ad4de94717881918a99ea71b9742c30`). Real employer submission remains unconnected.
