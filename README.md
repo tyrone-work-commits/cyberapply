@@ -194,3 +194,11 @@ Private Site source `57405c3b7bf9caa7035f7aabc81b3536c1a5476a` deployed successf
 The CV autofill parser now recognizes common professional role headlines such as **Software Engineer** and removes labels such as **Programming Languages**, **Frontend**, **Backend** and **Databases** from listed skills. It retains technology names with periods, including Next.js and Node.js. Extracted facts remain suggestions until the candidate confirms them; unmentioned preferred roles are not invented from summary prose.
 
 The additional parser check passed, along with 48 domain/extraction/queue tests, TypeScript and production build. The local Worker passed 31 CV-upload HTTP checks, including a categorized skills CV and role headline. Private Site source `d4ae7ccc76038b05f1c1b8d9ae36a4f1973165d5` deployed successfully as version 19 (`appgdep_6ad4de94717881918a99ea71b9742c30`). Real employer submission remains unconnected.
+
+## 18 October 2026 — Candidate facts links and location (private version 20)
+
+Candidate facts now includes optional **GitHub repository**, **LinkedIn link**, **Portfolio website** and **Location** fields. Professional links require public HTTPS URLs; location is free text. The values save with the private candidate profile, reappear after refresh and are captured with an Apply request. Older clients that omit the new fields retain existing values. Editing any field clears the accuracy confirmation for candidate review.
+
+TypeScript, production build and 46 relevant automated checks passed: 31 domain checks, six local Worker persistence/validation/ownership checks and nine agent-tool checks. Local and hosted browser inspections confirmed all four labelled inputs. No hosted candidate data was changed. The fields are manual; CV extraction for these new fields and real employer submission remain separate work.
+
+Private Site version 20 deployed successfully (source `5242530cc05e18772c3c1cb19e4d3dfe55e715a0`; deployment `appgdep_6ad529a05f7081919de9d5b8065ab703`).

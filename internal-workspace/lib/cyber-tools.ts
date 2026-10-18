@@ -3,7 +3,7 @@ import { matchJob, DomainError, connectionStatus } from './cyber-domain';
 import { defaultSearch, MAX_EMPLOYER_BOARDS } from './job-catalog';
 const string={type:'string'};const integer={type:'integer',minimum:0};
 const strings={type:'array',items:string,maxItems:80};
-const profileSchema={type:'object',additionalProperties:false,required:['fullName','email','skills','preferredRoles','resumeText','reviewed'],properties:{fullName:string,email:string,skills:strings,preferredRoles:strings,resumeText:string,reviewed:{type:'boolean'}}};
+const profileSchema={type:'object',additionalProperties:false,required:['fullName','email','skills','preferredRoles','resumeText','reviewed'],properties:{fullName:string,email:string,skills:strings,preferredRoles:strings,resumeText:string,reviewed:{type:'boolean'},githubRepositoryUrl:string,linkedInUrl:string,portfolioWebsiteUrl:string,location:string}};
 const jobSchema={type:'object',additionalProperties:false,required:['title','company','location','workMode','url','description','skills'],properties:{title:string,company:string,location:string,workMode:{type:'string',enum:['Remote','Hybrid','On-site','Unspecified']},url:string,description:string,skills:strings}};
 const definitions=[
  ['get_workspace','Read your workspace revision, saved jobs, drafts and recent action evidence. Read this before making a change.',{},[],true],

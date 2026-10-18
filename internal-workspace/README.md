@@ -181,3 +181,9 @@ Private Site source `57405c3b7bf9caa7035f7aabc81b3536c1a5476a` deployed as versi
 CV autofill now reads a plain professional headline such as **Software Engineer** and removes category labels from the skills under **Technical skills**. Names such as Next.js and Node.js remain intact. The candidate still reviews every populated field and confirms accuracy separately; a summary mention alone does not become a preferred role.
 
 TypeScript, production build, 48 domain/extraction/queue tests and 31 local CV-upload HTTP checks passed, including a categorized-skills upload. Private Site source `d4ae7ccc76038b05f1c1b8d9ae36a4f1973165d5` deployed successfully as version 19 (`appgdep_6ad4de94717881918a99ea71b9742c30`). No employer submission connection was added.
+
+## 18 October 2026 — Candidate facts links and location
+
+The CV review Candidate facts form offers optional GitHub repository, LinkedIn link, portfolio website and location fields. Links must be public HTTPS URLs. They save in the owner-specific profile, survive refresh and join Apply candidate snapshots. An older client saving the original profile fields does not erase these values. Editing a field clears accuracy confirmation until the candidate reviews updated facts. CV upload does not auto-extract these four fields.
+
+TypeScript, production build and 46 relevant checks passed (31 domain, six local Worker persistence/validation/ownership, nine MCP). Local and hosted browser inspections confirmed all four labelled inputs; the hosted account was not changed. Private Site version 20 deployed from source `5242530cc05e18772c3c1cb19e4d3dfe55e715a0` (`appgdep_6ad529a05f7081919de9d5b8065ab703`). Employer submission remains unconnected (FDE-27).

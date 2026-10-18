@@ -3,7 +3,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
-export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean };
+export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean; githubRepositoryUrl?: string; linkedInUrl?: string; portfolioWebsiteUrl?: string; location?: string };
 export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean; reviewSnapshot?:{score:number;at:string} };
@@ -29,7 +29,8 @@ export class DomainError extends Error { constructor(message: string, public sta
 const short = z.string().trim().max(200);
 const skills = z.array(z.string().trim().min(1).max(100)).max(80);
 const id = z.string().min(1).max(300);
-const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean() }).strict();
+const candidateLink = z.string().trim().max(2000).refine(value => { try { return !value || Boolean(safeJobUrl(value)); } catch { return false; } }, 'Use a public https:// link.').optional();
+const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional() }).strict();
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
@@ -45,7 +46,7 @@ export type Action = z.infer<typeof actionSchema>;
 export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'}>){return JSON.stringify([action.type,action.jobId,action.type==='save_job'?action.saved:action.type==='decide_job'?action.decision:action.decisionId||null]);}
 
 export function emptyState(email = ''): State {
-  return { profile: { fullName: '', email, skills: [], preferredRoles: [], resumeText: '', reviewed: false }, jobs: [], drafts: [], attachments: [], theme: 'paper', activity: [] };
+  return { profile: { fullName: '', email, skills: [], preferredRoles: [], resumeText: '', reviewed: false, githubRepositoryUrl: '', linkedInUrl: '', portfolioWebsiteUrl: '', location: '' }, jobs: [], drafts: [], attachments: [], theme: 'paper', activity: [] };
 }
 export function safeJobUrl(value: string) {
   if (!value) return '';
@@ -82,7 +83,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message = 'Your account profile is saved. Open your workspace to review your CV and explore jobs.';
   } else if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
-    state.profile = {...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
+    state.profile = {...state.profile, ...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) {
       state.resumeReview=state.profile.resumeText.trim().length>=20?analyzeResume(state.profile,at):undefined;
       if(state.resumeReview&&state.profile.resumeText===before.profile.resumeText&&before.resumeReview?.source)state.resumeReview.source=structuredClone(before.resumeReview.source);
