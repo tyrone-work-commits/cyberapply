@@ -16,10 +16,11 @@ function sourceName(job?: Job) {
   return `${job.source.provider === 'greenhouse' ? 'Greenhouse' : 'Lever'} · ${job.company}`;
 }
 
-export function ApplicationOverview({ applications, jobs, drafts }: {
+export function ApplicationOverview({ applications, jobs, drafts, profileReviewed }: {
   applications: ApplicationRequest[];
   jobs: Job[];
   drafts: Draft[];
+  profileReviewed: boolean;
 }) {
   const draftIds = new Set(drafts.map(draft => draft.id));
   const ordered = [...applications].sort((a, b) => b.at.localeCompare(a.at));
@@ -44,7 +45,7 @@ export function ApplicationOverview({ applications, jobs, drafts }: {
           <span className="badge">NOT SUBMITTED</span>
         </div>
         <p className="application-overview-source"><strong>Vacancy source:</strong> {sourceName(job)}</p>
-        <p className="application-overview-status">{application.reason === 'materials_changed' ? 'Your CV or materials changed after this request. Review them before applying on the employer site.' : 'An employer connection is needed to send this application automatically.'}</p>
+        <p className="application-overview-status">{!profileReviewed ? 'Review your candidate facts and CV before using these materials on the employer site.' : application.reason === 'materials_changed' ? 'Your CV or materials changed after this request. Review them before applying on the employer site.' : 'An employer connection is needed to send this application automatically.'}</p>
         <div className="application-overview-actions">
           {sourceUrl && <a className="button quiet" href={sourceUrl} target="_blank" rel="noopener noreferrer">View original vacancy<ExternalLink size={15}/></a>}
           {applyUrl && applyUrl !== sourceUrl && <a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer">Open application page<ExternalLink size={15}/></a>}

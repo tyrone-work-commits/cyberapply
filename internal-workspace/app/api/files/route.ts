@@ -1,6 +1,7 @@
 import { identity, load, save, files, response, failure } from '@/lib/cyber-store';
 import { DomainError, record, analyzeResume } from '@/lib/cyber-domain';
 import { extractResume } from '@/lib/resume-extraction';
+import { extractCandidateFacts } from '@/lib/candidate-facts';
 export const dynamic='force-dynamic';
 export async function POST(request:Request){
   let createdKey:string|undefined;
@@ -18,17 +19,19 @@ export async function POST(request:Request){
     const name=file.name.replace(/[\x00-\x1f\x7f/\\]/g,'_').slice(0,180)||'resume.txt';
     const bytes=new Uint8Array(await file.arrayBuffer());
     const extracted=await extractResume(bytes,name),{text,type}=extracted;
+    const facts=extractCandidateFacts(text);
     const id=crypto.randomUUID();createdKey=`owners/${encodeURIComponent(user.userId)}/${id}`;
     await files().put(createdKey,bytes,{httpMetadata:{contentType:type}});
     const at=new Date().toISOString();
     current.state.attachments.unshift({id,key:createdKey,name,type,size:file.size,createdAt:at,textExtracted:true});
     current.state.applications?.forEach(item=>{item.reason='materials_changed';});
-    current.state.profile.resumeText=text;current.state.profile.reviewed=false;
+    current.state.profile={...current.state.profile,...facts,resumeText:text,reviewed:false};
     current.state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;draft.updatedAt=at;}});
     current.state.resumeReview=analyzeResume(current.state.profile,at);
     current.state.resumeReview.source={fileId:id,name,format:extracted.format,pages:extracted.pages,warnings:extracted.warnings};
     current.state.attachments[0].reviewSnapshot={score:current.state.resumeReview.score,at};
-    const message=`CV uploaded and reviewed: ${current.state.resumeReview.score}/100. Your recommendations are ready. Check the extracted text and candidate facts before applying.`;
+    const filled=[facts.fullName&&'name',facts.email&&'email',facts.skills?.length&&'skills',facts.preferredRoles?.length&&'preferred roles'].filter(Boolean).join(', ');
+    const message=`CV uploaded and reviewed: ${current.state.resumeReview.score}/100. ${filled?`Candidate facts filled from the CV: ${filled}.`:'No candidate fields were clear enough to fill automatically.'} Check every field before using your application materials.`;
     record(current.state,'upload_file',message,'interface');
     const saved=await save(user,expected,current.state,'upload_file');createdKey=undefined;
     return response({user,...saved,message});

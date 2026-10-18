@@ -20,7 +20,7 @@ function saveFileReview(state:State){
  const file=state.attachments.find(item=>item.id===review.source?.fileId);
  if(file)file.reviewSnapshot={score:review.score,at:review.at};
 }
-export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'materials_changed'; sourceUrl: string };
+export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'candidate_review_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; pendingFileDeletions?:Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
@@ -91,7 +91,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) state.applications?.forEach(item => { item.reason = 'materials_changed'; });
     // A changed candidate profile invalidates readiness of previously reviewed drafts.
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) state.drafts.forEach(draft => { if (draft.status === 'ready') { draft.status = 'draft'; draft.version++; draft.updatedAt = at; } });
-    message = state.profile.reviewed ? 'Candidate facts reviewed and saved.' : 'Profile saved. Review the facts before applying.';
+    message = state.profile.reviewed ? 'Candidate facts reviewed and saved.' : 'Profile saved. Review the facts before using application materials.';
   } else if (action.type === 'add_job') {
     if (state.jobs.length >= 200) throw new DomainError('This pilot supports 200 saved listings. Export your workspace before adding more.', 409);
     const url = safeJobUrl(action.url);
@@ -111,7 +111,6 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
       if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
-      if (!state.profile.reviewed) throw new DomainError('Review and confirm your CV and candidate facts before applying.', 409);
       if (!safeJobUrl(job.url)) throw new DomainError('Add the original job listing URL before applying.', 409);
       const existing = state.applications?.find(item => item.jobId === job.id);
       if (existing) return {state, message: 'This application already needs action in Applications. No duplicate request was created; nothing has been submitted.'};
@@ -119,16 +118,16 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       let createdDraftId:string|undefined;
       if (!draft) {
         const match = matchJob(state, job);
-        const skillsSentence = match.matched.length ? `My reviewed candidate information lists ${match.matched.join(', ')}.` : 'Please review my candidate information against the requirements of this role.';
-        draft = { id: `draft-${decisionId}`, jobId: job.id, text: `Dear hiring team,\n\nI am interested in the ${job.title} position at ${job.company}. ${skillsSentence}\n\nI would welcome the opportunity to discuss the role.\n\nKind regards,\n${state.profile.fullName}`, status: 'draft', version: 1, createdAt: at, updatedAt: at };
+        const skillsSentence = state.profile.reviewed && match.matched.length ? `My reviewed candidate information lists ${match.matched.join(', ')}.` : 'I will review my candidate information against the requirements of this role.';
+        draft = { id: `draft-${decisionId}`, jobId: job.id, text: `Dear hiring team,\n\nI am interested in the ${job.title} position at ${job.company}. ${skillsSentence}\n\nI would welcome the opportunity to discuss the role.\n\nKind regards,\n${state.profile.fullName||'[Your name]'}`, status: 'draft', version: 1, createdAt: at, updatedAt: at };
         createdDraftId=draft.id;
         state.drafts.unshift(draft);
       }
-      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), at, status: 'needs_action', reason: 'connection_required', sourceUrl: job.url };
+      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), at, status: 'needs_action', reason: state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url };
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
       state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};
-      message = 'Apply request saved. An approved application connection is required; no application has been sent. Open Applications for the next step.';
+      message = state.profile.reviewed?'Apply request saved in Applications. An approved connection is required; no application has been sent.':'Apply request saved in Applications. Review your candidate facts and CV before using the materials; no application has been sent.';
     } else {
       if (state.applications?.some(item => item.jobId === job.id)) throw new DomainError('An Apply request already exists for this job. Open Applications.', 409);
       job.previousDisposition = job.disposition; job.decidedAt = at; job.disposition = 'passed';

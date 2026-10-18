@@ -16,7 +16,13 @@ for(const [bytes,name,format] of [[weakCV,'qa.txt','TXT'],[pdfCV(),'qa.pdf','PDF
  ok(current.state.profile.resumeText.includes(format==='TXT'?'Looking for a role':'Investigated 30 alerts')&&!current.state.profile.reviewed,`${format} extracts text and leaves candidate accuracy confirmation to the user`);
  const fresh=(await req('/api/workspace')).data;ok(JSON.stringify(fresh.state.resumeReview)===JSON.stringify(current.state.resumeReview),`${format} review survives reload`);
 }
-ok(current.state.profile.fullName===''&&current.state.profile.skills.length===0,'a CV can be assessed without inventing candidate facts');
+ok(current.state.profile.fullName==='QA Candidate'&&current.state.profile.email==='qa@example.test'&&current.state.profile.skills.includes('SIEM'),'clearly stated CV contact and skills fill candidate facts');
+ok(current.state.profile.preferredRoles.length===0,'a preferred role is not invented from summary prose');
+const targetedCV=strongCV.replace('QA Candidate','Amara Okafor').replace('qa@example.test','amara.okafor@example.test').replace('SUMMARY','Target role: SOC Analyst\nSUMMARY');
+const targeted=await upload(targetedCV,'target-role.txt');assert.equal(targeted.status,200,JSON.stringify(targeted.data));current=targeted.data;
+ok(current.state.profile.fullName==='Amara Okafor'&&current.state.profile.email==='amara.okafor@example.test','a newly uploaded CV replaces prior contact fields when stated');
+ok(current.state.profile.preferredRoles[0]==='SOC Analyst'&&current.state.profile.skills.includes('Python')&&!current.state.profile.reviewed,'explicit target role and skills persist without confirming candidate accuracy');
+ok((await req('/api/workspace')).data.state.profile.preferredRoles[0]==='SOC Analyst','autofilled facts survive workspace refresh');
 const original=structuredClone(current);
 for(const [bytes,name,expected] of [[pdfCV(''),'scanned.pdf',422],['not a pdf','wrong.pdf',422],['x'.repeat(120001),'long.txt',413],[docxCV(),'stale.docx',409]]){
  const result=await upload(bytes,name,name==='stale.docx'?current.revision-1:current.revision);ok(result.status===expected,`${name} is rejected with ${expected}`);

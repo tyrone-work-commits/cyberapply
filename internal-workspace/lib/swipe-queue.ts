@@ -24,7 +24,7 @@ export class SwipeQueue<T extends SwipeSnapshot>{
   const job=this.projected.state.jobs.find(job=>job.id===action.jobId);
   if(action.type==='save_job'&&job?.saved===action.saved)return;
   if(action.type==='decide_job'&&((action.decision==='pass'&&job?.disposition==='passed')||(action.decision==='apply'&&this.projected.state.applications?.some(item=>item.jobId===action.jobId))))return;
-  // Validate before removing a card; reviewed facts and original source gates still apply.
+  // Validate before removing a card; the original source and vacancy gates still apply.
   const result=reduceAction(this.projected.state,action,'interface',at);
   this.pending.push({action,at});this.projected={...this.projected,state:result.state};this.callbacks.change(this.projected,this.status);void this.drain();
  }

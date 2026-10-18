@@ -34,7 +34,7 @@ Greenhouse/Lever public job feeds do not grant application-submission permission
 
 ## CV review, identity and saved work
 
-Upload a searchable PDF, DOCX or UTF-8 TXT CV and receive an automatic ATS-style readiness score out of 100, evidence for six text checks and prioritized recommendations. The saved CV text and report persist together. Saving CV edits updates the report; changed text clears the old file attribution. Uploading always requires a fresh accuracy confirmation before applying.
+Upload a searchable PDF, DOCX or UTF-8 TXT CV and receive an automatic ATS-style readiness score out of 100, evidence for six text checks and prioritized recommendations. The saved CV text and report persist together. Stated name, email, skills and target roles fill Candidate facts where clearly identified; the candidate checks and confirms them before application materials can be marked ready. Saving CV edits updates the report; changed text clears the old file attribution. Uploading always clears the previous accuracy confirmation.
 
 The checks cover contact details (15), clear sections (15), measured impact (20), specific action bullets (20), skills with evidence (15) and length/readability (15). An incomplete profile does not block the initial review. Suggestions ask for truthful details rather than invented claims. This is deterministic English-language text guidance, not a proprietary employer ATS result, a job-specific match score, a hiring prediction or visual-layout/OCR assessment.
 
@@ -165,3 +165,13 @@ TypeScript and production build passed. Local browser inspection confirmed the e
 The Applications page now lists saved Apply requests separately from editable drafts. It uses existing owner-specific records and shows the request date, role, company, source provider or user-added provenance, original vacancy URL and **Not submitted** state. Source links are HTTPS-only; the request's captured URL is used for the original vacancy. The sidebar count reflects requests. Related draft materials remain accessible directly from each card.
 
 In a fictional local test account, a new Apply choice appeared immediately as the fifth request and was still present after refresh. The page displayed both a Greenhouse employer-board role and older user-added listings with their different source labels. TypeScript, production build and 36 relevant domain/swipe tests passed. The private Site source `ceafe6aa7cae1e85e442b9b0f9313f15b22b676e` deployed successfully as version 17 (`appgdep_6ad4d2b5967c8191b938060c9d9f2614`). A read-only hosted check showed the Applications empty state for the real account's zero Apply requests. No hosted real-user Apply action or employer submission was used for testing. Automatic employer submission remains the FDE-27 dependency.
+
+## 18 October 2026 — Direct Apply navigation and CV fact autofill
+
+Apply from Explore now creates an owner-specific **unsent** request and opens Applications immediately, even when Candidate facts need review. Applications shows a clear review notice and a link to the candidate form. The application draft cannot be marked ready until the candidate confirms its details. No employer application is sent by this action.
+
+Uploading a readable PDF, DOCX or TXT now fills Candidate facts from explicitly stated full name, email, skills section and target/preferred role or a clear role headline. It retains existing values when a field cannot be identified confidently and clears the accuracy checkbox for human review. It does not infer skills or aspirations from incidental prose. The extracted CV text and file-linked score continue to save with the upload.
+
+Local verification: TypeScript and production build passed; 47 domain/extraction/queue tests, 30 CV-upload HTTP checks and 18 swipe HTTP checks passed. A fictional local browser upload showed the populated name, email, skills and preferred role, with the accuracy checkbox clear. Apply opened Applications directly with a new **Not submitted** entry that remained after refresh. Employer submission remains unconnected (FDE-27).
+
+Private Site source `57405c3b7bf9caa7035f7aabc81b3536c1a5476a` deployed as version 18 (`appgdep_6ad4dcc936c88191bbb03235fe5cb4c7`). Hosted read-only verification showed the updated upload guidance and an existing Applications record still marked **Not submitted**. No real CV upload or new hosted Apply request was used for testing.
