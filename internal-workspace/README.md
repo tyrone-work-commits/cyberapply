@@ -152,4 +152,10 @@ Validation for this change: TypeScript and production build passed; **52 relevan
 
 The Candidate facts form now explains that the saved name, email, skills, preferred roles and CV text support CV assessment, job fit and application materials. It asks the candidate to check and correct the details, clarifies that the accuracy checkbox is separate from the CV score, and notes that changed facts require ready drafts to be reviewed again. This is a wording-only change; scoring, saved records, Apply status and access are unchanged.
 
+## 18 October 2026 — Guide an interrupted Apply request
+
+When a candidate selects Apply before confirming their facts, the app now takes them directly to the Candidate facts heading and shows which details need attention. The selected job remains in memory while they check the facts and save the accuracy confirmation. A separate Continue Apply click then records the same job as an unsent request in Applications. It never checks the confirmation box automatically or claims employer submission.
+
+Local checks passed: 36 domain/swipe tests, TypeScript, production build, and a fictional browser journey from Apply through confirmation to the unsent request. Site source `3556c004966d414517b7f7b21eed9fbea52fcdfe` was saved as private version 16. Deployment is pending because automatic approval review reported that the workspace is out of credits. The live Site still serves version 15 until publication succeeds. Employer submission remains unconnected (FDE-27).
+
 TypeScript and production build passed. Local browser inspection confirmed the explanation directly below the section heading at desktop and 320px phone widths, with no horizontal overflow. No new automated test was added for this text-only change. Hosted verification follows publication.
