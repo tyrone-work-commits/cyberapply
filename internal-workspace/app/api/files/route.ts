@@ -27,6 +27,7 @@ export async function POST(request:Request){
     current.state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;draft.updatedAt=at;}});
     current.state.resumeReview=analyzeResume(current.state.profile,at);
     current.state.resumeReview.source={fileId:id,name,format:extracted.format,pages:extracted.pages,warnings:extracted.warnings};
+    current.state.attachments[0].reviewSnapshot={score:current.state.resumeReview.score,at};
     const message=`CV uploaded and reviewed: ${current.state.resumeReview.score}/100. Your recommendations are ready. Check the extracted text and candidate facts before applying.`;
     record(current.state,'upload_file',message,'interface');
     const saved=await save(user,expected,current.state,'upload_file');createdKey=undefined;

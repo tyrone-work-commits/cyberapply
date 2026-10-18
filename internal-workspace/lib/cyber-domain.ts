@@ -6,10 +6,20 @@ export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
 export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean };
 export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
-export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean };
+export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean; reviewSnapshot?:{score:number;at:string} };
 export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };
 export type ResumeCheck = { title: string; points: number; possible: number; evidence: string; suggestion: string };
 export type ResumeReview = { score: number; words: number; at: string; checks: ResumeCheck[]; source?:{fileId:string;name:string;format:'PDF'|'DOCX'|'TXT';pages?:number;warnings:string[]} };
+export function fileReviewScore(file:Attachment,review?:ResumeReview){
+ if(review?.source?.fileId===file.id)return{score:review.score,at:review.at};
+ return file.reviewSnapshot;
+}
+function saveFileReview(state:State){
+ const review=state.resumeReview;
+ if(!review?.source)return;
+ const file=state.attachments.find(item=>item.id===review.source?.fileId);
+ if(file)file.reviewSnapshot={score:review.score,at:review.at};
+}
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
@@ -76,6 +86,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) {
       state.resumeReview=state.profile.resumeText.trim().length>=20?analyzeResume(state.profile,at):undefined;
       if(state.resumeReview&&state.profile.resumeText===before.profile.resumeText&&before.resumeReview?.source)state.resumeReview.source=structuredClone(before.resumeReview.source);
+      saveFileReview(state);
     }
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) state.applications?.forEach(item => { item.reason = 'materials_changed'; });
     // A changed candidate profile invalidates readiness of previously reviewed drafts.
@@ -158,6 +169,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const reviewSource=state.resumeReview?.source;
     state.resumeReview = analyzeResume(state.profile, at);
     if(reviewSource)state.resumeReview.source=reviewSource;
+    saveFileReview(state);
     message = `CV readiness review saved: ${state.resumeReview.score}/100 using six explainable text checks. Employer ATS scores can differ.`;
   }
   if(operationId)state.decisionOperations=[...(state.decisionOperations||[]),{id:operationId,signature}].slice(-100);

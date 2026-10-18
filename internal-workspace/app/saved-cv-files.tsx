@@ -1,13 +1,19 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import {FileText,Eye,Download,Trash2,X,LoaderCircle} from 'lucide-react';
-import type {Attachment} from '@/lib/cyber-domain';
+import {fileReviewScore,type Attachment,type ResumeReview} from '@/lib/cyber-domain';
 
-export function SavedCVFiles({files,pending=[],busy,onDelete}:{files:Attachment[];pending?:Attachment[];busy:boolean;onDelete:(id:string)=>Promise<boolean>}){
+export function SavedCVFiles({files,review,pending=[],busy,onDelete}:{files:Attachment[];review?:ResumeReview;pending?:Attachment[];busy:boolean;onDelete:(id:string)=>Promise<boolean>}){
  const [selected,setSelected]=useState<Attachment|null>(null);
  const heading=useRef<HTMLHeadingElement>(null);
- return <section className="panel saved-cv-files"><div className="panel-icon"><FileText size={20}/></div><h3 ref={heading} tabIndex={-1}>Your saved CV files</h3><p className="subtle">View or download the original files. Deleting a file keeps your extracted CV text, quality review and saved history.</p>
- {files.length?<ul className="cv-file-list">{files.map(file=><li key={file.id} className="cv-file-row"><div className="cv-file-info"><FileText size={17}/><div><strong>{file.name}</strong><small>{Math.ceil(file.size/1024)} KB · {file.textExtracted?'Text imported for review':'Earlier file; text not imported'}</small></div></div><div className="cv-file-actions" role="group" aria-label={`Actions for ${file.name}`}><a className="cv-file-action" href={`/api/files/${encodeURIComponent(file.id)}?view=1`} target="_blank" rel="noopener noreferrer" aria-label={`View ${file.name}`} title="View CV (opens a new tab)"><Eye size={18}/></a><a className="cv-file-action" href={`/api/files/${encodeURIComponent(file.id)}`} download aria-label={`Download ${file.name}`} title="Download CV"><Download size={18}/></a><button type="button" className="cv-file-action cv-file-delete" disabled={busy} onClick={()=>setSelected(file)} aria-label={`Delete ${file.name}`} title="Delete saved CV file"><Trash2 size={18}/></button></div></li>)}</ul>:<p className="subtle cv-files-empty">No saved CV files. Upload a CV above to get started.</p>}
+ return <section className="panel saved-cv-files"><div className="panel-icon"><FileText size={20}/></div><h3 ref={heading} tabIndex={-1}>Your saved CV files</h3><p className="subtle">Each score belongs to the file shown beside it and reflects its latest saved text review. View or download the original file; deleting it keeps your CV text, quality review and history.</p>
+ {files.length?<ul className="cv-file-list">{files.map(file=>{
+   const result=fileReviewScore(file,review);
+   return <li key={file.id} className="cv-file-row"><div className="cv-file-info"><FileText size={17}/><div>
+    <div className="cv-file-title"><strong>{file.name}</strong>{result&&<span className="cv-file-score" aria-label={`CV text readiness score ${result.score} out of 100 for ${file.name}`} title="CV text readiness, not an employer ATS score"><span>CV readiness</span><b>{result.score}/100</b></span>}</div>
+    <small>{Math.ceil(file.size/1024)} KB · {result?`Reviewed ${new Date(result.at).toLocaleDateString()}`:file.textExtracted?'Score unavailable for this file':'Earlier file; not reviewed'}</small>
+   </div></div><div className="cv-file-actions" role="group" aria-label={`Actions for ${file.name}`}><a className="cv-file-action" href={`/api/files/${encodeURIComponent(file.id)}?view=1`} target="_blank" rel="noopener noreferrer" aria-label={`View ${file.name}`} title="View CV (opens a new tab)"><Eye size={18}/></a><a className="cv-file-action" href={`/api/files/${encodeURIComponent(file.id)}`} download aria-label={`Download ${file.name}`} title="Download CV"><Download size={18}/></a><button type="button" className="cv-file-action cv-file-delete" disabled={busy} onClick={()=>setSelected(file)} aria-label={`Delete ${file.name}`} title="Delete saved CV file"><Trash2 size={18}/></button></div></li>;
+  })}</ul>:<p className="subtle cv-files-empty">No saved CV files. Upload a CV above to get started.</p>}
  {pending.length>0&&<div className="cv-pending-deletions" role="status"><p className="subtle">These files are removed from your list and cannot be viewed or downloaded. Finish their storage cleanup:</p>{pending.map(file=><button type="button" className="button quiet" key={file.id} disabled={busy} onClick={()=>void onDelete(file.id)}><Trash2 size={16}/>Retry deletion: {file.name}</button>)}</div>}
  {selected&&<DeleteFileDialog file={selected} busy={busy} onDelete={onDelete} onClose={()=>setSelected(null)} fallbackFocus={()=>heading.current?.focus()}/>}
  </section>;

@@ -12,6 +12,7 @@ async function upload(bytes,name,revision=current.revision){const form=new FormD
 for(const [bytes,name,format] of [[weakCV,'qa.txt','TXT'],[pdfCV(),'qa.pdf','PDF'],[docxCV(),'qa.docx','DOCX']]){
  const result=await upload(bytes,name);assert.equal(result.status,200,JSON.stringify(result.data));current=result.data;
  ok(current.state.resumeReview.score>=0&&current.state.resumeReview.checks.length===6&&current.state.resumeReview.source.format===format,`${format} upload immediately produces six scored checks`);
+ ok(current.state.attachments[0].reviewSnapshot.score===current.state.resumeReview.score&&current.state.attachments[0].reviewSnapshot.at===current.state.resumeReview.at,`${format} stores its own file-linked score`);
  ok(current.state.profile.resumeText.includes(format==='TXT'?'Looking for a role':'Investigated 30 alerts')&&!current.state.profile.reviewed,`${format} extracts text and leaves candidate accuracy confirmation to the user`);
  const fresh=(await req('/api/workspace')).data;ok(JSON.stringify(fresh.state.resumeReview)===JSON.stringify(current.state.resumeReview),`${format} review survives reload`);
 }
