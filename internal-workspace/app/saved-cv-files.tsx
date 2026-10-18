@@ -1,0 +1,21 @@
+"use client";
+import {useEffect,useRef,useState} from 'react';
+import {FileText,Eye,Download,Trash2,X,LoaderCircle} from 'lucide-react';
+import type {Attachment} from '@/lib/cyber-domain';
+
+export function SavedCVFiles({files,pending=[],busy,onDelete}:{files:Attachment[];pending?:Attachment[];busy:boolean;onDelete:(id:string)=>Promise<boolean>}){
+ const [selected,setSelected]=useState<Attachment|null>(null);
+ const heading=useRef<HTMLHeadingElement>(null);
+ return <section className="panel saved-cv-files"><div className="panel-icon"><FileText size={20}/></div><h3 ref={heading} tabIndex={-1}>Your saved CV files</h3><p className="subtle">View or download the original files. Deleting a file keeps your extracted CV text, quality review and saved history.</p>
+ {files.length?<ul className="cv-file-list">{files.map(file=><li key={file.id} className="cv-file-row"><div className="cv-file-info"><FileText size={17}/><div><strong>{file.name}</strong><small>{Math.ceil(file.size/1024)} KB · {file.textExtracted?'Text imported for review':'Earlier file; text not imported'}</small></div></div><div className="cv-file-actions" role="group" aria-label={`Actions for ${file.name}`}><a className="cv-file-action" href={`/api/files/${encodeURIComponent(file.id)}?view=1`} target="_blank" rel="noopener noreferrer" aria-label={`View ${file.name}`} title="View CV (opens a new tab)"><Eye size={18}/></a><a className="cv-file-action" href={`/api/files/${encodeURIComponent(file.id)}`} download aria-label={`Download ${file.name}`} title="Download CV"><Download size={18}/></a><button type="button" className="cv-file-action cv-file-delete" disabled={busy} onClick={()=>setSelected(file)} aria-label={`Delete ${file.name}`} title="Delete saved CV file"><Trash2 size={18}/></button></div></li>)}</ul>:<p className="subtle cv-files-empty">No saved CV files. Upload a CV above to get started.</p>}
+ {pending.length>0&&<div className="cv-pending-deletions" role="status"><p className="subtle">These files are removed from your list and cannot be viewed or downloaded. Finish their storage cleanup:</p>{pending.map(file=><button type="button" className="button quiet" key={file.id} disabled={busy} onClick={()=>void onDelete(file.id)}><Trash2 size={16}/>Retry deletion: {file.name}</button>)}</div>}
+ {selected&&<DeleteFileDialog file={selected} busy={busy} onDelete={onDelete} onClose={()=>setSelected(null)} fallbackFocus={()=>heading.current?.focus()}/>}
+ </section>;
+}
+function DeleteFileDialog({file,busy,onDelete,onClose,fallbackFocus}:{file:Attachment;busy:boolean;onDelete:(id:string)=>Promise<boolean>;onClose:()=>void;fallbackFocus:()=>void}){
+ const dialog=useRef<HTMLDialogElement>(null);
+ const [localError,setLocalError]=useState('');
+ useEffect(()=>{const previous=document.activeElement as HTMLElement;dialog.current?.showModal();return()=>{if(previous?.isConnected)previous.focus();else fallbackFocus();};},[]);
+ async function remove(){setLocalError('');if(await onDelete(file.id))onClose();else setLocalError('The deletion could not be confirmed. Check the message in your workspace, reload saved records if needed, then try again.');}
+ return <dialog ref={dialog} className="modal cv-delete-dialog" aria-labelledby="cv-delete-title" aria-describedby="cv-delete-description" onCancel={event=>{event.preventDefault();if(!busy)onClose();}}><div className="modal-head"><h2 id="cv-delete-title">Delete saved CV file?</h2><button type="button" className="button quiet icon-button" disabled={busy} aria-label="Close delete dialog" onClick={onClose}><X size={18}/></button></div><p className="cv-delete-name">{file.name}</p><p id="cv-delete-description" className="subtle">This permanently removes the uploaded file. Your extracted CV text, quality review, application materials and saved text history will stay. You can upload the file again later.</p>{localError&&<p className="inline-error" role="alert">{localError}</p>}<div className="row-actions cv-delete-actions"><button type="button" className="button quiet" disabled={busy} autoFocus onClick={onClose}>Cancel</button><button type="button" className="button cv-confirm-delete" disabled={busy} onClick={()=>void remove()}>{busy?<LoaderCircle size={17} className="spin"/>:<Trash2 size={17}/>}Delete file</button></div></dialog>;
+}

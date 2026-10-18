@@ -116,3 +116,19 @@ Additional commands:
 node --test tests/resume-extraction.test.mjs
 node tests/resume-http.test.mjs
 ```
+
+
+## 18 October 2026 — View, download and delete saved CV originals
+
+Each row in **Your saved CV files** now has separate **View → Download → Delete** controls, with accessible file-specific labels and 44px targets. PDF and TXT open privately inline in a new tab; DOCX opens a private escaped text preview with a link to the original. Word preview does not preserve document layout or contact an external document service.
+
+Deleting requires an explicit file confirmation and the current workspace revision. It removes the original R2 object and its active attachment entry while preserving extracted CV text, the readiness report, candidate accuracy status, drafts, Apply snapshots and immutable text history. Unsaved candidate edits in the open form are retained. Cancellation makes no request. Private reads exclude removed files immediately. Storage or cleanup failures retain a durable pending entry with an explicit Retry deletion action, rather than reporting an unverified success or silently repeating a mutation.
+
+Validation for this change: TypeScript and production build passed; **120 checks** passed (25 domain, 9 file-action/recovery/escaping, 8 parser, 27 file-action HTTP, 23 CV HTTP, 19 existing HTTP/storage and 9 MCP). Compiled Worker checks cover private inline previews, original downloads, HTML escaping/CSP, owner isolation, confirmation, stale and cross-origin deletion rejection, preserved CV text/report, persistence after reload and deletion history. Fault tests cover storage failure, cleanup conflict, unchanged original on an initial save conflict and preservation of concurrent edits. Fictional test records are local only. Browser checks verified View → Download → Delete order, a visibly rendered PDF in a new private tab, original download, confirmation cancellation, deletion of a disposable local original, retained unsaved form edits, and deletion/report persistence after refresh. Controls measured 44×44px; the 320px dialog and 1366px page had no horizontal overflow. No real hosted CV was deleted. Deployment evidence is recorded in the root README and Linear after publication.
+
+Additional commands:
+
+```
+node --test tests/file-actions.test.mjs
+node tests/file-actions-http.test.mjs
+```
