@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 await mkdir('.sites-runtime/swipe-tests',{recursive:true});
-for(const name of ['cyber-domain','swipe-queue'])await writeFile(`.sites-runtime/swipe-tests/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './cyber-domain'","from './cyber-domain.mjs'"));
+for(const name of ['candidate-facts','cyber-domain','swipe-queue'])await writeFile(`.sites-runtime/swipe-tests/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './cyber-domain'","from './cyber-domain.mjs'").replace("from './candidate-facts'","from './candidate-facts.mjs'"));
 const {SwipeQueue}=await import('../.sites-runtime/swipe-tests/swipe-queue.mjs');
 const {emptyState,reduceAction}=await import('../.sites-runtime/swipe-tests/cyber-domain.mjs');
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 await mkdir('.sites-runtime/tests',{recursive:true});
-await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+await writeFile('.sites-runtime/tests/candidate-facts.mjs',ts.transpileModule(await readFile('lib/candidate-facts.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './candidate-facts'","from './candidate-facts.mjs'"));
 const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,connectionStatus}=await import('../.sites-runtime/tests/domain.mjs');
 const at='2026-10-17T12:00:00.000Z';
 const act=(s,a,time=at)=>reduceAction(s,actionSchema.parse(a),'interface',time).state;
@@ -23,6 +24,24 @@ test('candidate links and location save without losing values on an older profil
  for(const value of ['javascript:alert(1)','http://github.com/example/repo','https://localhost/repo','https://name:secret@example.com/repo']){
   assert.equal(actionSchema.safeParse({type:'save_profile',profile:{...profile,githubRepositoryUrl:value}}).success,false);
  }
+});
+
+test('Recheck refills saved CV facts, preserves the reviewed file, and invalidates stale materials',()=>{
+ const cv=`Amara Okafor\namara@example.test | Location: Lagos, Nigeria\nLinkedIn: www.linkedin.com/in/amara-okafor | Portfolio website: https://amara.example.test/\nTarget role: SOC Analyst\nSUMMARY\nSecurity analyst with incident response experience.\nSKILLS\nSIEM, Python\nPROJECTS\nGitHub: https://github.com/amara/security-toolkit\nEXPERIENCE\n- Investigated 30 alerts per day.`;
+ let state=act(act(emptyState(),listing),{type:'save_profile',profile:{...profile,fullName:'Previous Name',email:'previous@example.test',skills:['Old skill'],preferredRoles:['Old role'],resumeText:cv,reviewed:true}});
+ state=apply(state);
+ state=act(state,{type:'mark_ready',draftId:state.drafts[0].id,expectedVersion:1,confirmation:'REVIEWED'});
+ state.attachments=[{id:'saved-cv',key:'owners/qa/saved-cv',name:'saved-cv.txt',type:'text/plain',size:cv.length,createdAt:at,textExtracted:true}];
+ state.resumeReview.source={fileId:'saved-cv',name:'saved-cv.txt',format:'TXT',warnings:[]};
+ const oldSnapshot=structuredClone(state.applications[0].candidate);
+ const refreshed=act(state,{type:'review_resume'},'2026-10-18T12:00:00.000Z');
+ assert.deepEqual({name:refreshed.profile.fullName,email:refreshed.profile.email,skills:refreshed.profile.skills,roles:refreshed.profile.preferredRoles,github:refreshed.profile.githubRepositoryUrl,linkedIn:refreshed.profile.linkedInUrl,portfolio:refreshed.profile.portfolioWebsiteUrl,location:refreshed.profile.location},{name:'Amara Okafor',email:'amara@example.test',skills:['SIEM','Python'],roles:['SOC Analyst'],github:'https://github.com/amara/security-toolkit',linkedIn:'https://www.linkedin.com/in/amara-okafor',portfolio:'https://amara.example.test/',location:'Lagos, Nigeria'});
+ assert.equal(refreshed.profile.reviewed,false);
+ assert.equal(refreshed.resumeReview.source.fileId,'saved-cv');
+ assert.equal(refreshed.attachments[0].reviewSnapshot.score,refreshed.resumeReview.score);
+ assert.equal(refreshed.drafts[0].status,'draft');
+ assert.equal(refreshed.applications[0].reason,'materials_changed');
+ assert.deepEqual(refreshed.applications[0].candidate,oldSnapshot);
 });
 
 test('CV score is useful without onboarding facts, with clear missing-contact advice',()=>{const base={...profile,fullName:'',email:'',skills:[]};const weak=analyzeResume({...base,resumeText:'I am interested in working in cybersecurity.'},at);assert.equal(weak.checks[0].points,0);assert.match(weak.checks[0].suggestion,/email and phone/);assert.equal(weak.checks[1].points,0);const strong=analyzeResume({...base,resumeText:profile.resumeText+'\n+234 801 234 5678'},at);assert.ok(strong.score>weak.score);assert.ok(strong.score<=100);assert.equal(strong.checks.reduce((n,c)=>n+c.possible,0),100);});

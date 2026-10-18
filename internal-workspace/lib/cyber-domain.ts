@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
+import { extractCandidateFacts } from './candidate-facts';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -167,10 +168,20 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
     const reviewSource=state.resumeReview?.source;
+    const facts=extractCandidateFacts(state.profile.resumeText);
+    const previousProfile=structuredClone(state.profile);
+    state.profile={...state.profile,...facts};
+    const factsChanged=JSON.stringify(state.profile)!==JSON.stringify(previousProfile);
+    if(factsChanged){
+      state.profile.reviewed=false;
+      state.applications?.forEach(item=>{item.reason='materials_changed';});
+      state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;draft.updatedAt=at;}});
+    }
     state.resumeReview = analyzeResume(state.profile, at);
     if(reviewSource)state.resumeReview.source=reviewSource;
     saveFileReview(state);
-    message = `CV readiness review saved: ${state.resumeReview.score}/100 using six explainable text checks. Employer ATS scores can differ.`;
+    const fields=Object.keys(facts).map(key=>({fullName:'name',email:'email',skills:'skills',preferredRoles:'preferred roles',githubRepositoryUrl:'GitHub repository',linkedInUrl:'LinkedIn link',portfolioWebsiteUrl:'portfolio website',location:'location'}[key as keyof typeof facts]));
+    message = `CV rechecked: ${state.resumeReview.score}/100. ${fields.length?`Candidate facts refreshed from saved CV: ${fields.join(', ')}. ${factsChanged?'Review the changed facts and confirm accuracy.':'No values changed.'}`:'No candidate details were clear enough to refill.'} Employer ATS scores can differ.`;
   }
   if(operationId)state.decisionOperations=[...(state.decisionOperations||[]),{id:operationId,signature}].slice(-100);
   record(state, action.type, message, source, at);

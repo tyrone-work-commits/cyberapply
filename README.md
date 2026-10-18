@@ -202,3 +202,11 @@ Candidate facts now includes optional **GitHub repository**, **LinkedIn link**, 
 TypeScript, production build and 46 relevant automated checks passed: 31 domain checks, six local Worker persistence/validation/ownership checks and nine agent-tool checks. Local and hosted browser inspections confirmed all four labelled inputs. No hosted candidate data was changed. The fields are manual; CV extraction for these new fields and real employer submission remain separate work.
 
 Private Site version 20 deployed successfully (source `5242530cc05e18772c3c1cb19e4d3dfe55e715a0`; deployment `appgdep_6ad529a05f7081919de9d5b8065ab703`).
+
+## 18 October 2026 — Recheck saved CV refills Candidate facts (private version 21)
+
+**Recheck saved CV** now re-extracts facts from the saved CV text associated with the current review, recalculates the score and refreshes the open Candidate facts form. It fills clearly stated name, email, skills, preferred role, GitHub repository, LinkedIn profile, portfolio website and location. Missing or ambiguous details retain existing values. A GitHub profile link alone does not fill the repository field; when the CV lists projects, the first stated repository link is proposed for review. Bare LinkedIn links are normalized to HTTPS, and unsafe/private URLs are ignored.
+
+When extracted values change, the candidate's accuracy confirmation is cleared, ready drafts return to review, and unsent Apply requests are flagged as changed materials. Existing application snapshots and the saved CV source remain intact. Recheck moves focus to Candidate facts so the user can inspect and confirm the refreshed details. The app does not claim that an employer has received an application.
+
+TypeScript and production build passed. **77 unit checks**, **36 local compiled-Worker CV HTTP checks** and **nine MCP checks** passed. A fictional local browser check saved a temporary name, clicked Recheck, and saw the CV name restored with the form updated. No hosted CV or profile was modified for testing. Private Site version 21 uses source `bdc0ff310c32f92d0343e34c33664d19a2db5245` and deployment `appgdep_6ad52e943acc8191a42b9c04fc9afe56`.

@@ -30,7 +30,7 @@ export async function POST(request:Request){
     current.state.resumeReview=analyzeResume(current.state.profile,at);
     current.state.resumeReview.source={fileId:id,name,format:extracted.format,pages:extracted.pages,warnings:extracted.warnings};
     current.state.attachments[0].reviewSnapshot={score:current.state.resumeReview.score,at};
-    const filled=[facts.fullName&&'name',facts.email&&'email',facts.skills?.length&&'skills',facts.preferredRoles?.length&&'preferred roles'].filter(Boolean).join(', ');
+    const filled=[facts.fullName&&'name',facts.email&&'email',facts.githubRepositoryUrl&&'GitHub repository',facts.linkedInUrl&&'LinkedIn link',facts.portfolioWebsiteUrl&&'portfolio website',facts.location&&'location',facts.skills?.length&&'skills',facts.preferredRoles?.length&&'preferred roles'].filter(Boolean).join(', ');
     const message=`CV uploaded and reviewed: ${current.state.resumeReview.score}/100. ${filled?`Candidate facts filled from the CV: ${filled}.`:'No candidate fields were clear enough to fill automatically.'} Check every field before using your application materials.`;
     record(current.state,'upload_file',message,'interface');
     const saved=await save(user,expected,current.state,'upload_file');createdKey=undefined;

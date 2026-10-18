@@ -1,6 +1,6 @@
 import type { Profile } from './cyber-domain';
 
-export type CandidateFacts = Pick<Profile, 'fullName' | 'email' | 'skills' | 'preferredRoles'>;
+export type CandidateFacts = Pick<Profile, 'fullName' | 'email' | 'skills' | 'preferredRoles' | 'githubRepositoryUrl' | 'linkedInUrl' | 'portfolioWebsiteUrl' | 'location'>;
 
 const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
 const sectionPattern = /^(?:summary|professional summary|profile|professional profile|objective|experience|work experience|professional experience|employment history|work history|projects|education|qualifications|certifications?|awards|publications|references|interests|languages|volunteering)\s*:?$/i;
@@ -8,6 +8,24 @@ const skillsHeading = /^(?:technical skills|core skills|key skills|skills|core c
 const roleHeading = /^(?:target roles?|preferred roles?|desired roles?|target positions?|desired positions?|roles? sought|professional title)\s*:\s*(.+)$/i;
 const roleTitle = /^(?:(?:junior|senior|lead|principal|staff|associate)\s+)?(?:(?:cyber\s*security|cybersecurity|information security|security|soc|grc|cloud security|software|data|network|systems|application|devops|platform|incident response|threat intelligence)\s+)?(?:analyst|engineer|specialist|consultant|architect|researcher|tester|manager|officer|developer|administrator|responder)$|^(?:(?:junior|senior|lead|principal|staff|associate)\s+)?penetration tester$/i;
 const skillCategory = /^(?:programming languages?|languages?|frontend|front end|backend|back end|databases?|machine learning(?:\s*&\s*data)?|data|tools?(?:\s*&\s*platforms?)?|platforms?|frameworks?|cloud|security tools?|other skills?)\s*:\s*/i;
+const urlPattern = /(?:https?:\/\/|www\.|github\.com\/|(?:[a-z]{2,3}\.)?linkedin\.com\/)[^\s|<>"'()[\]{}]+/gi;
+
+function publicLink(raw: string) {
+  const value = raw.replace(/[.,;:!?]+$/, '');
+  if (value.length > 2000 || /^http:\/\//i.test(value)) return;
+  try {
+    const url = new URL(/^https:\/\//i.test(value) ? value : `https://${value}`);
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== 'https:' || url.username || url.password || !host.includes('.') ||
+      /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host) || host.endsWith('.local') || host.startsWith('[')) return;
+    return url;
+  } catch { return; }
+}
+
+function linksAfterLabel(text: string, label: RegExp) {
+  return text.slice(0, 120000).split(/\r?\n|\s*\|\s*/).filter(segment => label.test(segment))
+    .flatMap(segment => [...segment.matchAll(urlPattern)].map(match => publicLink(match[0])).filter((url): url is URL => !!url));
+}
 
 function cleanLine(line: string) { return line.replace(/\s+/g, ' ').trim(); }
 function cleanItem(value: string) { return value.replace(/^[\s•*\-–—]+/, '').replace(/[.;:]+$/, '').trim(); }
@@ -52,5 +70,17 @@ export function extractCandidateFacts(text: string): Partial<CandidateFacts> {
     const deduped = [...new Map(items.map(item => [item.toLocaleLowerCase(), item])).values()].slice(0, 40);
     if (deduped.length) facts.skills = deduped;
   }
+
+  const repository = linksAfterLabel(text, /\bgithub(?:\s+(?:repository|repo))?\b/i)
+    .find(url => url.hostname.toLowerCase() === 'github.com' && url.pathname.split('/').filter(Boolean).length >= 2);
+  if (repository) facts.githubRepositoryUrl = repository.href;
+  const linkedIn = linksAfterLabel(text, /\blinkedin(?:\s+(?:profile|link))?\b/i)
+    .find(url => /^(?:[a-z]{2,3}\.)?linkedin\.com$/i.test(url.hostname) && /^\/(?:in|pub)\/[^/]+/i.test(url.pathname));
+  if (linkedIn) facts.linkedInUrl = linkedIn.href;
+  const portfolio = linksAfterLabel(text, /\b(?:portfolio(?:\s+(?:website|site|link))?|personal\s+website)\b/i)[0];
+  if (portfolio) facts.portfolioWebsiteUrl = portfolio.href;
+  const location = lines.slice(0, 25).map(line => line.match(/(?:^|[|•])\s*(?:location|current location|based in)\s*[:\-]\s*([^|]+)/i)?.[1]?.trim())
+    .find(value => value && value.length <= 200 && !/@|https?:\/\/|www\.|\+?\d[\d ()\-.]{6,}\d/.test(value));
+  if (location) facts.location = location.replace(/[.;]+$/, '');
   return facts;
 }

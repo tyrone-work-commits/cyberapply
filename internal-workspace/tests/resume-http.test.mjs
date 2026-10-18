@@ -36,4 +36,19 @@ const history=(await req('/api/history')).data.items;ok(history.some(item=>item.
 const profile={...current.state.profile,resumeText:strongCV+'\nAdditional truthful local test edit.'};
 const edited=await req('/api/workspace',{body:{revision:current.revision,action:{type:'save_profile',profile}}});assert.equal(edited.status,200,JSON.stringify(edited.data));
 ok(edited.data.state.resumeReview.source===undefined&&edited.data.state.resumeReview.words>current.state.resumeReview.words,'saving changed CV text automatically re-assesses it without stale upload attribution');
+
+const recheckOwner=`cv-recheck-${randomUUID()}`;
+let recheckState=(await req('/api/workspace',{who:recheckOwner})).data;
+const linkedCV=`Amara Okafor\namara@example.test | Location: Lagos, Nigeria\nLinkedIn: www.linkedin.com/in/amara-okafor | Portfolio website: https://amara.example.test/\nTarget role: SOC Analyst\nSUMMARY\nSecurity analyst with incident response experience.\nSKILLS\nSIEM, Python\nPROJECTS\nGitHub: https://github.com/amara/security-toolkit\nEXPERIENCE\n- Investigated 30 alerts per day.`;
+const recheckForm=new FormData();recheckForm.set('revision',String(recheckState.revision));recheckForm.set('file',new File([linkedCV],'linked-cv.txt'));
+const linkedUpload=await req('/api/files',{who:recheckOwner,body:recheckForm});assert.equal(linkedUpload.status,200,JSON.stringify(linkedUpload.data));recheckState=linkedUpload.data;
+ok(recheckState.state.profile.githubRepositoryUrl==='https://github.com/amara/security-toolkit'&&recheckState.state.profile.linkedInUrl==='https://www.linkedin.com/in/amara-okafor'&&recheckState.state.profile.portfolioWebsiteUrl==='https://amara.example.test/'&&recheckState.state.profile.location==='Lagos, Nigeria','upload fills all four added Candidate facts from clear CV labels');
+const changedProfile={...recheckState.state.profile,fullName:'Prior name',email:'prior@example.test',skills:['Old skill'],preferredRoles:['Old role'],githubRepositoryUrl:'',linkedInUrl:'',portfolioWebsiteUrl:'',location:'',reviewed:true};
+let changed=await req('/api/workspace',{who:recheckOwner,body:{revision:recheckState.revision,action:{type:'save_profile',profile:changedProfile}}});assert.equal(changed.status,200,JSON.stringify(changed.data));recheckState=changed.data;
+const rechecked=await req('/api/workspace',{who:recheckOwner,body:{revision:recheckState.revision,action:{type:'review_resume'}}});assert.equal(rechecked.status,200,JSON.stringify(rechecked.data));recheckState=rechecked.data;
+ok(recheckState.state.profile.fullName==='Amara Okafor'&&recheckState.state.profile.email==='amara@example.test'&&recheckState.state.profile.skills.join(',')==='SIEM,Python'&&recheckState.state.profile.preferredRoles[0]==='SOC Analyst','Recheck refills existing Candidate facts from the saved CV');
+ok(recheckState.state.profile.githubRepositoryUrl==='https://github.com/amara/security-toolkit'&&recheckState.state.profile.linkedInUrl==='https://www.linkedin.com/in/amara-okafor'&&recheckState.state.profile.portfolioWebsiteUrl==='https://amara.example.test/'&&recheckState.state.profile.location==='Lagos, Nigeria','Recheck refills professional links and location');
+ok(!recheckState.state.profile.reviewed&&recheckState.state.resumeReview.source.fileId===linkedUpload.data.state.resumeReview.source.fileId,'Recheck requires renewed accuracy confirmation while retaining the reviewed CV source');
+const reloaded=(await req('/api/workspace',{who:recheckOwner})).data;
+ok(reloaded.state.profile.githubRepositoryUrl===recheckState.state.profile.githubRepositoryUrl&&reloaded.state.profile.location==='Lagos, Nigeria','refilled Candidate facts survive a fresh server read');
 console.log(JSON.stringify({checks,localOnly:true}));
