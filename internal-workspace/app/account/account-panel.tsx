@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Download, LogOut, ShieldCheck, Trash2, UserRound, LoaderCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, LogOut, ShieldCheck, Trash2, UserRound, LoaderCircle } from 'lucide-react';
 import { EntryBrand } from '../entry-screen';
 
 type AccountStatus={email:string;revision:number;deleting:boolean;files:number;jobs:number;applications:number};
@@ -44,6 +44,7 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
     <main className="account-main">
       <div className="account-intro"><span className="eyebrow">YOUR ACCOUNT</span><h1>Account settings</h1><p>Manage your CyberApply profile, sign out, or remove your private workspace.</p></div>
       <section className="panel account-section"><div className="account-section-heading"><UserRound size={21}/><div><h2>Signed in with ChatGPT</h2><p>{email}</p></div></div><div className="account-actions"><a className="button quiet" href="/onboarding">Edit account profile</a><a className="button quiet" href="/api/export"><Download size={16}/>Export my records</a></div></section>
+      <section className="panel account-section"><div className="account-section-heading"><BookOpen size={21}/><div><h2>App tutorial</h2><p>Walk through Explore, Saved, Applications, CV review, Activity and Settings again.</p></div></div><a className="button quiet" href="/workspace?tour=1"><BookOpen size={16}/>Replay tutorial</a></section>
       <section className="panel account-section"><div className="account-section-heading"><LogOut size={21}/><div><h2>Sign out</h2><p>End your CyberApply Site session on this browser. Your saved work stays here for next time.</p></div></div><a className="button quiet" href={signOutHref} target="_top"><LogOut size={16}/>Sign out</a></section>
       <section className="panel account-section account-danger"><div className="account-section-heading"><Trash2 size={21}/><div><h2>Delete CyberApply account and data</h2><p>This permanently removes your CyberApply profile, candidate facts, CV review and original files, saved jobs, application requests, drafts, activity, and version history. It does not delete your ChatGPT account or withdraw any application you made outside CyberApply.</p></div></div>
         {loading?<p className="subtle"><LoaderCircle size={15} className="spin"/> Checking your saved records…</p>:status&&<p className="subtle">{status.deleting?'A previous deletion was interrupted. Your workspace is locked until you retry.':`Saved here: ${status.files} CV file${status.files===1?'':'s'}, ${status.jobs} job${status.jobs===1?'':'s'}, ${status.applications} Apply request${status.applications===1?'':'s'}.`}</p>}

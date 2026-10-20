@@ -64,3 +64,13 @@
 @media(max-width:640px){.account-main{padding:28px 18px 90px}.account-main h1{font-size:30px}.account-actions{flex-direction:column}.account-actions .button,.account-delete-button{width:100%}.account-section{padding:20px}}
 
 a.mobile-brand{color:var(--text)}
+
+/* First-visit tour stays readable above every workspace tab. */
+.guided-tour{position:fixed;inset:auto 24px 24px auto;margin:0;width:min(430px,calc(100vw - 48px));max-height:min(82dvh,690px);overflow-y:auto;border:1px solid var(--line);border-radius:20px;background:var(--panel);color:var(--text);box-shadow:0 24px 80px #10271f5c;padding:25px 27px 23px}
+.guided-tour::backdrop{background:#10271f80;backdrop-filter:blur(2px)}
+.tour-top{display:flex;align-items:center;gap:10px}.tour-mark{width:37px;height:37px;display:grid;place-items:center;border-radius:11px;color:var(--accent);background:var(--accent-soft);flex-shrink:0}.tour-counter{font-size:10px;letter-spacing:1.1px;font-weight:700;color:var(--muted);flex:1}.tour-close{width:42px;height:42px;display:grid;place-items:center;border:0;border-radius:9px;background:transparent;color:var(--muted)}.tour-close:hover{background:var(--panel-soft);color:var(--text)}
+.tour-progress{display:flex;gap:5px;margin:19px 0 22px}.tour-progress span{height:4px;flex:1;border-radius:99px;background:var(--line)}.tour-progress span.filled{background:var(--accent)}
+.guided-tour h2{font-size:25px;line-height:1.22;letter-spacing:-.8px;margin:7px 0 12px;outline:none}.tour-description{font-size:13px;line-height:1.65;color:var(--muted)}.tour-points{list-style:none;margin:19px 0 25px;padding:0;display:grid;gap:11px}.tour-points li{display:flex;align-items:flex-start;gap:9px;font-size:12px;line-height:1.5}.tour-points svg{color:var(--accent);flex-shrink:0;margin-top:1px}.tour-error{color:var(--danger);font-size:12px;line-height:1.5;margin-bottom:15px}
+.tour-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:18px}.tour-actions>div{display:flex;gap:8px}.tour-actions .button{min-height:44px;padding:10px 13px;display:inline-flex;gap:7px;align-items:center}.tour-skip{border:0;background:transparent;color:var(--muted);font-size:11px;min-height:44px;padding:9px 5px}.tour-skip:hover{color:var(--accent)}
+@media(max-width:700px){.guided-tour{inset:auto 0 0 0;width:100%;max-width:none;max-height:78dvh;border-radius:20px 20px 0 0;padding:22px 22px calc(20px + env(safe-area-inset-bottom))}.guided-tour h2{font-size:23px}.tour-actions{align-items:stretch}.tour-actions>div{flex:1;justify-content:flex-end}}
+@media(max-width:390px){.guided-tour{padding-left:17px;padding-right:17px}.tour-actions .button{padding:9px 10px;font-size:11px}.tour-skip{font-size:10px}}

@@ -24,7 +24,7 @@ function saveFileReview(state:State){
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'candidate_review_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; pendingFileDeletions?:Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; pendingFileDeletions?:Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -35,6 +35,7 @@ const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.str
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
+  z.object({ type: z.literal('complete_tutorial') }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), operationId:z.string().uuid().optional() }).strict(),
@@ -82,6 +83,9 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   if (action.type === 'complete_onboarding') {
     state.accountProfile = {fullName:action.fullName,headline:action.headline,targetRole:action.targetRole,completedAt:at};
     message = 'Your account profile is saved. Open your workspace to review your CV and explore jobs.';
+  } else if (action.type === 'complete_tutorial') {
+    state.tutorialCompletedAt ||= at;
+    message = 'Tutorial saved. You can replay it from Settings.';
   } else if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...state.profile, ...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
