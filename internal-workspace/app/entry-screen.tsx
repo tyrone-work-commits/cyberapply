@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { ArrowRight, ShieldCheck, FileCheck2, Sparkles, Send, LockKeyhole, Check } from 'lucide-react';
 
-export function EntryBrand(){return <a className="brand" href="/" aria-label="CyberApply start"><span className="brand-icon"><ShieldCheck size={26}/></span>cyber<span>apply</span><i/></a>;}
+export function EntryBrand({href='/',label='CyberApply start'}:{href?:string;label?:string}){return <a className="brand" href={href} aria-label={label}><span className="brand-icon"><ShieldCheck size={26}/></span>cyber<span>apply</span><i/></a>;}
 export function EntrySteps({step}:{step:1|2|3}){return <ol className="entry-steps" aria-label="Getting started">{['Your account','Your profile','Your workspace'].map((label,index)=><li className={step===index+1?'current':step>index+1?'complete':''} aria-current={step===index+1?'step':undefined} key={label}><span>{step>index+1?<Check size={13}/>:index+1}</span>{label}</li>)}</ol>;}
 
 export default function EntryScreen({email,signInHref,signUpHref}:{email?:string;signInHref:string;signUpHref:string}){

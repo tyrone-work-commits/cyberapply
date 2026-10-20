@@ -60,7 +60,7 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
     }catch(failure){await refresh();setError((failure as Error).message);}finally{setBusy(false);}
   }
   return <div className="entry-shell account-shell">
-    <header className="entry-header"><EntryBrand/><a className="entry-back" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a></header>
+    <header className="entry-header"><EntryBrand href="/workspace" label="CyberApply — go to Explore"/><a className="entry-back" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a></header>
     <main className="account-main">
       <div className="account-intro"><span className="eyebrow">YOUR ACCOUNT</span><h1>Account settings</h1><p>Manage your CyberApply profile, sign out, or remove your private workspace.</p></div>
       <section className="panel account-section"><div className="account-section-heading"><UserRound size={21}/><div><h2>Signed in with ChatGPT</h2><p>{email}</p></div></div><div className="account-actions"><a className="button quiet" href="/onboarding">Edit account profile</a><a className="button quiet" href="/api/export"><Download size={16}/>Export my records</a></div></section>
