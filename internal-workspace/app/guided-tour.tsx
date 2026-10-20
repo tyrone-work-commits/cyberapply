@@ -19,7 +19,7 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'explore',title:'Undo',description:'Undo restores your latest reject, save or Apply choice when one is available.',target:'.swipe-actions .undo-button'},
  {area:'explore',title:'Apply',description:'Tap Apply or swipe right. Your request appears in Applications while you stay in Explore. It is not sent to an employer.',target:'.swipe-actions .apply-button'},
  {area:'saved',title:'Open Saved',description:'Use Saved to return to roles you bookmarked.',target:'.sidebar nav button:nth-child(2)',mobileTarget:'.mobile-nav button:nth-child(2)'},
- {area:'saved',title:'Saved jobs',description:'Bookmarked jobs appear here. Open, remove or choose Apply later. An empty page means you have not saved a job yet.',target:'.list-grid .listing-row',fallback:'.list-grid .empty-state'},
+ {area:'saved',title:'Saved jobs',description:'Bookmarked jobs appear here. Open, remove or choose Apply later. An empty page means you have not saved a job yet.',target:'.list-grid .listing-row .job-card-top',fallback:'.list-grid .empty-state'},
  {area:'applications',title:'Open Applications',description:'Use Applications to see every Apply request and what still needs action.',target:'.sidebar nav button:nth-child(3)',mobileTarget:'.mobile-nav button:nth-child(3)'},
  {area:'applications',title:'Connection status',description:'Automatic employer submission is not connected. This notice explains why an Apply request has not reached an employer.',target:'.connection-banner'},
  {area:'applications',title:'Apply requests',description:'See each Apply choice, its status and vacancy source. A saved request is not proof of submission.',target:'.application-overview-card',fallback:'.application-overview'},
