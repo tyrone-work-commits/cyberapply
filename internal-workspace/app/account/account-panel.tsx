@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Download, LogOut, ShieldCheck, Trash2, UserRound, LoaderCircle } from 'lucide-react';
 import { EntryBrand } from '../entry-screen';
+import { GuidedTour, tourSteps } from '../guided-tour';
 
 type AccountStatus={email:string;revision:number;deleting:boolean;files:number;jobs:number;applications:number};
 
@@ -11,6 +12,25 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [confirmation,setConfirmation]=useState('');
+  const [tourStep,setTourStep]=useState<number|null>(null);
+  const [tourBusy,setTourBusy]=useState(false);
+  const [tourError,setTourError]=useState('');
+  useEffect(()=>{const requested=Number(new URLSearchParams(window.location.search).get('tour'));if(Number.isInteger(requested)&&requested>=0&&requested<tourSteps.length&&tourSteps[requested].area==='account')setTourStep(requested);},[]);
+  async function finishTour(){
+    if(tourBusy)return;
+    setTourBusy(true);setTourError('');
+    try{
+      const response=await fetch('/api/workspace',{cache:'no-store'});
+      const packet=await response.json() as {revision:number;state:{tutorialCompletedAt?:string};error?:string};
+      if(!response.ok)throw new Error(packet.error||'The tour could not be saved.');
+      if(!packet.state.tutorialCompletedAt){
+        const saved=await fetch('/api/workspace',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:packet.revision,action:{type:'complete_tutorial'}})});
+        if(!saved.ok)throw new Error('The tour could not be saved. Please try again.');
+      }
+      window.location.assign('/workspace');
+    }catch(failure){setTourError((failure as Error).message);setTourBusy(false);}
+  }
+  function previousTourStep(){if(tourStep===null)return;const previous=tourStep-1;if(tourSteps[previous]?.area==='account')setTourStep(previous);else window.location.assign(`/workspace?tour=1&step=${previous}`);}
   async function refresh(){
     setLoading(true);setError('');
     try{
@@ -54,5 +74,6 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
       </section>
       {error&&<div className="notice error" role="alert"><strong>Something needs your attention</strong><span>{error}</span><button className="button quiet" type="button" onClick={()=>void refresh()}>Reload account</button></div>}
     </main><footer className="entry-footer"><span><ShieldCheck size={15}/> CyberApply · Covenda internal</span><span>Private to your ChatGPT identity</span></footer>
+    {tourStep!==null&&<GuidedTour step={tourStep} busy={tourBusy} error={tourError} onBack={previousTourStep} onNext={()=>tourStep===tourSteps.length-1?void finishTour():setTourStep(tourStep+1)} onExit={()=>void finishTour()}/>}
   </div>;
 }

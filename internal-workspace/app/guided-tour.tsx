@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 
-export type TourArea = 'explore'|'saved'|'applications'|'workspace'|'activity';
-type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string};
+export type TourArea = 'explore'|'saved'|'applications'|'workspace'|'activity'|'account';
+type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string;expandSources?:boolean};
 export const tourSteps:ReadonlyArray<Step>=[
  {area:'explore',title:'Welcome to CyberApply',description:'The logo takes you back to Explore. Follow the moving dot. Next and Back only move this guide; they will not change jobs or send applications.',target:'.sidebar .brand',mobileTarget:'.mobile-brand'},
  {area:'explore',title:'Choose a role',description:'Enter a role or skill such as cybersecurity, SOC analyst or security engineer. Leave it blank for a broader search.',target:'.job-sources .source-filters label:nth-child(1) input'},
@@ -11,6 +11,7 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'explore',title:'Remote only',description:'Turn this on to narrow the results. Remote jobs can still have country or work-authorization restrictions.',target:'.job-sources .source-remote'},
  {area:'explore',title:'Find live jobs',description:'Search selected Greenhouse and Lever employer boards. Results keep their source links. Previous results remain saved during the search cooldown.',target:'.job-sources .source-search'},
  {area:'explore',title:'Manage job sources',description:'Open this list to review, add or remove employer boards. Your chosen sources and filters save when you search.',target:'.job-sources .source-manager summary'},
+ {area:'explore',title:'Add an employer board',description:'Inside Manage sources, add a Greenhouse or Lever board URL and employer name. This expands your next live search.',target:'.job-sources .source-add',fallback:'.job-sources .source-manager',expandSources:true},
  {area:'explore',title:'Add a listing',description:'Save a real employer vacancy with its original URL and description. A listing you add is labelled as user-supplied.',target:'.page-heading > button'},
  {area:'explore',title:'Explore a job card',description:'Swipe left to reject, right to record Apply, or up to save for later. With a focused card, the arrow keys do the same.',target:'.swipe-card',fallback:'.swipe-stage'},
  {area:'explore',title:'Read the details',description:'Open a role to see its source, description and skill-keyword comparison. This is guidance, not an employer assessment.',target:'.swipe-card .listing-foot button',fallback:'.swipe-stage'},
@@ -25,6 +26,7 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'applications',title:'Apply requests',description:'See each Apply choice, its status and vacancy source. A saved request is not proof of submission.',target:'.application-overview-card',fallback:'.application-overview'},
  {area:'applications',title:'Original vacancy',description:'Open the employer link from an Apply request to complete the application manually. The link appears after you choose Apply.',target:'.application-overview-actions',fallback:'.application-overview'},
  {area:'applications',title:'Application materials',description:'When a draft exists, edit and save its text, confirm what you reviewed and open the employer application page.',target:'.draft-card',fallback:'.application-overview'},
+ {area:'applications',title:'Save your draft edits',description:'Edit the draft text, then save it before marking the exact version reviewed. This button appears once a draft exists.',target:'.draft-card .row-actions button:first-child',fallback:'.application-overview'},
  {area:'workspace',title:'Open CV review',description:'Use CV review to upload files, see recommendations and correct candidate facts.',target:'.sidebar nav button:nth-child(4)',mobileTarget:'.mobile-nav button:nth-child(4)'},
  {area:'workspace',title:'Upload your CV',description:'Upload a searchable PDF, DOCX or TXT file. CyberApply reads it, scores its text and fills candidate details it can identify.',target:'.cv-upload-button'},
  {area:'workspace',title:'CV readiness score',description:'The score and recommendations cover readable text, structure and evidence. This is guidance, not an employer ATS score.',target:'.quality-panel .quality-score'},
@@ -35,12 +37,22 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'workspace',title:'Skills and preferred roles',description:'List your genuine skills and roles you want. Separate items with commas to help with job comparisons.',target:'.profile-form label:has(input[placeholder^="For example: SIEM"])',fallback:'.profile-form'},
  {area:'workspace',title:'Review and save facts',description:'Read the résumé text, tick the accuracy confirmation and save. Changed facts may require reviewing saved drafts again.',target:'.profile-form .form-foot button'},
  {area:'workspace',title:'Saved CV files',description:'View, download or delete an uploaded original here. Deleting a file keeps its extracted text, review and history.',target:'.saved-cv-files'},
+ {area:'workspace',title:'View an uploaded CV',description:'The eye opens an uploaded original in a new tab. If no file is saved yet, this action appears after upload.',target:'.saved-cv-files .cv-file-actions a:first-child',fallback:'.saved-cv-files'},
+ {area:'workspace',title:'Download an uploaded CV',description:'The download icon saves a copy of the original file to your device.',target:'.saved-cv-files .cv-file-actions a:nth-child(2)',fallback:'.saved-cv-files'},
+ {area:'workspace',title:'Delete an uploaded CV',description:'The trash icon asks for confirmation before removing the original file. The tour never performs this action.',target:'.saved-cv-files .cv-file-delete',fallback:'.saved-cv-files'},
  {area:'activity',title:'Open Activity',description:'Use Activity to see a record of actions, revisions and exportable evidence.',target:'.sidebar nav button:nth-child(5)',mobileTarget:'.mobile-nav button:nth-child(5)'},
  {area:'activity',title:'Recent actions',description:'See changes made in the interface and by a connected agent.',target:'.activity-grid > section:first-child'},
  {area:'activity',title:'Earlier versions',description:'Open a saved version to inspect facts and drafts without replacing your current work.',target:'.activity-grid > section:last-child'},
  {area:'activity',title:'Export records',description:'Download a copy of your workspace records for your own review and check-in evidence.',target:'.evidence-strip > a'},
  {area:'explore',title:'Work with your agent',description:'On desktop, this opens guidance for using your private workspace through ChatGPT. Agent actions also appear in Activity.',target:'.agent-entry',mobileTarget:'.topbar .header-actions'},
- {area:'explore',title:'Settings',description:'The gear opens Settings. Edit your profile, export records, replay the guide, sign out or delete your account there. Choose Finish to start using the app.',target:'.topbar a[aria-label="Settings"]'},
+ {area:'explore',title:'Open Settings',description:'The gear opens account settings. Next will take the guide there and show each account control.',target:'.topbar a[aria-label="Settings"]'},
+ {area:'account',title:'Your account',description:'Your CyberApply workspace is tied to the ChatGPT account shown here. Your records are private to this identity.',target:'.account-main .account-section:first-of-type .account-section-heading'},
+ {area:'account',title:'Edit your profile',description:'Open account-profile setup to change the name and preferences used in CyberApply.',target:'.account-main .account-actions a:first-child'},
+ {area:'account',title:'Export records',description:'Download a copy of your CyberApply records. Keep exported files in a place you trust.',target:'.account-main .account-actions a:last-child'},
+ {area:'account',title:'Replay this tutorial',description:'Return to the guide whenever you want a refresher. Replaying does not reset your saved jobs.',target:'.account-main .account-section:nth-of-type(2) a'},
+ {area:'account',title:'Sign out',description:'This ends your Site session on this browser. Your saved work stays for the next time you sign in.',target:'.account-main .account-section:nth-of-type(3) a'},
+ {area:'account',title:'Delete your account',description:'This permanently removes your CyberApply data after you type the required phrase and confirm. This guide never deletes anything.',target:'.account-main .account-danger .account-confirm'},
+ {area:'account',title:'Back to your workspace',description:'This link returns to Explore. Choose Finish to complete the tour and start using the app.',target:'.entry-header .entry-back'},
 ];
 type Box={top:number;left:number;width:number;height:number};
 function visible(selector:string):HTMLElement|null{
@@ -64,6 +76,7 @@ export function GuidedTour({step,busy,error,onBack,onNext,onExit}:{step:number;b
    setPopup({top:below?Math.min(window.innerHeight-height-12,r.bottom+18):Math.max(12,r.top-height-18),left:Math.max(12,Math.min(window.innerWidth-width-12,r.left+r.width/2-width/2)),above:!below});
   };
   const find=()=>{
+   if(current.expandSources){const details=document.querySelector<HTMLDetailsElement>('.job-sources .source-manager');if(details)details.open=true;}
    const mobile=window.matchMedia('(max-width: 950px)').matches;
    target=visible(mobile&&current.mobileTarget?current.mobileTarget:current.target)||visible(current.fallback||'')||visible('.page-heading');
    if(!target)return;
