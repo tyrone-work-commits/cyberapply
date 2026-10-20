@@ -74,3 +74,19 @@ a.mobile-brand{color:var(--text)}
 .tour-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--line);padding-top:18px}.tour-actions>div{display:flex;gap:8px}.tour-actions .button{min-height:44px;padding:10px 13px;display:inline-flex;gap:7px;align-items:center}.tour-skip{border:0;background:transparent;color:var(--muted);font-size:11px;min-height:44px;padding:9px 5px}.tour-skip:hover{color:var(--accent)}
 @media(max-width:700px){.guided-tour{inset:auto 0 0 0;width:100%;max-width:none;max-height:78dvh;border-radius:20px 20px 0 0;padding:22px 22px calc(20px + env(safe-area-inset-bottom))}.guided-tour h2{font-size:23px}.tour-actions{align-items:stretch}.tour-actions>div{flex:1;justify-content:flex-end}}
 @media(max-width:390px){.guided-tour{padding-left:17px;padding-right:17px}.tour-actions .button{padding:9px 10px;font-size:11px}.tour-skip{font-size:10px}}
+
+/* Guided coach marks track actual controls as the tour moves across sections. */
+.guided-tour-layer{position:fixed;inset:0;z-index:1000;pointer-events:none}
+.tour-shield{position:fixed;inset:0;pointer-events:auto}
+.tour-spotlight{position:fixed;border:2px solid var(--accent);border-radius:12px;box-shadow:0 0 0 200vmax #10271fbd,0 0 0 4px #fff8;transition:top .23s ease,left .23s ease,width .23s ease,height .23s ease;pointer-events:none}
+.tour-pointer{position:fixed;width:20px;height:20px;border-radius:50%;background:var(--accent);border:4px solid white;box-shadow:0 0 0 8px #32a57770,0 3px 16px #10271f8c;transform:translate(-50%,-50%);transition:top .3s ease,left .3s ease;animation:tour-pulse 1.7s ease-in-out infinite;pointer-events:none}
+@keyframes tour-pulse{50%{box-shadow:0 0 0 13px #32a57735,0 3px 16px #10271f8c}}
+.guided-tour-layer .guided-tour{position:fixed;inset:auto;margin:0;width:min(360px,calc(100vw - 24px));max-height:min(70dvh,390px);overflow-y:auto;padding:19px 21px;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--text);box-shadow:0 18px 60px #10271f70;pointer-events:auto;transition:top .23s ease,left .23s ease}
+.guided-tour-layer .guided-tour:not([style]){top:50%;left:50%;transform:translate(-50%,-50%)}
+.guided-tour-layer .tour-progress{height:4px;margin:10px 0 14px;background:var(--line);border-radius:99px;overflow:hidden}
+.guided-tour-layer .tour-progress span{display:block;height:100%;border-radius:99px;background:var(--accent);transition:width .25s ease}
+.guided-tour-layer .guided-tour h2{font-size:20px;margin:0 0 8px;letter-spacing:-.4px}
+.guided-tour-layer .tour-description{font-size:12px;line-height:1.55;margin:0 0 15px}
+.guided-tour-layer .tour-actions{padding-top:10px}
+@media(max-width:700px){.guided-tour-layer .guided-tour{padding:16px 17px;width:min(360px,calc(100vw - 24px));max-height:min(50dvh,340px);border-radius:16px}.guided-tour-layer .guided-tour h2{font-size:18px}.guided-tour-layer .tour-description{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.tour-pointer{animation:none}.tour-spotlight,.tour-pointer,.guided-tour-layer .guided-tour{transition:none}}
