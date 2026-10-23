@@ -1,0 +1,11 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+await mkdir('.sites-runtime/gesture-tests',{recursive:true});
+await writeFile('.sites-runtime/gesture-tests/gesture.mjs',ts.transpileModule(await readFile('lib/swipe-gesture.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+const {swipeDirection}=await import('../.sites-runtime/gesture-tests/gesture.mjs');
+test('an upward gesture saves with slight horizontal movement',()=>{assert.equal(swipeDirection(10,-120),'save');assert.equal(swipeDirection(-20,-120),'save');});
+test('horizontal gestures retain reject and Apply',()=>{assert.equal(swipeDirection(-120,20),'pass');assert.equal(swipeDirection(120,-20),'apply');});
+test('short drags and taps make no choice',()=>{for(const [x,y] of [[0,0],[0,-84],[84,0],[-85,0]])assert.equal(swipeDirection(x,y),null);});
+test('diagonal and downward motion never become accidental saves',()=>{for(const [x,y] of [[120,-120],[-120,-120],[0,140],[20,140]])assert.equal(swipeDirection(x,y),null);});

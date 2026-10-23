@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     supabase_storage_bucket: str = "resumes"
     auth_mode: Literal["local", "supabase"] = "local"
     frontend_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
-    oauth_redirect_urls: list[str] = ["http://localhost:3000/auth/callback"]
+    oauth_redirect_urls: list[str] = ["http://localhost:3000/auth/callback", "http://127.0.0.1:3000/auth/callback"]
     redis_url: str = "redis://localhost:6379/0"
     worker_backend: Literal["database", "celery"] = "database"
     allow_external_submissions: bool = False

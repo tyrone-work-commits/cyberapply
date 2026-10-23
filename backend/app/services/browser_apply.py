@@ -33,7 +33,7 @@ def origin(url: str) -> str:
 
 
 class BrowserFormConnector:
-    def __init__(self, config, session_factory=None, playwright_factory=None, storage_factory=Storage):
+    def __init__(self, config, session_factory=None, playwright_factory=None, storage_factory=Storage, upload_provider=None):
         if not config.allow_external_submissions:
             raise ApplicationAttention("External application submissions are disabled")
         self.config = config
@@ -43,6 +43,7 @@ class BrowserFormConnector:
         self.session_factory = session_factory or SessionLocal
         self.playwright_factory = playwright_factory or sync_playwright
         self.storage_factory = storage_factory
+        self.upload_provider = upload_provider
         if self.playwright_factory is None:
             raise ApplicationAttention("The Playwright browser runtime is unavailable")
         self.timeout = min(max(float(getattr(config, "browser_timeout_seconds", 30)), 1), 60) * 1000
@@ -83,6 +84,8 @@ class BrowserFormConnector:
         return form, trusted
 
     def _upload(self, application):
+        if self.upload_provider is not None:
+            return self.upload_provider(application)
         snapshot = application.resume_snapshot or {}
         document_id = snapshot.get("document_id")
         digest = snapshot.get("document_sha256")

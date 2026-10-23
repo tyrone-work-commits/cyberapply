@@ -1,15 +1,15 @@
 import base64
 import hashlib
-from datetime import timedelta
+from datetime import timedelta, timezone
 from functools import lru_cache
 
 import jwt
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from pwdlib import PasswordHash
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.errors import fail
 from app.core.time import utcnow
-from app.models import AutomationSettings, Preferences, Profile, User
+from app.models import AutomationSettings, MfaFactor, Preferences, Profile, User
 
 password_hash = PasswordHash.recommended()
 bearer = HTTPBearer(auto_error=False)
@@ -60,12 +60,13 @@ def ensure_user_records(db: Session, user: User) -> None:
         db.add(AutomationSettings(user_id=user.id))
 
 
-def issue_access(user: User) -> str:
+def issue_access(user: User, assurance: int = 1, authenticated_at=None) -> str:
     settings = get_settings()
     now = utcnow()
     return jwt.encode({"sub": user.id, "iss": settings.jwt_issuer, "aud": "cyberapply-api",
                        "iat": now, "exp": now + timedelta(minutes=settings.access_token_minutes),
-                       "kind": "access", "tv": user.token_version}, settings.jwt_secret, algorithm="HS256")
+                       "kind": "access", "tv": user.token_version, "aal": assurance,
+                       "auth_time": int((authenticated_at or now).replace(tzinfo=timezone.utc).timestamp())}, settings.jwt_secret, algorithm="HS256")
 
 
 def decode_access(token: str) -> dict:
@@ -99,7 +100,17 @@ def decode_access(token: str) -> dict:
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
-                     db: Session = Depends(get_db)) -> User:
+                     db: Session = Depends(get_db), request: Request = None) -> User:
+    return resolve_user(credentials, db, enforce_mfa=True, request=request)
+
+
+def get_primary_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+                     db: Session = Depends(get_db), request: Request = None) -> User:
+    """First-factor identity only. Use exclusively for MFA enrollment/challenge routes."""
+    return resolve_user(credentials, db, enforce_mfa=False, request=request)
+
+
+def resolve_user(credentials, db, *, enforce_mfa, request=None):
     if not credentials:
         fail(401, "authentication_required", "Sign in to continue")
     claims = decode_access(credentials.credentials)
@@ -127,11 +138,30 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(
                 fail(409, "identity_conflict", "Provider identity conflicts with an existing account")
     if not user or not user.active:
         fail(401, "invalid_token", "Account is unavailable")
+    if request is not None and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        lock_active_user(db, user)
     if get_settings().auth_mode == "local" and claims.get("tv") != user.token_version:
         fail(401, "invalid_token", "Session has been revoked")
+    factor = db.get(MfaFactor, user.id)
+    if get_settings().auth_mode == "local" and enforce_mfa and factor and factor.enabled and claims.get("aal") != 2:
+        fail(401, "mfa_required", "Complete two-factor authentication to continue")
     if get_settings().auth_mode == "supabase":
         if claims["iat"] <= user.revoked_before:
             fail(401, "invalid_token", "Session has been revoked")
+        email, phone = claims.get("email") or None, claims.get("phone") or None
+        if isinstance(email, str) and email.casefold() != user.email and db.scalar(select(User.id).where(User.email == email.casefold(), User.id != user.id)):
+            fail(409, "identity_conflict", "Provider contact conflicts with an existing account")
+        if isinstance(phone, str) and phone != user.phone and db.scalar(select(User.id).where(User.phone == phone, User.id != user.id)):
+            fail(409, "identity_conflict", "Provider contact conflicts with an existing account")
+        provider_user = trusted_provider_user(credentials.credentials, user.id) if enforce_mfa else {"id": user.id}
+        lock_active_user(db, user)
+        if claims["iat"] <= user.revoked_before:
+            fail(401, "invalid_token", "Session has been revoked")
+        factors = provider_user.get("factors", [])
+        if not isinstance(factors, list) or any(not isinstance(item, dict) for item in factors):
+            fail(503, "provider_unavailable", "Authentication provider is unavailable")
+        if enforce_mfa and any(item.get("status") == "verified" for item in factors) and claims.get("aal") != "aal2":
+            fail(401, "mfa_required", "Complete provider two-factor authentication to continue")
         email, phone = claims.get("email") or None, claims.get("phone") or None
         if (email is not None and not isinstance(email, str)) or (phone is not None and not isinstance(phone, str)):
             fail(401, "invalid_token", "Invalid identity claims")
@@ -145,23 +175,40 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(
             except IntegrityError:
                 db.rollback()
                 fail(409, "identity_conflict", "Provider contact conflicts with an existing account")
-        if not user.email_verified and user.email:
-            # Provider JWT email presence is not proof of email verification.
-            # Never trust editable user_metadata for this decision.
-            import httpx
-            settings = get_settings()
-            try:
-                result = httpx.get(settings.supabase_url.rstrip("/") + "/auth/v1/user",
-                                   headers={"apikey": settings.supabase_anon_key,
-                                            "Authorization": "Bearer " + credentials.credentials},
-                                   timeout=10, follow_redirects=False)
-                if result.is_success:
-                    provider_user = result.json()
-                    if (isinstance(provider_user, dict) and provider_user.get("id") == user.id
-                            and str(provider_user.get("email", "")).casefold() == user.email
-                            and provider_user.get("email_confirmed_at")):
-                        user.email_verified = True
-                        db.commit()
-            except (httpx.HTTPError, ValueError):
-                pass  # Continue unverified; external submissions remain blocked.
+        if not user.email_verified and user.email and str(provider_user.get("email", "")).casefold() == user.email and provider_user.get("email_confirmed_at"):
+            user.email_verified = True
+            db.commit()
+    if request is not None and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        # Serialize private mutations/uploads with account deactivation and erasure.
+        lock_active_user(db, user)
+        if get_settings().auth_mode == "local" and claims.get("tv") != user.token_version:
+            fail(401, "invalid_token", "Session has been revoked")
+        if get_settings().auth_mode == "supabase" and claims["iat"] <= user.revoked_before:
+            fail(401, "invalid_token", "Session has been revoked")
     return user
+
+
+def lock_active_user(db, user):
+    changed = db.execute(update(User).where(User.id == user.id, User.active.is_(True))
+        .values(token_version=User.token_version))
+    if changed.rowcount != 1:
+        fail(401, "account_unavailable", "This account is disabled")
+    db.refresh(user)
+
+
+def trusted_provider_user(token, user_id):
+    """Trusted factor status, never editable metadata. Fail closed if unavailable."""
+    import httpx
+    settings = get_settings()
+    try:
+        response = httpx.get(settings.supabase_url.rstrip("/") + "/auth/v1/user",
+            headers={"apikey": settings.supabase_anon_key, "Authorization": "Bearer " + token},
+            timeout=10, follow_redirects=False)
+        if not response.is_success:
+            fail(503, "provider_unavailable", "Authentication provider is unavailable")
+        result = response.json()
+        if not isinstance(result, dict) or result.get("id") != user_id:
+            fail(503, "provider_unavailable", "Authentication provider returned an invalid identity")
+        return result
+    except (httpx.HTTPError, ValueError):
+        fail(503, "provider_unavailable", "Authentication provider is unavailable")

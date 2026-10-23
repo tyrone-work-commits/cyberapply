@@ -12,6 +12,8 @@ Core imports:
 
 IDs are UUID strings. JSON fields default dict/list and must be reassigned rather than mutated in place. No relationships needed. Owner checks return 404 for another user's IDs. All timestamps naive UTC. Finite bounded inputs, strict schemas (`extra='forbid'`), limit <=100, offset >=0. SQLAlchemy commit at route/service boundary. No secrets/internal paths in API outputs.
 
+Explore uses `GET /jobs?exclude_handled=true` to remove only the current user's passed jobs and jobs with an existing application, before totals and pagination. Saved jobs remain discoverable. Default job lists and other users' decisions are unaffected. A right swipe calls `POST /applications` with the selected reviewed résumé, `mode: automatic` and a stable idempotency key. This explicit job choice does not change global discovery mode. Requests queue work; `applied` still requires a connector confirmation from the worker.
+
 Models (root implements these exact names/fields; additional fields require coordination):
 - User: id,email(nullable unique),phone(nullable unique),password_hash(nullable),active(bool true),email_verified(bool false),token_version(int 0),revoked_before(int 0 provider-session cutoff),created_at
 - Profile: user_id(PK/FK User),data(JSON dict),confirmed(bool false),updated_at

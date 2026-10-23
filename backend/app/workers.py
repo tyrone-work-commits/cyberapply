@@ -25,6 +25,8 @@ from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.config import get_settings
 from app.core.db import SessionLocal, migrate_db
+from app.core.operations import live_io
+from app.core.security import lock_active_user
 from app.core.time import utcnow
 from app.domain.applications import (
     ApplicationCreate,
@@ -38,6 +40,7 @@ from app.domain.applications import (
 )
 from app.domain.matching import compute_match, is_cybersecurity_job
 from app.models import (
+    AccountSettings,
     Application,
     ApplicationEvent,
     AutomationSettings,
@@ -204,6 +207,14 @@ def discover_automatic_applications(session_factory=None, *, max_users: int = 20
     created = 0
     for user_id in user_ids:
         with session_factory() as db:
+            user = db.get(User, user_id)
+            if not user or not user.active:
+                continue
+            try:
+                lock_active_user(db, user)
+            except HTTPException:
+                db.rollback()
+                continue
             settings = automation_settings(db, user_id, lock=True)
             # Rotate even users whose setup/quota is incomplete; progress is durable.
             settings.discovery_checked_at = utcnow()
@@ -236,23 +247,28 @@ def discover_automatic_applications(session_factory=None, *, max_users: int = 20
             else:
                 settings.discovery_cursor = {}
             candidates = []
+            account = db.get(AccountSettings, user_id)
+            choose_best = account is None or account.auto_resume
             for job in jobs:
                 if not is_cybersecurity_job(job.title, job.description) or not discovery_connector_available(job, user, config):
                     continue
                 match = compute_match(job, profile.data, prefs.data)
                 if match.get("eligible", False) and not automatic_preference_issues(match) and match.get("score", 0) >= settings.min_match_score:
-                    candidates.append((match["score"], job.updated_at, job.id))
-            resume_id = resume.id
+                    selected_resume = resume.id
+                    if choose_best:
+                        from app.domain.product import ranked_resumes
+                        selected_resume = ranked_resumes(db, user_id, job)["recommended_id"] or resume.id
+                    candidates.append((match["score"], job.updated_at, job.id, selected_resume))
             candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
             # Persist cursor progress before enqueueing; interrupted passes revisit on wrap.
             db.commit()
-        for _, _, job_id in candidates:
+        for _, _, job_id, resume_id in candidates:
             if created >= max_created:
                 return created
             with session_factory() as db:
                 user = db.get(User, user_id)
                 job = db.get(Job, job_id)
-                if not user or not job or not discovery_connector_available(job, user, config):
+                if not user or not user.active or not job or not discovery_connector_available(job, user, config):
                     continue
                 try:
                     enqueue_application(ApplicationCreate(job_id=job_id, resume_id=resume_id, mode="automatic",
@@ -285,12 +301,23 @@ def claim_next(session_factory=None) -> tuple[str, str] | None:
     eligible = or_(Application.status.in_(["queued", "preparing", "ready", "submitting"]),
                    and_(Application.status == "uncertain", Application.error_code == "reconciliation_requested"))
     available = or_(Application.claim_until.is_(None), Application.claim_until <= now)
+    eligible = and_(eligible, or_(Application.send_after.is_(None), Application.send_after <= now))
     with session_factory() as db:
         rows = db.execute(select(Application.id, Application.version).join(User, User.id == Application.user_id)
                           .where(eligible, available, User.active.is_(True)).order_by(Application.updated_at, Application.id)
                           .execution_options(yield_per=100))
         for application_id, version in rows:
             app = db.get(Application, application_id)
+            if app is None:
+                continue
+            user = db.get(User, app.user_id)
+            if not user or not user.active:
+                continue
+            try:
+                lock_active_user(db, user)
+            except HTTPException:
+                db.rollback()
+                continue
             settings = automation_settings(db, app.user_id)
             if settings.paused and app.status not in {"submitting", "uncertain"}:
                 continue
@@ -341,9 +368,10 @@ def _prepare(db: Session, row: Application, job: Job, settings):
         return
     row.answers = answers
     row.match_snapshot = copy.deepcopy(match)
-    # Deliberately leave free-text claims/cover letters for user editing, rather than inventing experience.
-    row.cover_letter = ""
-    row.missing_fields = missing_answers(job, answers)
+    from app.services.cover_letter import prepare_cover_letter
+
+    row.cover_letter = prepare_cover_letter(job, profile_data)
+    row.missing_fields = missing_answers(job, answers, row.cover_letter)
     row.error_code = row.error_message = None
     if not match.get("eligible", False):
         row.error_code = "eligibility_attention"
@@ -376,6 +404,10 @@ def _finish(application_id: str, token: str, status: str, message: str, *, confi
     with session_factory() as db:
         row = _owned_claim(db, application_id, token)
         if row is None:
+            return
+        if row.send_after and row.send_after > utcnow():
+            release(row)
+            db.commit()
             return
         row.error_code = error_code
         row.error_message = message if error_code else None
@@ -433,8 +465,13 @@ def process_application(application_id: str, token: str, session_factory=None):
             return
         job = db.get(Job, row.job_id)
         user = db.get(User, row.user_id)
-        settings = automation_settings(db, row.user_id, lock=True)
         if not user or not user.active:
+            release(row)
+            db.commit()
+            return
+        lock_active_user(db, user)
+        settings = automation_settings(db, row.user_id, lock=True)
+        if row.send_after and row.send_after > utcnow():
             release(row)
             db.commit()
             return
@@ -548,7 +585,13 @@ def process_application(application_id: str, token: str, session_factory=None):
                 error_code="connector_unavailable", session_factory=session_factory)
         return
     try:
-        confirmation = connector.reconcile(row, job) if reconciling else connector.submit(row, job)
+        def heartbeat():
+            with session_factory() as lease_db:
+                lease_db.execute(update(Application).where(Application.id == application_id, Application.claim_token == token)
+                    .values(claim_until=utcnow() + timedelta(seconds=config.worker_lease_seconds)))
+                lease_db.commit()
+        with live_io(row.user_id, heartbeat, interval=min(10, config.worker_lease_seconds / 3)):
+            confirmation = connector.reconcile(row, job) if reconciling else connector.submit(row, job)
         _finish(application_id, token, "applied", "Local demo employer fixture confirmed a simulated submission" if confirmation.is_demo else "Employer confirmed submission",
                 confirmation=confirmation, session_factory=session_factory)
     except ApplicationAttention:
@@ -567,6 +610,10 @@ def process_application(application_id: str, token: str, session_factory=None):
 
 def run_worker_once(session_factory=None, max_items: int = 100) -> int:
     session_factory = session_factory or SessionLocal
+    from app.domain.product import deliver_task_reminders
+    deliver_task_reminders(session_factory)
+    from app.domain.account import cleanup_pending
+    cleanup_pending(session_factory)
     if max_items <= 0:
         return 0
     max_items = min(max_items, 1000)

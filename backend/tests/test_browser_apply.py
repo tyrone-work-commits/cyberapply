@@ -3,9 +3,12 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
 
+from app import workers
 from app.core.storage import Storage
-from app.models import Document
+from app.models import Application, Document, Job, Profile, Resume
 from app.services.browser_apply import BrowserFormConnector
 from app.workers import ApplicationAttention, UncertainSubmission
 
@@ -256,3 +259,62 @@ def test_real_browser_submits_only_to_intercepted_employer_fixture(settings, mon
     connector = BrowserFormConnector(settings, playwright_factory=runtime_factory)
     assert connector.submit(application, job).confirmation_id == "local-browser-fixture-receipt"
     assert seen == [("GET", "/apply/security-engineer"), ("POST", "/applications")]
+
+
+def test_swipe_queue_prepares_letter_submits_form_and_tracks_receipt(client, db, user, headers, settings, monkeypatch):
+    """Exercise the real worker lifecycle with an intercepted fictional employer."""
+    settings.allow_external_submissions = True
+    settings.connector_allowed_hosts = ["employer.example.test"]
+    settings.browser_connector_config = {
+        "fixture": {
+            "origins": ["https://employer.example.test"],
+            "path_prefixes": ["/apply/"],
+            "fields": {
+                "full_name": {"selector": "#name"},
+                "email": {"selector": "#email"},
+                "cover_letter": {"selector": "#letter"},
+            },
+            "submit_selector": "#submit", "confirmation_selector": "#success",
+            "confirmation_text": "Application submitted", "receipt_selector": "#receipt",
+        }
+    }
+    profile = db.get(Profile, user.id)
+    profile.data = {"full_name": "Alex Doe", "email": user.email, "skills": ["SIEM"]}
+    profile.confirmed = True
+    resume = Resume(user_id=user.id, title="Reviewed CV", extracted_text="Alex Doe\nSIEM project", reviewed=True,
+                    profile_data={"skills": ["SIEM"]})
+    job = Job(title="SOC Analyst", company="Fictional Employer", required_skills=["SIEM"],
+              source_url="https://employer.example.test/apply/security-engineer",
+              apply_url="https://employer.example.test/apply/security-engineer", connector_key="browser_form",
+              attributes={"browser_connector_key": "fixture", "required_fields": ["full_name", "email", "cover_letter"]})
+    db.add_all([resume, job])
+    db.commit()
+
+    page = FakePage()
+    browser = FakeBrowser(page)
+    @contextmanager
+    def playwright():
+        yield SimpleNamespace(chromium=SimpleNamespace(launch=lambda **_: browser))
+    monkeypatch.setattr("app.services.browser_apply.sync_playwright", playwright)
+    response = client.post("/api/v1/applications", headers=headers, json={
+        "job_id": job.id, "resume_id": resume.id, "mode": "automatic", "idempotency_key": "fictional-swipe-001"})
+    assert response.status_code == 201
+    application_id = response.json()["id"]
+    sessions = sessionmaker(bind=db.bind, expire_on_commit=False)
+
+    assert workers.run_worker_once(sessions, max_items=1) == 1
+    prepared = client.get(f"/api/v1/applications/{application_id}", headers=headers).json()
+    assert prepared["status"] == "ready"
+    assert "SOC Analyst" in prepared["cover_letter"]
+    assert "SIEM" in prepared["cover_letter"]
+    assert prepared["missing_fields"] == []
+
+    assert workers.run_worker_once(sessions) == 1
+    result = client.get(f"/api/v1/applications/{application_id}", headers=headers).json()
+    assert result["status"] == "applied" and result["confirmation_id"] == "receipt-123"
+    assert page.filled["#name"] == "Alex Doe"
+    assert page.filled["#email"] == user.email
+    assert page.filled["#letter"] == prepared["cover_letter"]
+    assert page.clicked and browser.closed
+    assert db.scalar(select(Application).where(Application.id == application_id)).attempts == 1
+    assert workers.run_worker_once(sessions) == 0

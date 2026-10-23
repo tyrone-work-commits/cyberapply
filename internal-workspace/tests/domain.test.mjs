@@ -1,0 +1,141 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+await mkdir('.sites-runtime/tests',{recursive:true});
+await writeFile('.sites-runtime/tests/candidate-facts.mjs',ts.transpileModule(await readFile('lib/candidate-facts.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+await writeFile('.sites-runtime/tests/cover-letter.mjs',ts.transpileModule(await readFile('lib/cover-letter.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './candidate-facts'","from './candidate-facts.mjs'").replace("from './cover-letter'","from './cover-letter.mjs'"));
+const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,connectionStatus,activateCv}=await import('../.sites-runtime/tests/domain.mjs');
+const at='2026-10-17T12:00:00.000Z';
+const act=(s,a,time=at)=>reduceAction(s,actionSchema.parse(a),'interface',time).state;
+const profile={fullName:'QA Candidate',email:'candidate@example.test',skills:['SIEM','Python'],preferredRoles:['SOC Analyst'],resumeText:'QA Candidate\ncandidate@example.test\nSUMMARY\nCybersecurity practice with SIEM and incident response.\nEXPERIENCE\n- Investigated 20 alerts per day.\n- Reduced response time by 10 hours.\n- Built monitoring queries.\n- Documented incidents.\nSKILLS\nSIEM, Python\nEDUCATION\nSecurity studies.',reviewed:true};
+const listing={type:'add_job',title:'QA SOC Analyst',company:'QA Company',location:'Remote',workMode:'Remote',url:'https://qa.example.test/jobs/soc',description:'Local test fixture for monitoring SIEM and incident response.',skills:['SIEM','Incident response','Splunk']};
+const ready=()=>act(act(emptyState(),listing),{type:'save_profile',profile});
+const apply=s=>act(s,{type:'decide_job',jobId:s.jobs[0].id,decision:'apply'});
+
+test('candidate links and location save without losing values on an older profile update',()=>{
+ const links={githubRepositoryUrl:'https://github.com/example/security-tool',linkedInUrl:'https://www.linkedin.com/in/qa-candidate',portfolioWebsiteUrl:'https://portfolio.example.test',location:'Lagos, Nigeria'};
+ let state=act(emptyState(),{type:'save_profile',profile:{...profile,...links,reviewed:false}});
+ assert.deepEqual(Object.fromEntries(Object.keys(links).map(key=>[key,state.profile[key]])),links);
+ state=act(state,{type:'save_profile',profile});
+ assert.deepEqual(Object.fromEntries(Object.keys(links).map(key=>[key,state.profile[key]])),links);
+ state=act(state,listing);
+ assert.equal(apply(state).applications[0].candidate.githubRepositoryUrl,links.githubRepositoryUrl);
+ for(const value of ['javascript:alert(1)','http://github.com/example/repo','https://localhost/repo','https://name:secret@example.com/repo']){
+  assert.equal(actionSchema.safeParse({type:'save_profile',profile:{...profile,githubRepositoryUrl:value}}).success,false);
+ }
+});
+
+test('Recheck refills saved CV facts, preserves the reviewed file, and invalidates stale materials',()=>{
+ const cv=`Amara Okafor\namara@example.test | Location: Lagos, Nigeria\nLinkedIn: www.linkedin.com/in/amara-okafor | Portfolio website: https://amara.example.test/\nTarget role: SOC Analyst\nSUMMARY\nSecurity analyst with incident response experience.\nSKILLS\nSIEM, Python\nPROJECTS\nGitHub: https://github.com/amara/security-toolkit\nEXPERIENCE\n- Investigated 30 alerts per day.`;
+ let state=act(act(emptyState(),listing),{type:'save_profile',profile:{...profile,fullName:'Previous Name',email:'previous@example.test',skills:['Old skill'],preferredRoles:['Old role'],resumeText:cv,reviewed:true}});
+ state=apply(state);
+ state=act(state,{type:'mark_ready',draftId:state.drafts[0].id,expectedVersion:1,confirmation:'REVIEWED'});
+ state.attachments=[{id:'saved-cv',key:'owners/qa/saved-cv',name:'saved-cv.txt',type:'text/plain',size:cv.length,createdAt:at,textExtracted:true}];
+ state.resumeReview.source={fileId:'saved-cv',name:'saved-cv.txt',format:'TXT',warnings:[]};
+ const oldSnapshot=structuredClone(state.applications[0].candidate);
+ const refreshed=act(state,{type:'review_resume'},'2026-10-18T12:00:00.000Z');
+ assert.deepEqual({name:refreshed.profile.fullName,email:refreshed.profile.email,skills:refreshed.profile.skills,roles:refreshed.profile.preferredRoles,github:refreshed.profile.githubRepositoryUrl,linkedIn:refreshed.profile.linkedInUrl,portfolio:refreshed.profile.portfolioWebsiteUrl,location:refreshed.profile.location},{name:'Amara Okafor',email:'amara@example.test',skills:['SIEM','Python'],roles:['SOC Analyst'],github:'https://github.com/amara/security-toolkit',linkedIn:'https://www.linkedin.com/in/amara-okafor',portfolio:'https://amara.example.test/',location:'Lagos, Nigeria'});
+ assert.equal(refreshed.profile.reviewed,false);
+ assert.equal(refreshed.resumeReview.source.fileId,'saved-cv');
+ assert.equal(refreshed.attachments[0].reviewSnapshot.score,refreshed.resumeReview.score);
+ assert.equal(refreshed.drafts[0].status,'draft');
+ assert.equal(refreshed.applications[0].reason,'materials_changed');
+ assert.deepEqual(refreshed.applications[0].candidate,oldSnapshot);
+});
+
+test('CV score is useful without onboarding facts, with clear missing-contact advice',()=>{const base={...profile,fullName:'',email:'',skills:[]};const weak=analyzeResume({...base,resumeText:'I am interested in working in cybersecurity.'},at);assert.equal(weak.checks[0].points,0);assert.match(weak.checks[0].suggestion,/email and phone/);assert.equal(weak.checks[1].points,0);const strong=analyzeResume({...base,resumeText:profile.resumeText+'\n+234 801 234 5678'},at);assert.ok(strong.score>weak.score);assert.ok(strong.score<=100);assert.equal(strong.checks.reduce((n,c)=>n+c.possible,0),100);});
+test('dates do not earn phone contact points and custom skills are regex-safe',()=>{const p={...profile,skills:['C++','[custom]'],resumeText:'candidate@example.test\n2020 - 2024\nSUMMARY\nReviewed C++ and [custom] code.'};const score=analyzeResume(p,at);assert.equal(score.checks[0].points,10);assert.match(score.checks[4].evidence,/2 of 2 declared skills found/);});
+test('CV text edits refresh the score and remove stale file attribution',()=>{let s=ready();s.resumeReview.source={fileId:'uploaded',name:'cv.pdf',format:'PDF',warnings:[]};s=act(s,{type:'save_profile',profile:{...profile,preferredRoles:['Security Analyst']}});assert.equal(s.resumeReview.source.fileId,'uploaded');s=act(s,{type:'save_profile',profile:{...profile,resumeText:'A changed factual CV with limited content.',reviewed:false}});assert.equal(s.resumeReview.source,undefined);assert.equal(s.resumeReview.score,analyzeResume(s.profile,at).score);});
+test('saved CV scores follow file IDs, survive another review and never transfer by filename',()=>{let s=ready();const first={id:'first',key:'owners/qa/first',name:'same-name.pdf',type:'application/pdf',size:100,createdAt:at,textExtracted:true,reviewSnapshot:{score:42,at}};const second={...first,id:'second',key:'owners/qa/second',reviewSnapshot:undefined};s.attachments=[first,second];s.resumeReview.source={fileId:'second',name:second.name,format:'PDF',warnings:[]};assert.equal(fileReviewScore(first,s.resumeReview).score,42);assert.equal(fileReviewScore(second,s.resumeReview).score,s.resumeReview.score);s=act(s,{type:'review_resume'},'2026-10-17T13:00:00.000Z');assert.equal(s.attachments[1].reviewSnapshot.score,s.resumeReview.score);s=act(s,{type:'save_profile',profile:{...profile,resumeText:'A new saved CV with different text and enough factual words.',reviewed:false}});assert.equal(s.resumeReview.source,undefined);assert.equal(fileReviewScore(s.attachments[0],s.resumeReview).score,42);assert.equal(fileReviewScore(s.attachments[1],s.resumeReview).score,s.attachments[1].reviewSnapshot.score);});
+
+test('new workspaces contain no fabricated jobs, CV or receipts',()=>{const s=emptyState();assert.equal(s.profile.fullName,'');assert.equal(s.jobs.length,0);assert.equal(s.drafts.length,0);assert.equal(s.demo,undefined);assert.equal(s.submissions,undefined);});
+test('tutorial completion is saved per workspace without changing jobs or candidate facts',()=>{const before=act(emptyState(),listing);assert.equal(before.tutorialCompletedAt,undefined);const after=act(before,{type:'complete_tutorial'});assert.equal(after.tutorialCompletedAt,at);assert.deepEqual(after.jobs,before.jobs);assert.deepEqual(after.profile,before.profile);assert.equal(act(after,{type:'complete_tutorial'},'2026-10-18T12:00:00.000Z').tutorialCompletedAt,at);assert.equal(actionSchema.safeParse({type:'complete_tutorial',userId:'someone-else'}).success,false);});
+test('retired example, simulation and prepare actions are rejected',()=>{for(const a of [{type:'load_examples'},{type:'simulate_apply',draftId:'x',expectedVersion:1,confirmation:'SIMULATE'},{type:'decide_job',jobId:'x',decision:'prepare'}])assert.equal(actionSchema.safeParse(a).success,false);});
+test('Apply saves an unsent request before fact review but still requires a real source',()=>{const s=apply(act(emptyState(),listing));assert.equal(s.applications[0].reason,'cv_required');assert.equal(s.applications[0].status,'needs_action');assert.equal(s.profile.reviewed,false);assert.match(s.drafts[0].text,/\[Your name\]/);assert.doesNotMatch(s.drafts[0].text,/My reviewed candidate information/);assert.throws(()=>act(s,{type:'save_profile',profile:{...profile,fullName:''}}),/name/);assert.throws(()=>apply({...ready(),jobs:ready().jobs.map(j=>({...j,url:''}))}),/URL/);});
+test('Apply records one unsent request and exact materials, with no unsupported success state',()=>{const s=apply(ready()),a=s.applications[0];assert.equal(s.jobs[0].disposition,'apply_requested');assert.equal(a.status,'needs_action');assert.equal(a.reason,'cv_required');assert.deepEqual(a.candidate,s.profile);assert.equal(a.text,s.drafts[0].text);assert.equal(a.sourceUrl,listing.url);assert.equal(a.at,at);assert.ok(!s.drafts[0].text.includes('Splunk'));assert.ok(!('receipt' in a));assert.equal(connectionStatus.automaticApplications,false);});
+test('chosen uploaded CV is captured per Apply request and older requests can be updated',()=>{
+ let s=ready();
+ const first={id:'cv-one',key:'owners/qa/cv-one',name:'first.pdf',type:'application/pdf',size:101,createdAt:at,textExtracted:true};
+ const second={...first,id:'cv-two',key:'owners/qa/cv-two',name:'second.pdf',size:202};
+ s.attachments=[first,second];
+ const firstText=profile.resumeText+'\nTarget role: SOC Analyst';
+ activateCv(s,first,{text:firstText,format:'PDF',warnings:[]},at);
+ assert.equal(s.selectedCvId,'cv-one');
+ s=act(s,{type:'save_profile',profile:{...s.profile,reviewed:true}});
+ s=apply(s);
+ const original=structuredClone(s.applications[0]);
+ assert.deepEqual(original.cv,{fileId:'cv-one',name:'first.pdf',type:'application/pdf',size:101});
+ assert.equal(original.candidate.resumeText,firstText);
+ const secondText=firstText.replace('QA Candidate','Another Candidate').replace('candidate@example.test','another@example.test');
+ activateCv(s,second,{text:secondText,format:'PDF',warnings:[]},at);
+ assert.equal(s.selectedCvId,'cv-two');
+ assert.deepEqual(s.applications[0].cv,original.cv);
+ assert.equal(s.applications[0].reason,'materials_changed');
+ s=act(s,{type:'save_profile',profile:{...s.profile,reviewed:true}});
+ s=act(s,{type:'refresh_application_materials',applicationId:original.id});
+ assert.equal(s.applications[0].cv.fileId,'cv-two');
+ assert.equal(s.applications[0].candidate.resumeText,secondText);
+ assert.equal(s.applications[0].reason,'connection_required');
+ assert.equal(s.applications[0].status,'needs_action');
+ assert.equal(s.applications[0].receipt,undefined);
+});
+test('an Apply request without a CV can attach the chosen saved CV later',()=>{
+ let s=apply(ready());const requestId=s.applications[0].id;
+ assert.equal(s.applications[0].reason,'cv_required');
+ assert.throws(()=>act(s,{type:'refresh_application_materials',applicationId:requestId}),/Choose an uploaded CV/);
+ const file={id:'saved-cv',key:'owners/qa/saved-cv',name:'chosen.docx',type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',size:300,createdAt:at,textExtracted:true};
+ s.attachments=[file];activateCv(s,file,{text:profile.resumeText,format:'DOCX',warnings:[]},at);
+ s=act(s,{type:'refresh_application_materials',applicationId:requestId});
+ assert.equal(s.applications[0].cv.fileId,file.id);
+ assert.equal(s.applications[0].reason,'candidate_review_required');
+});
+test('repeat Apply is idempotent for requests and materials',()=>{const s=apply(ready()),next=apply(s);assert.equal(next.applications.length,1);assert.equal(next.drafts.length,1);assert.deepEqual(next.applications,s.applications);});
+test('edits retain requested snapshot and flag changed materials',()=>{let s=apply(ready());const original=structuredClone(s.applications[0]);s=act(s,{type:'edit_draft',draftId:s.drafts[0].id,expectedVersion:1,text:'Exact revised text supplied by the candidate for this role.'});assert.equal(s.applications[0].text,original.text);assert.deepEqual(s.applications[0].candidate,original.candidate);assert.equal(s.applications[0].reason,'materials_changed');assert.equal(s.applications[0].status,'needs_action');});
+test('review is tied to current saved materials and edits invalidate it',()=>{let s=apply(ready());const id=s.drafts[0].id;s=act(s,{type:'mark_ready',draftId:id,expectedVersion:1,confirmation:'REVIEWED'});assert.equal(s.drafts[0].status,'ready');assert.throws(()=>act(s,{type:'edit_draft',draftId:id,expectedVersion:1,text:'An outdated edit supplied by the user.'}),/changed/);s=act(s,{type:'save_profile',profile:{...profile,resumeText:'A revised CV with different truthful facts.',reviewed:false}});assert.equal(s.drafts[0].status,'draft');assert.equal(s.applications[0].reason,'materials_changed');});
+test('skill coverage explains matches without asserting ATS eligibility',()=>{const s=ready(),fit=matchJob(s,s.jobs[0]);assert.equal(fit.score,67);assert.deepEqual(fit.missing,['Splunk']);assert.equal(matchJob(emptyState(),s.jobs[0]).score,null);});
+test('Undo restores the latest rejection or unsent Apply request without a network-dependent timer',()=>{let s=ready();const id=s.jobs[0].id;s=act(s,{type:'decide_job',jobId:id,decision:'pass'});assert.equal(act(s,{type:'undo_decision',jobId:id},'2026-10-17T13:00:00.000Z').jobs[0].disposition,'open');s=act(s,{type:'decide_job',jobId:id,decision:'apply'});const restored=act(s,{type:'undo_decision',jobId:id});assert.equal(restored.jobs[0].disposition,'passed');assert.equal(restored.applications.length,0);assert.equal(restored.drafts.length,0);assert.equal(restored.lastDecision,undefined);});
+test('source URLs are required, public HTTPS and deduplicated',()=>{for(const url of ['javascript:alert(1)','https://localhost/x','https://127.0.0.1/x','https://user:password@example.com/x','http://example.com/job'])assert.throws(()=>safeJobUrl(url));assert.throws(()=>act(emptyState(),{...listing,url:''}),/URL/);assert.throws(()=>act(act(emptyState(),listing),listing),/already/);assert.equal(actionSchema.safeParse({...listing,owner_id:'other'}).success,false);});
+test('historical sample records are hidden without changing input or real records',()=>{const s=apply(ready()),before=structuredClone(s);s.demo=true;s.submissions=[{id:'obsolete'}];s.jobs.push({...s.jobs[0],id:'sample',sample:true});s.drafts.push({...s.drafts[0],id:'sample-draft',jobId:'sample'});s.activity.push({id:'old',source:'example',action:'load_examples'});const cleaned=liveState(s);assert.equal(cleaned.demo,undefined);assert.equal(cleaned.submissions,undefined);assert.equal(cleaned.jobs.length,1);assert.equal(cleaned.drafts.length,1);assert.equal(cleaned.activity.some(a=>a.source==='example'),false);assert.deepEqual(cleaned.profile,before.profile);assert.equal(s.jobs.length,2);});
+test('old prepared drafts remain available without fabricating Apply consent',()=>{const s=apply(ready());s.jobs[0].disposition='prepared';delete s.applications;const cleaned=liveState(s);assert.equal(cleaned.jobs[0].disposition,'open');assert.equal(cleaned.applications.length,0);assert.equal(cleaned.drafts.length,1);});
+test('CV quality responds to text and saved edits automatically update it',()=>{const strong=analyzeResume(profile,at),weak=analyzeResume({...profile,resumeText:'I like security and want a job.'},at);assert.ok(strong.score>weak.score);assert.equal(strong.checks.length,6);assert.ok(strong.checks.every(c=>c.points>=0&&c.points<=c.possible&&c.evidence&&c.suggestion));let s=act(ready(),{type:'review_resume'});s=act(s,{type:'save_profile',profile:{...profile,reviewed:false}});assert.equal(s.resumeReview.score,analyzeResume(s.profile,at).score);assert.equal(s.resumeReview.at,at);});
+test('onboarding preserves candidate records and theme customization is retired',()=>{const s=apply(ready());let next=act(s,{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Internal QA',targetRole:'SOC Analyst'});assert.deepEqual(next.profile,s.profile);assert.deepEqual(next.applications,s.applications);for(const theme of ['paper','midnight','ocean','forest','ember'])assert.equal(actionSchema.safeParse({type:'set_theme',theme}).success,false);assert.equal(actionSchema.safeParse({type:'complete_onboarding',fullName:'',headline:'',targetRole:''}).success,false);});
+test('Undo targets only the latest exact decision and cannot reverse another job',()=>{let s=ready();const first=s.jobs[0].id;s=act(s,{...listing,url:'https://qa.example.test/jobs/second'});const second=s.jobs[0].id;s=act(s,{type:'decide_job',jobId:first,decision:'pass'});const old=s.lastDecision.operationId;s=act(s,{type:'decide_job',jobId:second,decision:'pass'});assert.throws(()=>act(s,{type:'undo_decision',jobId:first,decisionId:old}),/latest/);const restored=act(s,{type:'undo_decision',jobId:second,decisionId:s.lastDecision.operationId});assert.equal(restored.jobs.find(j=>j.id===first).disposition,'passed');assert.equal(restored.jobs.find(j=>j.id===second).disposition,'open');});
+test('Undo of an unsent request preserves edited drafts and immutable input snapshots',()=>{let s=apply(ready());s=act(s,{type:'edit_draft',draftId:s.drafts[0].id,expectedVersion:1,text:'Exact user edits must remain after cancelling this unsent request.'});const previous=structuredClone(s);const undone=act(s,{type:'undo_decision',jobId:s.jobs[0].id});assert.equal(undone.applications.length,0);assert.equal(undone.drafts[0].text,s.drafts[0].text);assert.deepEqual(s,previous);});
+test('Undo preserves a draft that existed before the Apply request',()=>{let s=ready();s.drafts=[{id:'existing-draft',jobId:s.jobs[0].id,text:'Candidate-owned existing application text.',version:3,status:'draft',createdAt:at,updatedAt:at}];s=apply(s);const undone=act(s,{type:'undo_decision',jobId:s.jobs[0].id});assert.equal(undone.drafts[0].id,'existing-draft');assert.equal(undone.drafts[0].version,3);});
+test('Undo never treats a submitted application as reversible',()=>{const s=apply(ready());s.applications[0].status='submitted';assert.throws(()=>act(s,{type:'undo_decision',jobId:s.jobs[0].id}),/unsent/);});
+test('operation identifiers prevent duplicate decisions, repeated Undo and identifier reuse',()=>{let s=ready();const jobId=s.jobs[0].id;const operationId=crypto.randomUUID();const choice={type:'decide_job',jobId,decision:'apply',operationId};s=act(s,choice);const once=structuredClone(s);assert.deepEqual(act(s,choice),once);const undo={type:'undo_decision',jobId,decisionId:operationId,operationId:crypto.randomUUID()};s=act(s,undo);assert.deepEqual(act(s,undo),s);assert.equal(s.jobs[0].disposition,'open');assert.throws(()=>act(s,{...choice,decision:'pass'}),/identifier/);});
+
+
+test('saving for later leaves the open deck, can be undone, and does not require a reviewed CV',()=>{
+ let s=ready();s.profile.reviewed=false;const jobId=s.jobs[0].id,operationId=crypto.randomUUID();const before=structuredClone(s);
+ s=act(s,{type:'save_job',jobId,saved:true,operationId});
+ assert.equal(s.jobs.filter(j=>j.disposition==='open'&&!j.saved).length,0);assert.equal(s.lastDecision.decision,'save');assert.equal(s.jobs[0].disposition,'open');assert.equal(s.drafts.length,0);assert.equal(s.applications?.length||0,0);assert.equal(before.jobs[0].saved,false);
+ const restored=act(s,{type:'undo_decision',jobId,decisionId:operationId,operationId:crypto.randomUUID()});assert.equal(restored.jobs[0].saved,false);assert.equal(restored.jobs[0].disposition,'open');assert.equal(restored.lastDecision,undefined);
+});
+test('bookmark receipts reconcile retries and reject changed intent with the same identifier',()=>{
+ let s=ready();const action={type:'save_job',jobId:s.jobs[0].id,saved:true,operationId:crypto.randomUUID()};s=act(s,action);assert.deepEqual(act(s,action),s);assert.throws(()=>act(s,{...action,saved:false}),/identifier/);
+ s=act(s,{type:'save_job',jobId:s.jobs[0].id,saved:false,operationId:crypto.randomUUID()});assert.equal(s.jobs[0].saved,false);assert.equal(s.lastDecision,undefined);
+});
+test('saving and undoing a bookmark preserve an existing Apply request, edits and disposition',()=>{
+ let s=apply(ready());const jobId=s.jobs[0].id;s=act(s,{type:'edit_draft',draftId:s.drafts[0].id,expectedVersion:1,text:'User-owned draft edits must survive saving and unsaving.'});const before=structuredClone(s);
+ s=act(s,{type:'save_job',jobId,saved:true});s=act(s,{type:'undo_decision',jobId,decisionId:s.lastDecision.operationId});assert.deepEqual(s.drafts,before.drafts);assert.deepEqual(s.applications,before.applications);assert.equal(s.jobs[0].disposition,'apply_requested');assert.equal(s.jobs[0].saved,false);
+});
+
+test('paired right swipe queues only a reviewed chosen CV and role-specific letter',()=>{
+ let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';
+ s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
+ s=apply(s);assert.equal(s.applications[0].status,'queued');assert.equal(s.applications[0].cv.fileId,'cv');
+ assert.match(s.applications[0].text,/QA SOC Analyst role at QA Company/);
+ assert.match(s.applications[0].text,/SIEM/);
+ assert.doesNotMatch(s.applications[0].text,/Splunk experience/);
+ assert.equal(act(s,{type:'undo_decision',jobId:s.jobs[0].id}).applications.length,0);
+});
+test('CV or profile edits stop unsent queue work without rewriting a confirmed application',()=>{
+ let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
+ s=apply(s);const updated=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});
+ assert.equal(updated.applications[0].status,'needs_action');assert.equal(updated.applications[0].reason,'materials_changed');
+ s.applications[0].status='applied';const after=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});
+ assert.equal(after.applications[0].status,'applied');assert.equal(after.applications[0].reason,'connection_required');
+});
