@@ -368,9 +368,10 @@ def _prepare(db: Session, row: Application, job: Job, settings):
         return
     row.answers = answers
     row.match_snapshot = copy.deepcopy(match)
-    # Deliberately leave free-text claims/cover letters for user editing, rather than inventing experience.
-    row.cover_letter = ""
-    row.missing_fields = missing_answers(job, answers)
+    from app.services.cover_letter import prepare_cover_letter
+
+    row.cover_letter = prepare_cover_letter(job, profile_data)
+    row.missing_fields = missing_answers(job, answers, row.cover_letter)
     row.error_code = row.error_message = None
     if not match.get("eligible", False):
         row.error_code = "eligibility_attention"
