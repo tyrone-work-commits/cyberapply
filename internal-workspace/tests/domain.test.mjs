@@ -4,7 +4,8 @@ import ts from 'typescript';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 await mkdir('.sites-runtime/tests',{recursive:true});
 await writeFile('.sites-runtime/tests/candidate-facts.mjs',ts.transpileModule(await readFile('lib/candidate-facts.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
-await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './candidate-facts'","from './candidate-facts.mjs'"));
+await writeFile('.sites-runtime/tests/cover-letter.mjs',ts.transpileModule(await readFile('lib/cover-letter.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './candidate-facts'","from './candidate-facts.mjs'").replace("from './cover-letter'","from './cover-letter.mjs'"));
 const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,connectionStatus,activateCv}=await import('../.sites-runtime/tests/domain.mjs');
 const at='2026-10-17T12:00:00.000Z';
 const act=(s,a,time=at)=>reduceAction(s,actionSchema.parse(a),'interface',time).state;
@@ -120,4 +121,21 @@ test('bookmark receipts reconcile retries and reject changed intent with the sam
 test('saving and undoing a bookmark preserve an existing Apply request, edits and disposition',()=>{
  let s=apply(ready());const jobId=s.jobs[0].id;s=act(s,{type:'edit_draft',draftId:s.drafts[0].id,expectedVersion:1,text:'User-owned draft edits must survive saving and unsaving.'});const before=structuredClone(s);
  s=act(s,{type:'save_job',jobId,saved:true});s=act(s,{type:'undo_decision',jobId,decisionId:s.lastDecision.operationId});assert.deepEqual(s.drafts,before.drafts);assert.deepEqual(s.applications,before.applications);assert.equal(s.jobs[0].disposition,'apply_requested');assert.equal(s.jobs[0].saved,false);
+});
+
+test('paired right swipe queues only a reviewed chosen CV and role-specific letter',()=>{
+ let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';
+ s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
+ s=apply(s);assert.equal(s.applications[0].status,'queued');assert.equal(s.applications[0].cv.fileId,'cv');
+ assert.match(s.applications[0].text,/QA SOC Analyst role at QA Company/);
+ assert.match(s.applications[0].text,/SIEM/);
+ assert.doesNotMatch(s.applications[0].text,/Splunk experience/);
+ assert.equal(act(s,{type:'undo_decision',jobId:s.jobs[0].id}).applications.length,0);
+});
+test('CV or profile edits stop unsent queue work without rewriting a confirmed application',()=>{
+ let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
+ s=apply(s);const updated=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});
+ assert.equal(updated.applications[0].status,'needs_action');assert.equal(updated.applications[0].reason,'materials_changed');
+ s.applications[0].status='applied';const after=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});
+ assert.equal(after.applications[0].status,'applied');assert.equal(after.applications[0].reason,'connection_required');
 });

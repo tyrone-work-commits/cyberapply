@@ -16,7 +16,7 @@ function sourceName(job?: Job) {
   return `${job.source.provider === 'greenhouse' ? 'Greenhouse' : 'Lever'} · ${job.company}`;
 }
 
-export function ApplicationOverview({ applications, jobs, drafts, files, selectedCvId, busy, onRefresh, onChooseCv }: {
+export function ApplicationOverview({ applications, jobs, drafts, files, selectedCvId, busy, onRefresh, onChooseCv, onQueue, agentPaired }: {
   applications: ApplicationRequest[];
   jobs: Job[];
   drafts: Draft[];
@@ -25,6 +25,8 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
   busy: boolean;
   onRefresh: (id:string)=>Promise<void>;
   onChooseCv: ()=>void;
+  onQueue:(id:string)=>Promise<void>;
+  agentPaired:boolean;
 }) {
   const draftIds = new Set(drafts.map(draft => draft.id));
   const chosenCv=files.find(file=>file.id===selectedCvId);
@@ -42,7 +44,7 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
       const applyUrl = httpsUrl(job?.applyUrl) || sourceUrl;
       const boardUrl = httpsUrl(job?.source?.boardUrl);
       const attachedFile=files.find(file=>file.id===application.cv?.fileId);
-      const refreshNeeded=!!chosenCv&&(application.cv?.fileId!==chosenCv.id||application.reason!=='connection_required');
+      const refreshNeeded=!!chosenCv&&['needs_action','queued','needs_attention','failed'].includes(application.status)&&(application.cv?.fileId!==chosenCv.id||application.reason!=='connection_required');
       return <li key={application.id} className="panel application-overview-card">
         <div className="application-overview-main">
           <div>
@@ -50,14 +52,15 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
             <h3>{job?.title || 'Job listing unavailable'}</h3>
             <p>{job?.company || 'Employer not available'}{job?.location ? ` · ${job.location}` : ''}</p>
           </div>
-          <span className="badge">NOT SUBMITTED</span>
+          <span className="badge">{application.status==='applied'?'APPLIED':application.status==='processing'?'AGENT WORKING':application.status==='queued'?'QUEUED':application.status==='uncertain'?'CHECK OUTCOME':application.status==='needs_attention'?'NEEDS ATTENTION':'NOT SUBMITTED'}</span>
         </div>
         <p className="application-overview-source"><strong>Vacancy source:</strong> {sourceName(job)}</p>
         <p className="application-overview-source"><strong>CV for this request:</strong> {application.cv?.name||'No CV attached'}{application.cv&&!attachedFile?' · original file unavailable':''}</p>
-        <p className="application-overview-status">{!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or candidate facts changed after this request. Update the materials before applying.':!application.candidate.reviewed?'Review your candidate facts and CV before using these materials on the employer site.':'An employer connection is needed to send this application automatically.'}</p>
+        <p className="application-overview-status">{application.result?`${application.result.message}${application.result.receipt?` Confirmation: ${application.result.receipt}`:''}`:application.status==='queued'?'Waiting for the paired local agent. No employer has received this yet.':application.status==='processing'?'The agent is working on the employer form. A result has not been confirmed.':!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or candidate facts changed after this request. Update the materials before applying.':!application.candidate.reviewed?'Review your candidate facts and CV before using these materials on the employer site.':'Pair an application agent in Settings to submit through a supported employer form.'}</p>
         <div className="application-overview-actions">
           {attachedFile&&<><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer">View chosen CV<Eye size={15}/></a><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}`} download>Download chosen CV<Download size={15}/></a></>}
           {refreshNeeded&&<button type="button" className="button quiet" disabled={busy} onClick={()=>void onRefresh(application.id)}>{application.cv?'Update request with chosen CV':'Attach chosen CV'}<FileText size={15}/></button>}
+          {agentPaired&&application.status==='needs_action'&&application.reason==='connection_required'&&attachedFile&&<button type="button" className="button quiet" disabled={busy} onClick={()=>void onQueue(application.id)}>Queue with agent<ArrowRight size={15}/></button>}
           {!chosenCv&&<button type="button" className="button quiet" onClick={onChooseCv}>Choose a CV<ArrowRight size={15}/></button>}
           {sourceUrl && <a className="button quiet" href={sourceUrl} target="_blank" rel="noopener noreferrer">View original vacancy<ExternalLink size={15}/></a>}
           {applyUrl && applyUrl !== sourceUrl && <a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer">Open application page<ExternalLink size={15}/></a>}

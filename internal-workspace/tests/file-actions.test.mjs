@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 await mkdir('.sites-runtime/file-tests',{recursive:true});
-for(const name of ['candidate-facts','cyber-domain','file-deletion','file-preview']){const s=(await readFile(`lib/${name}.ts`,'utf8')).replace("'./cyber-domain'","'./cyber-domain.mjs'").replace("'./candidate-facts'","'./candidate-facts.mjs'");await writeFile(`.sites-runtime/file-tests/${name}.mjs`,ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText);}
+for(const name of ['candidate-facts','cover-letter','cyber-domain','file-deletion','file-preview']){const s=(await readFile(`lib/${name}.ts`,'utf8')).replace("'./cyber-domain'","'./cyber-domain.mjs'").replace("'./candidate-facts'","'./candidate-facts.mjs'").replace("'./cover-letter'","'./cover-letter.mjs'");await writeFile(`.sites-runtime/file-tests/${name}.mjs`,ts.transpileModule(s,{compilerOptions:{module:ts.ModuleKind.ES2022,target:ts.ScriptTarget.ES2022}}).outputText);}
 const {emptyState,analyzeResume}=await import('../.sites-runtime/file-tests/cyber-domain.mjs');
 const {deleteSavedFile}=await import('../.sites-runtime/file-tests/file-deletion.mjs');
 const {wordPreview}=await import('../.sites-runtime/file-tests/file-preview.mjs');

@@ -91,3 +91,4 @@ a.mobile-brand{color:var(--text)}
 .guided-tour-layer .tour-actions{padding-top:10px}
 @media(max-width:700px){.guided-tour-layer .guided-tour{padding:16px 17px;width:min(360px,calc(100vw - 24px));max-height:min(50dvh,340px);border-radius:16px}.guided-tour-layer .guided-tour h2{font-size:18px}.guided-tour-layer .tour-description{font-size:12px}}
 @media(prefers-reduced-motion:reduce){.tour-pointer{animation:none}.tour-spotlight,.tour-pointer,.guided-tour-layer .guided-tour{transition:none}}
+.agent-token{display:block;max-width:100%;padding:0.75rem;margin:0.75rem 0;overflow-wrap:anywhere;user-select:all;background:var(--surface,#f5f7f7);border-radius:0.5rem}

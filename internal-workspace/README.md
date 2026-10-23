@@ -26,9 +26,11 @@ Import safeguards:
 
 Official references: [Greenhouse Job Board API](https://docs.greenhouse.io/job-board), [Lever Postings API](https://github.com/lever/postings-api).
 
-## Applications: submission remains unconnected
+## Applications: paired local-agent pilot
 
-Right swipe / Apply records an owner-specific request and exact candidate/application-text snapshot, including the chosen uploaded CV file when one is available. It remains **Needs action / not submitted**. A request without a chosen CV says so explicitly; an existing unsent request can be updated with the current chosen CV. Repeating Apply does not duplicate materials or requests. Editing CV text or application text flags changed materials while preserving the original snapshot.
+Right swipe / Apply records an owner-specific request and exact candidate/application-text snapshot, including the chosen uploaded CV file when one is available. Without local agent pairing it remains **Needs action / not submitted**. After pairing, a new right swipe with reviewed facts and a chosen CV queues that snapshot for the local browser worker; queueing is not submission. Older unsent requests require an explicit queue action. A request without a chosen CV says so; it can be updated with the current chosen CV. Repeating Apply does not duplicate materials or requests. Editing CV text or application text invalidates an unsent queue item while preserving its original snapshot. Only an employer confirmation and receipt recorded by the paired worker makes a request **Applied**.
+
+Settings can create, rotate and revoke a one-time agent pairing token. The token is shown once; the Site stores its hash, binds it to the signed-in owner, and expires it after 30 days. The local companion polls outward over HTTPS while running; the Site never reaches into the user's laptop. It uses an exact employer-form registry and stops on missing answers, unsupported forms or uncertain results. No real employer form is configured. See `../docs/application-agent.md` for operation and current pilot limits.
 
 Greenhouse/Lever public job feeds do not grant application-submission permission. An employer's authorized application API access is still needed before an actual send can be enabled and validated. Opening the original employer application form is a manual fallback, never proof of submission. No employer submission, paid provider or additional hosting subscription was configured for this release. See FDE-27 in Linear.
 

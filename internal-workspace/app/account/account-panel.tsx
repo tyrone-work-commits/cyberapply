@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, Download, LogOut, ShieldCheck, Trash2, UserRound, LoaderCircle } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, LogOut, ShieldCheck, Trash2, UserRound, LoaderCircle, Bot, Copy } from 'lucide-react';
 import { EntryBrand } from '../entry-screen';
 import { GuidedTour, tourSteps } from '../guided-tour';
 
@@ -15,6 +15,8 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
   const [tourStep,setTourStep]=useState<number|null>(null);
   const [tourBusy,setTourBusy]=useState(false);
   const [tourError,setTourError]=useState('');
+  const [agentPair,setAgentPair]=useState<{paired:boolean;expiresAt:string|null}|null>(null);
+  const [pairToken,setPairToken]=useState('');
   useEffect(()=>{const requested=Number(new URLSearchParams(window.location.search).get('tour'));if(Number.isInteger(requested)&&requested>=0&&requested<tourSteps.length&&tourSteps[requested].area==='account')setTourStep(requested);},[]);
   async function finishTour(){
     if(tourBusy)return;
@@ -49,6 +51,19 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
     }).catch(failure=>{if(active)setError((failure as Error).message);}).finally(()=>{if(active)setLoading(false);});
     return()=>{active=false;};
   },[]);
+  useEffect(()=>{void fetch('/api/agent/pair',{cache:'no-store'}).then(response=>response.json()).then((data:unknown)=>{if(data&&typeof data==='object'&&'paired'in data&&typeof data.paired==='boolean')setAgentPair({paired:data.paired,expiresAt:'expiresAt'in data&&typeof data.expiresAt==='string'?data.expiresAt:null});}).catch(()=>{});},[]);
+  async function pairAgent(method:'POST'|'DELETE'){
+    if(!status||busy)return;
+    setBusy(true);setError('');setPairToken('');
+    try{
+      const response=await fetch('/api/agent/pair',{method,headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:status.revision})});
+      const data=await response.json() as {token?:string;expiresAt?:string;revision?:number;error?:string};
+      if(!response.ok)throw new Error(data.error||'The agent connection could not be changed.');
+      if(data.revision!==undefined)setStatus({...status,revision:data.revision});
+      setAgentPair({paired:method==='POST',expiresAt:data.expiresAt||null});
+      if(data.token)setPairToken(data.token);
+    }catch(failure){setError((failure as Error).message);await refresh();}finally{setBusy(false);}
+  }
   async function removeAccount(){
     if(!status||busy||confirmation!=='DELETE CYBERAPPLY')return;
     setBusy(true);setError('');
@@ -65,6 +80,12 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
       <div className="account-intro"><span className="eyebrow">YOUR ACCOUNT</span><h1>Account settings</h1><p>Manage your CyberApply profile, sign out, or remove your private workspace.</p></div>
       <section className="panel account-section"><div className="account-section-heading"><UserRound size={21}/><div><h2>Signed in with ChatGPT</h2><p>{email}</p></div></div><div className="account-actions"><a className="button quiet" href="/onboarding">Edit account profile</a><a className="button quiet" href="/api/export"><Download size={16}/>Export my records</a></div></section>
       <section className="panel account-section"><div className="account-section-heading"><BookOpen size={21}/><div><h2>App tutorial</h2><p>Walk through Explore, Saved, Applications, CV review, Activity and Settings again.</p></div></div><a className="button quiet" href="/workspace?tour=1"><BookOpen size={16}/>Replay tutorial</a></section>
+      <section className="panel account-section"><div className="account-section-heading"><Bot size={21}/><div><h2>Local application agent</h2><p>Pair this account with the CyberApply browser worker on your computer. After it is configured and running, a right swipe queues the chosen CV and role-specific letter for supported employer forms.</p></div></div>
+        <p className="subtle">{agentPair?.paired?`Paired until ${new Date(agentPair.expiresAt!).toLocaleString()}. Pairing does not mean the worker is currently running.`:'Not paired. Existing Apply requests will not be submitted automatically.'}</p>
+        <p className="subtle">The worker needs an exact reviewed employer form and its confirmation receipt. Missing questions, CAPTCHA or an unsupported site stop the application for your attention. Keep the pairing token private.</p>
+        <div className="account-actions"><button className="button quiet" type="button" disabled={busy||loading||!status} onClick={()=>void pairAgent('POST')}>{agentPair?.paired?'Rotate pairing token':'Create pairing token'}</button>{agentPair?.paired&&<button className="button quiet" type="button" disabled={busy||!status} onClick={()=>void pairAgent('DELETE')}>Disconnect agent</button>}</div>
+        {pairToken&&<div className="application-status"><strong>Copy this token now. It is shown once.</strong><code className="agent-token">{pairToken}</code><button className="button quiet" type="button" onClick={()=>void navigator.clipboard.writeText(pairToken)}><Copy size={15}/>Copy token</button><p>Set it privately as <code>CYBERAPPLY_SITE_AGENT_TOKEN</code> on the computer running the worker. Do not send it in chat.</p></div>}
+      </section>
       <section className="panel account-section"><div className="account-section-heading"><LogOut size={21}/><div><h2>Sign out</h2><p>End your CyberApply Site session on this browser. Your saved work stays here for next time.</p></div></div><a className="button quiet" href={signOutHref} target="_top"><LogOut size={16}/>Sign out</a></section>
       <section className="panel account-section account-danger"><div className="account-section-heading"><Trash2 size={21}/><div><h2>Delete CyberApply account and data</h2><p>This permanently removes your CyberApply profile, candidate facts, CV review and original files, saved jobs, application requests, drafts, activity, and version history. It does not delete your ChatGPT account or withdraw any application you made outside CyberApply.</p></div></div>
         {loading?<p className="subtle"><LoaderCircle size={15} className="spin"/> Checking your saved records…</p>:status&&<p className="subtle">{status.deleting?'A previous deletion was interrupted. Your workspace is locked until you retry.':`Saved here: ${status.files} CV file${status.files===1?'':'s'}, ${status.jobs} job${status.jobs===1?'':'s'}, ${status.applications} Apply request${status.applications===1?'':'s'}.`}</p>}
