@@ -1,5 +1,5 @@
-import { ArrowRight, ExternalLink, FileText } from 'lucide-react';
-import type { ApplicationRequest, Draft, Job } from '@/lib/cyber-domain';
+import { ArrowRight, Download, ExternalLink, Eye, FileText } from 'lucide-react';
+import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-domain';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -16,25 +16,33 @@ function sourceName(job?: Job) {
   return `${job.source.provider === 'greenhouse' ? 'Greenhouse' : 'Lever'} · ${job.company}`;
 }
 
-export function ApplicationOverview({ applications, jobs, drafts, profileReviewed }: {
+export function ApplicationOverview({ applications, jobs, drafts, files, selectedCvId, busy, onRefresh, onChooseCv }: {
   applications: ApplicationRequest[];
   jobs: Job[];
   drafts: Draft[];
-  profileReviewed: boolean;
+  files: Attachment[];
+  selectedCvId?: string;
+  busy: boolean;
+  onRefresh: (id:string)=>Promise<void>;
+  onChooseCv: ()=>void;
 }) {
   const draftIds = new Set(drafts.map(draft => draft.id));
+  const chosenCv=files.find(file=>file.id===selectedCvId);
   const ordered = [...applications].sort((a, b) => b.at.localeCompare(a.at));
   return <section className="application-overview" aria-labelledby="application-overview-title">
     <div className="section-title">
       <h2 id="application-overview-title">Jobs you chose to Apply to</h2>
       <span>{ordered.length} {ordered.length === 1 ? 'request' : 'requests'}</span>
     </div>
-    <p className="subtle application-overview-intro">This list tracks your choices in CyberApply. A saved Apply request is not proof that the employer received an application.</p>
+    <p className="subtle application-overview-intro">This list tracks your choices in CyberApply. Each request keeps the CV chosen when it was saved. A saved Apply request is not proof that the employer received an application.</p>
+    <p className="subtle application-overview-intro">CV chosen for new requests: <strong>{chosenCv?.name||'None'}</strong> <button type="button" className="text-link" onClick={onChooseCv}>Choose a CV</button></p>
     {ordered.length ? <ol className="application-overview-list">{ordered.map(application => {
       const job = jobs.find(item => item.id === application.jobId);
       const sourceUrl = httpsUrl(application.sourceUrl);
       const applyUrl = httpsUrl(job?.applyUrl) || sourceUrl;
       const boardUrl = httpsUrl(job?.source?.boardUrl);
+      const attachedFile=files.find(file=>file.id===application.cv?.fileId);
+      const refreshNeeded=!!chosenCv&&(application.cv?.fileId!==chosenCv.id||application.reason!=='connection_required');
       return <li key={application.id} className="panel application-overview-card">
         <div className="application-overview-main">
           <div>
@@ -45,8 +53,12 @@ export function ApplicationOverview({ applications, jobs, drafts, profileReviewe
           <span className="badge">NOT SUBMITTED</span>
         </div>
         <p className="application-overview-source"><strong>Vacancy source:</strong> {sourceName(job)}</p>
-        <p className="application-overview-status">{!profileReviewed ? 'Review your candidate facts and CV before using these materials on the employer site.' : application.reason === 'materials_changed' ? 'Your CV or materials changed after this request. Review them before applying on the employer site.' : 'An employer connection is needed to send this application automatically.'}</p>
+        <p className="application-overview-source"><strong>CV for this request:</strong> {application.cv?.name||'No CV attached'}{application.cv&&!attachedFile?' · original file unavailable':''}</p>
+        <p className="application-overview-status">{!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or candidate facts changed after this request. Update the materials before applying.':!application.candidate.reviewed?'Review your candidate facts and CV before using these materials on the employer site.':'An employer connection is needed to send this application automatically.'}</p>
         <div className="application-overview-actions">
+          {attachedFile&&<><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer">View chosen CV<Eye size={15}/></a><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}`} download>Download chosen CV<Download size={15}/></a></>}
+          {refreshNeeded&&<button type="button" className="button quiet" disabled={busy} onClick={()=>void onRefresh(application.id)}>{application.cv?'Update request with chosen CV':'Attach chosen CV'}<FileText size={15}/></button>}
+          {!chosenCv&&<button type="button" className="button quiet" onClick={onChooseCv}>Choose a CV<ArrowRight size={15}/></button>}
           {sourceUrl && <a className="button quiet" href={sourceUrl} target="_blank" rel="noopener noreferrer">View original vacancy<ExternalLink size={15}/></a>}
           {applyUrl && applyUrl !== sourceUrl && <a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer">Open application page<ExternalLink size={15}/></a>}
           {boardUrl && boardUrl !== sourceUrl && <a className="button text-button" href={boardUrl} target="_blank" rel="noopener noreferrer">Employer job board<ArrowRight size={15}/></a>}

@@ -43,7 +43,7 @@ test('rapid duplicate clicks create one pending choice, and replacement cannot r
  const gate=deferred();let count=0;const h=setup(async(base,action)=>{count++;await gate.promise;return saved(base,action);},async()=>initial());h.queue.enqueue({type:'decide_job',jobId:'a',decision:'pass'});h.queue.enqueue({type:'decide_job',jobId:'a',decision:'pass'});assert.equal(h.status.pending,1);assert.throws(()=>h.queue.replace(initial()),/Wait/);gate.resolve();await tick();assert.equal(count,1);
 });
 test('unreviewed Apply appears immediately as an unsent request while saving',async()=>{
- const gate=deferred();const h=setup(async(base,action)=>{await gate.promise;return saved(base,action);},async()=>initial());const packet=initial();packet.state.profile.reviewed=false;h.queue.replace(packet);h.queue.enqueue({type:'decide_job',jobId:'a',decision:'apply'});assert.equal(h.status.pending,1);assert.equal(h.view.state.jobs[0].disposition,'apply_requested');assert.equal(h.view.state.applications[0].reason,'candidate_review_required');gate.resolve();await tick();assert.equal(h.status.pending,0);
+ const gate=deferred();const h=setup(async(base,action)=>{await gate.promise;return saved(base,action);},async()=>initial());const packet=initial();packet.state.profile.reviewed=false;h.queue.replace(packet);h.queue.enqueue({type:'decide_job',jobId:'a',decision:'apply'});assert.equal(h.status.pending,1);assert.equal(h.view.state.jobs[0].disposition,'apply_requested');assert.equal(h.view.state.applications[0].reason,'cv_required');gate.resolve();await tick();assert.equal(h.status.pending,0);
 });
 
 

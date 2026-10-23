@@ -21,10 +21,11 @@ function saveFileReview(state:State){
  const file=state.attachments.find(item=>item.id===review.source?.fileId);
  if(file)file.reviewSnapshot={score:review.score,at:review.at};
 }
-export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; at: string; status: 'needs_action'; reason: 'connection_required' | 'candidate_review_required' | 'materials_changed'; sourceUrl: string };
+export type SelectedCv = { fileId:string; name:string; type:string; size:number };
+export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; cv?: SelectedCv; at: string; status: 'needs_action'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; pendingFileDeletions?:Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -42,6 +43,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
+  z.object({ type: z.literal('refresh_application_materials'), applicationId: id }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
@@ -71,6 +73,19 @@ export function record(state: State, action: string, message: string, source: Ac
   state.activity.unshift({ id: crypto.randomUUID(), at, action, message, source });
   state.activity = state.activity.slice(0, 200);
 }
+export function selectedCv(state:State):Attachment|undefined{return state.attachments.find(file=>file.id===state.selectedCvId);}
+export function cvSnapshot(file:Attachment):SelectedCv{return {fileId:file.id,name:file.name,type:file.type,size:file.size};}
+export function activateCv(state:State,file:Attachment,extracted:{text:string;format:'PDF'|'DOCX'|'TXT';pages?:number;warnings:string[]},at=new Date().toISOString()){
+  const facts=extractCandidateFacts(extracted.text);
+  state.profile={...state.profile,fullName:facts.fullName||'',email:facts.email||'',skills:facts.skills||[],preferredRoles:facts.preferredRoles||[],githubRepositoryUrl:facts.githubRepositoryUrl||'',linkedInUrl:facts.linkedInUrl||'',portfolioWebsiteUrl:facts.portfolioWebsiteUrl||'',location:facts.location||'',resumeText:extracted.text,reviewed:false};
+  state.selectedCvId=file.id;
+  state.resumeReview=analyzeResume(state.profile,at);
+  state.resumeReview.source={fileId:file.id,name:file.name,format:extracted.format,pages:extracted.pages,warnings:extracted.warnings};
+  saveFileReview(state);
+  state.applications?.forEach(item=>{item.reason='materials_changed';});
+  state.drafts.forEach(draft=>{if(draft.status==='ready'){draft.status='draft';draft.version++;draft.updatedAt=at;}});
+  return facts;
+}
 function getJob(state: State, jobId: string) { const job = state.jobs.find(item => item.id === jobId); if (!job) throw new DomainError('That job is not in your workspace.', 404); return job; }
 function getDraft(state: State, draftId: string) { const draft = state.drafts.find(item => item.id === draftId); if (!draft) throw new DomainError('That draft is not in your workspace.', 404); return draft; }
 
@@ -90,6 +105,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...state.profile, ...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
     if (JSON.stringify(state.profile) !== JSON.stringify(before.profile)) {
+      if(state.profile.resumeText!==before.profile.resumeText)delete state.selectedCvId;
       state.resumeReview=state.profile.resumeText.trim().length>=20?analyzeResume(state.profile,at):undefined;
       if(state.resumeReview&&state.profile.resumeText===before.profile.resumeText&&before.resumeReview?.source)state.resumeReview.source=structuredClone(before.resumeReview.source);
       saveFileReview(state);
@@ -129,11 +145,12 @@ export function reduceAction(before: State, action: Action, source: Activity['so
         createdDraftId=draft.id;
         state.drafts.unshift(draft);
       }
-      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), at, status: 'needs_action', reason: state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url };
+      const cv=selectedCv(state);
+      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), at, status: 'needs_action', reason: !cv?'cv_required':state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url };
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
       state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};
-      message = state.profile.reviewed?'Apply request saved in Applications. An approved connection is required; no application has been sent.':'Apply request saved in Applications. Review your candidate facts and CV before using the materials; no application has been sent.';
+      message = !cv?'Apply request saved without a CV. Choose an uploaded CV in CV review and attach it in Applications; nothing has been sent.':state.profile.reviewed?'Apply request saved with your chosen CV. An approved connection is required; no application has been sent.':'Apply request saved with your chosen CV. Review candidate facts before using the materials; nothing has been sent.';
     } else {
       if (state.applications?.some(item => item.jobId === job.id)) throw new DomainError('An Apply request already exists for this job. Open Applications.', 409);
       job.previousDisposition = job.disposition; job.decidedAt = at; job.disposition = 'passed';
@@ -169,6 +186,18 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if (!state.profile.reviewed || draft.text.trim().length < 20) throw new DomainError('Review your profile and complete the draft first.', 409);
     draft.status = 'ready'; draft.version++; draft.updatedAt = at;
     message = 'Draft marked ready for manual application. It has not been submitted.';
+  } else if (action.type === 'refresh_application_materials') {
+    const request=state.applications?.find(item=>item.id===action.applicationId);
+    if(!request)throw new DomainError('Apply request not found.',404);
+    const cv=selectedCv(state);
+    if(!cv)throw new DomainError('Choose an uploaded CV in CV review before attaching it to this request.',409);
+    const draft=getDraft(state,request.draftId);
+    request.cv=cvSnapshot(cv);
+    request.candidate=structuredClone(state.profile);
+    request.text=draft.text;
+    request.draftVersion=draft.version;
+    request.reason=state.profile.reviewed?'connection_required':'candidate_review_required';
+    message=`${cv.name} and current candidate facts attached to the unsent Apply request. No employer has received it.`;
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
     const reviewSource=state.resumeReview?.source;
@@ -231,6 +260,7 @@ export function liveState(input: State): State {
   const jobs = new Set(state.jobs.map(job => job.id));
   state.drafts = state.drafts.filter(draft => jobs.has(draft.jobId));
   state.applications = (state.applications || []).filter(item => jobs.has(item.jobId));
+  if(state.selectedCvId&&!state.attachments.some(file=>file.id===state.selectedCvId))delete state.selectedCvId;
   for (const job of state.jobs) if ((job.disposition as string) === 'prepared') {
     job.disposition = 'open'; delete job.previousDisposition; delete job.decidedAt;
   }

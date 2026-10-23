@@ -4,7 +4,7 @@ Private mobile-responsive CV review, real cybersecurity vacancy discovery and ap
 
 ## Current journey
 
-Sign in / Create account → account profile → own workspace → review CV → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → review saved materials and the next action in Applications.
+Sign in / Create account → account profile → own workspace → upload and choose a CV → review Candidate Facts → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → see the chosen CV and next action in Applications.
 
 LinkedIn-specific links, connection prompts and feed status have been removed from the internal application. Existing personal records and their original source URLs/history are preserved. Demo flows, fabricated listings, seeded candidates and simulated receipts remain removed; retired demo APIs return 410.
 
@@ -28,7 +28,7 @@ Official references: [Greenhouse Job Board API](https://docs.greenhouse.io/job-b
 
 ## Applications: submission remains unconnected
 
-Right swipe / Apply records an owner-specific request and exact candidate/application-text snapshot. It remains **Needs action — connection required / not submitted**. Repeating Apply does not duplicate materials or requests. Editing CV text or application text flags changed materials while preserving the original snapshot.
+Right swipe / Apply records an owner-specific request and exact candidate/application-text snapshot, including the chosen uploaded CV file when one is available. It remains **Needs action / not submitted**. A request without a chosen CV says so explicitly; an existing unsent request can be updated with the current chosen CV. Repeating Apply does not duplicate materials or requests. Editing CV text or application text flags changed materials while preserving the original snapshot.
 
 Greenhouse/Lever public job feeds do not grant application-submission permission. An employer's authorized application API access is still needed before an actual send can be enabled and validated. Opening the original employer application form is a manual fallback, never proof of submission. No employer submission, paid provider or additional hosting subscription was configured for this release. See FDE-27 in Linear.
 
@@ -199,3 +199,9 @@ If any fact changes, review confirmation is cleared, ready drafts are invalidate
 The workspace header and desktop sidebar link to a dedicated Account page. It provides profile editing, export and ChatGPT-backed sign-out while preserving saved work. Deleting CyberApply data requires the exact `DELETE CYBERAPPLY` phrase and a current revision. The backend locks the workspace and version history during cleanup, removes all private CV originals for that owner, and deletes the D1 workspace and revision history; interrupted cleanup can be retried. This does not delete the ChatGPT identity or withdraw applications made outside CyberApply.
 
 TypeScript, focused ESLint and production build passed. Sixteen HTTP checks passed on an isolated local Worker with fictional data, and four additional checks confirmed that an interrupted deletion blocks history reads and can be retried; local browser sign-out returned to the sign-in page. Direct inspection confirmed zero isolated R2 objects after deletion. Hosted Account page and counts were checked read-only, without deleting or signing out the real user. Private Site version 23 deployed from source `d3c245ad40fe4baf7fa0b19095d9f1bab17d02c4` (`appgdep_6ad5f696a27081919fc7ff2f2069fc37`). Employer submission remains unconnected.
+
+## 23 October 2026 — Choose the CV used for Apply requests
+
+Uploading a CV now chooses it for new Apply requests. The saved CV list also lets a user choose an older file; this re-extracts its text and Candidate Facts and requires another accuracy review. Each new Apply request captures the chosen original file's ID, name, type and size alongside the candidate and draft snapshots. Applications shows the attached CV with view/download actions. Older unsent requests can be updated with the currently chosen CV. A request without one clearly says that a CV must be chosen. Deleting the chosen original clears the default and flags requests referencing that file; editing the saved résumé text clears the file selection to prevent a mismatch.
+
+Validation: TypeScript, production build, 51 focused unit checks, the new loopback CV-selection HTTP flow, 36 existing CV HTTP checks and 18 swipe HTTP checks passed. The Site source `b77c5924fba35d8e9fdfb4de9b52df9b08f7c183` deployed as version 34 (`appgdep_6adb5baed54881918eb0b5ea061f6da9`). No real CV or employer form was used in tests. Employer submission remains unconnected.

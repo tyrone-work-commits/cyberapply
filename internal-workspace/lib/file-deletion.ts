@@ -11,6 +11,8 @@ export async function deleteSavedFile<S extends Snapshot>(current:S,id:string,st
  if(file){
   if((current.state.pendingFileDeletions?.length||0)>=20)throw new DomainError('Finish pending file deletions before deleting another file.',409);
   const state=structuredClone(current.state);state.attachments=state.attachments.filter(item=>item.id!==id);
+  if(state.selectedCvId===id)delete state.selectedCvId;
+  state.applications?.filter(item=>item.cv?.fileId===id).forEach(item=>{item.reason='materials_changed';});
   state.pendingFileDeletions=[...(state.pendingFileDeletions||[]),file];
   record(state,'delete_file',`Removed saved file: ${file.name}. Extracted CV text and review retained.`,'interface');
   saved=await storage.save(current.revision,state,'delete_file');

@@ -39,6 +39,6 @@ const unreviewedOwner=`unreviewed-${owner}`;
 let unreviewed=(await req('/api/workspace',undefined,unreviewedOwner)).data;
 let result=await req('/api/workspace',{revision:unreviewed.revision,action:{type:'add_job',title:'Local unreviewed Apply',company:'Local fixture',location:'Remote',workMode:'Remote',url:'https://qa.example.test/swipe/unreviewed',description:'Local fixture for an unsent request before candidate fact review.',skills:['SIEM']}},unreviewedOwner);assert.equal(result.status,200,JSON.stringify(result.data));unreviewed=result.data;
 result=await req('/api/workspace',{revision:unreviewed.revision,action:{type:'decide_job',jobId:unreviewed.state.jobs[0].id,decision:'apply',operationId:randomUUID()}},unreviewedOwner);assert.equal(result.status,200,JSON.stringify(result.data));unreviewed=result.data;
-ok(unreviewed.state.applications.length===1&&unreviewed.state.applications[0].reason==='candidate_review_required'&&unreviewed.state.profile.reviewed===false,'unreviewed candidate can save an unsent Apply request');
+ok(unreviewed.state.applications.length===1&&unreviewed.state.applications[0].reason==='cv_required'&&unreviewed.state.profile.reviewed===false,'unreviewed candidate can save an unsent Apply request');
 ok((await req('/api/workspace',undefined,unreviewedOwner)).data.state.applications[0].sourceUrl==='https://qa.example.test/swipe/unreviewed','unreviewed request and original source persist after reload');
 console.log(JSON.stringify({checks,localOnly:true}));

@@ -15,7 +15,7 @@ The agent cannot automatically complete every employer site. Dynamic questions, 
 
 ## Current deployment boundary
 
-The live Covenda ChatGPT Site and this local FastAPI backend are separate workspaces. The Site currently saves right swipes as **unsent Apply requests**; it does not invoke the local browser worker. This agent is therefore a working **local pilot**, not a live auto-apply feature on `cyberapply-internal.covenda-1182.chatgpt.site`. Connecting that Site requires a secure, identity-scoped bridge and a continuously running browser worker. No employer, browser-worker host or live form registry has been approved or configured yet. Do not describe Site requests as submitted.
+The live Covenda ChatGPT Site and this local FastAPI backend are separate workspaces. The Site saves right swipes as **unsent Apply requests** with a snapshot of the chosen uploaded CV, candidate facts and draft; it does not invoke the local browser worker. An older unsent request can be updated to use the currently chosen CV. This agent is therefore a working **local pilot**, not a live auto-apply feature on `cyberapply-internal.covenda-1182.chatgpt.site`. Connecting that Site requires a secure, identity-scoped bridge and a continuously running browser worker. No employer, browser-worker host or live form registry has been approved or configured yet. Do not describe Site requests as submitted.
 
 ## Verify without contacting an employer
 
