@@ -25,6 +25,8 @@ class FakeLocator:
     def nth(self, index):
         return FakeLocator(self.page, self.selector, index)
     def is_visible(self):
+        if self.selector == "#success":
+            return self.page.clicked or self.page.preexisting_confirmation
         return True
     def is_enabled(self):
         return True
@@ -48,6 +50,8 @@ class FakeLocator:
         if self.page.confirmation_error:
             raise RuntimeError("No confirmation")
     def inner_text(self):
+        if self.selector == "#consent-container":
+            return self.page.employer_consent_text
         return "receipt-123" if self.selector == "#receipt" else "Application submitted"
     def get_attribute(self, _):
         return "receipt-123"
@@ -60,6 +64,8 @@ class FakePage:
         self.upload = None
         self.clicked = False
         self.captcha = self.click_error = self.confirmation_error = self.post_click_redirect = False
+        self.preexisting_confirmation = False
+        self.employer_consent_text = "I agree to employer processing."
         self.valid = True
         self.missing_selector = None
     def set_default_timeout(self, _):
@@ -131,7 +137,34 @@ def test_pre_submission_problems_need_attention_without_clicking(settings, fault
         application.answers.pop("email")
     with pytest.raises(ApplicationAttention):
         connector.submit(application, job)
-    assert not page.clicked and browser.closed
+    assert not page.clicked
+    assert browser.closed is (fault != "missing_answer")
+
+
+def test_employer_consent_is_checked_before_browser_launch(settings):
+    connector, application, job, page, browser = setup_connector(settings, consent={"selector": "#consent", "type": "checkbox"})
+    with pytest.raises(ApplicationAttention, match="consent"):
+        connector.submit(application, job)
+    assert not browser.closed and not page.filled and not page.clicked
+    application.answers["consent"] = True
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled["#consent"] is True
+
+
+def test_changed_employer_consent_or_preexisting_confirmation_stops_before_submit(settings):
+    connector, application, job, page, browser = setup_connector(settings, consent={"selector": "#consent", "type": "checkbox"})
+    connector.registry["fixture"]["consent_text"] = "I agree to employer processing."
+    connector.registry["fixture"]["consent_container_selector"] = "#consent-container"
+    application.answers["consent"] = True
+    page.employer_consent_text = "The employer changed its agreement."
+    with pytest.raises(ApplicationAttention, match="agreement changed"):
+        connector.submit(application, job)
+    assert not page.clicked and not page.filled
+    page.employer_consent_text = connector.registry["fixture"]["consent_text"]
+    page.preexisting_confirmation = True
+    with pytest.raises(ApplicationAttention, match="already visible"):
+        connector.submit(application, job)
+    assert not page.clicked and not page.filled
 
 
 @pytest.mark.parametrize("fault", ["click_error", "confirmation_error", "post_click_redirect"])

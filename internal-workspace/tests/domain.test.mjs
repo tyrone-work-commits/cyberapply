@@ -132,6 +132,19 @@ test('paired right swipe queues only a reviewed chosen CV and role-specific lett
  assert.doesNotMatch(s.applications[0].text,/Splunk experience/);
  assert.equal(act(s,{type:'undo_decision',jobId:s.jobs[0].id}).applications.length,0);
 });
+test('the exact employer pilot needs explicit consent before a swipe can queue submission',()=>{
+ const pilot={...listing,title:'Cybersecurity Trainee',company:'Bitwealth Systems Limited',url:'https://www.bitwealthsystems.com.ng/careers'};
+ let state=act(act(emptyState(),pilot),{type:'save_profile',profile});
+ state.attachments=[{id:'pilot-cv',key:'owners/qa/pilot-cv',name:'cv.pdf',type:'application/pdf',size:300,createdAt:at,textExtracted:true}];
+ state.selectedCvId='pilot-cv';
+ state.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
+ assert.throws(()=>act(state,{type:'decide_job',jobId:state.jobs[0].id,decision:'apply'}),/Agree to Bitwealth/);
+ assert.equal(state.applications?.length||0,0);
+ const queued=act(state,{type:'decide_job',jobId:state.jobs[0].id,decision:'apply',employerConsent:true});
+ assert.equal(queued.applications[0].status,'queued');
+ assert.equal(queued.applications[0].employerConsent,true);
+ assert.equal(queued.applications[0].cv.name,'cv.pdf');
+});
 test('CV or profile edits stop unsent queue work without rewriting a confirmed application',()=>{
  let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
  s=apply(s);const updated=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});

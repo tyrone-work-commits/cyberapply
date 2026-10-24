@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -89,3 +90,31 @@ def test_unconfigured_employer_needs_attention_without_browser(monkeypatch):
     assert site_agent.run_once(client, {}, submit=True)
     assert client.result["status"] == "needs_attention"
     assert "not been reviewed" in client.result["message"]
+
+
+def test_bitwealth_pilot_matches_only_the_reviewed_role_and_requires_consent_before_cv_download(monkeypatch):
+    registry_path = Path(__file__).resolve().parents[1] / "config" / "site-agent.registry.bitwealth.pilot.json"
+    registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    job = {"company": "Bitwealth Systems Limited", "title": "Cybersecurity Trainee", "applyUrl": "https://www.bitwealthsystems.com.ng/careers"}
+    assert site_agent.configured_form(job, registry)[0] == "bitwealth_cybersecurity_trainee"
+    with pytest.raises(ApplicationAttention):
+        site_agent.configured_form({**job, "title": "Frontend Trainee"}, registry)
+
+    class Response:
+        def __init__(self, data): self.data = data
+        def raise_for_status(self): pass
+        def json(self): return self.data
+    class Client:
+        result = None
+        def post(self, path, json=None):
+            if path.endswith("claim"):
+                return Response({"job": job, "application": {"id": "pilot-1", "claimId": "claim-1", "employerConsent": False, "candidate": {"reviewed": True}, "cv": {"name": "cv.pdf", "type": "application/pdf", "size": 10}}})
+            self.result = json
+            return Response({"status": json["status"]})
+        def get(self, *_args, **_kwargs):
+            pytest.fail("A missing consent must stop the worker before CV download")
+    monkeypatch.setattr(site_agent, "BrowserFormConnector", lambda *_args, **_kwargs: pytest.fail("Browser must not launch"))
+    client = Client()
+    assert site_agent.run_once(client, registry, submit=True)
+    assert client.result["status"] == "needs_attention"
+    assert "consent" in client.result["message"]

@@ -102,6 +102,17 @@ class BrowserFormConnector:
 
     def _browser_operation(self, application, job, *, reconciliation=False):
         form, trusted = self._form(job)
+        if not reconciliation:
+            # Reject missing consent and other required answers before any personal
+            # details are entered into a third-party form.
+            for name, mapping in form["fields"].items():
+                if mapping.get("type") == "file":
+                    continue
+                value = application.cover_letter if name == "cover_letter" else application.answers.get(name)
+                if name == "consent" and value is not True:
+                    raise ApplicationAttention("The employer's data-processing consent has not been confirmed")
+                if mapping.get("required", True) and (value is None or value == "" or value == [] or value == {}):
+                    raise ApplicationAttention("A required employer answer is missing")
         url = job.apply_url
         if reconciliation:
             template = form.get("status_url_template")
@@ -148,6 +159,13 @@ class BrowserFormConnector:
                     if any(captcha.nth(index).is_visible() for index in range(min(captcha.count(), 10))):
                         raise ApplicationAttention("This employer requires a human CAPTCHA check")
                     if not reconciliation:
+                        if form.get("consent_text"):
+                            consent_container = page.locator(form.get("consent_container_selector", "form"))
+                            if consent_container.count() != 1 or form["consent_text"] not in consent_container.inner_text():
+                                raise ApplicationAttention("The employer's data-processing agreement changed; review it before applying")
+                        before_confirmation = page.locator(form["confirmation_selector"])
+                        if before_confirmation.count() > 1 or (before_confirmation.count() == 1 and before_confirmation.is_visible()):
+                            raise ApplicationAttention("The employer confirmation is already visible before submission; review the form mapping")
                         for name, mapping in form["fields"].items():
                             locator = page.locator(mapping["selector"])
                             kind = mapping.get("type", "text")

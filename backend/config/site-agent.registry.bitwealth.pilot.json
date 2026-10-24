@@ -1,0 +1,29 @@
+{
+  "bitwealth_cybersecurity_trainee": {
+    "company": "Bitwealth Systems Limited",
+    "job_titles": ["Cybersecurity Trainee"],
+    "apply_urls": ["https://www.bitwealthsystems.com.ng/careers"],
+    "origins": ["https://www.bitwealthsystems.com.ng"],
+    "path_prefixes": ["/careers"],
+    "consent_text": "I agree that Bitwealth Systems can store and process this information to review my application.",
+    "consent_container_selector": "form.bw-contact-form",
+    "accepted_cv_types": [
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ],
+    "max_cv_bytes": 4000000,
+    "fields": {
+      "full_name": {"selector": "form.bw-contact-form input[name='name']"},
+      "email": {"selector": "form.bw-contact-form input[name='email']"},
+      "role": {"selector": "form.bw-contact-form select[name='role']", "type": "select"},
+      "portfolio": {"selector": "form.bw-contact-form input[name='portfolioUrl']", "required": false},
+      "cover_letter": {"selector": "form.bw-contact-form textarea[name='message']"},
+      "resume": {"selector": "form.bw-contact-form input[name='cv']", "type": "file"},
+      "consent": {"selector": "form.bw-contact-form input[name='consent']", "type": "checkbox"}
+    },
+    "submit_selector": "form.bw-contact-form button[type='submit']",
+    "confirmation_selector": "text=/thank you|application (?:submitted|received)|we (?:received|got) your application/i",
+    "receipt_selector": "text=/thank you|application (?:submitted|received)|we (?:received|got) your application/i"
+  }
+}

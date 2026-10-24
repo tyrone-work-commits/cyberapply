@@ -7,6 +7,8 @@ import { coverLetter } from './cover-letter';
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
 export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean; githubRepositoryUrl?: string; linkedInUrl?: string; portfolioWebsiteUrl?: string; location?: string };
 export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
+export const bitwealthPilot = { company:'Bitwealth Systems Limited', title:'Cybersecurity Trainee', url:'https://www.bitwealthsystems.com.ng/careers', consent:'I agree that Bitwealth Systems can store and process this information to review my application.' } as const;
+export function isBitwealthPilot(job:Pick<Job,'company'|'title'|'url'|'applyUrl'>){return job.company===bitwealthPilot.company&&job.title===bitwealthPilot.title&&(job.applyUrl||job.url)===bitwealthPilot.url;}
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean; reviewSnapshot?:{score:number;at:string} };
 export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };
@@ -23,7 +25,7 @@ function saveFileReview(state:State){
  if(file)file.reviewSnapshot={score:review.score,at:review.at};
 }
 export type SelectedCv = { fileId:string; name:string; type:string; size:number };
-export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; cv?: SelectedCv; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string; agentAuthorizedAt?:string; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string} };
+export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; cv?: SelectedCv; employerConsent?:boolean; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string; agentAuthorizedAt?:string; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string} };
 export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
@@ -40,7 +42,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('complete_tutorial') }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
-  z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), operationId:z.string().uuid().optional() }).strict(),
+  z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), employerConsent:z.boolean().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type:z.literal('queue_application'), applicationId:id }).strict(),
   z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
@@ -49,7 +51,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
-export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'}>){return JSON.stringify([action.type,action.jobId,action.type==='save_job'?action.saved:action.type==='decide_job'?action.decision:action.decisionId||null]);}
+export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'}>){return JSON.stringify([action.type,action.jobId,action.type==='save_job'?action.saved:action.type==='decide_job'?[action.decision,action.employerConsent===true]:action.decisionId||null]);}
 
 export function emptyState(email = ''): State {
   return { profile: { fullName: '', email, skills: [], preferredRoles: [], resumeText: '', reviewed: false, githubRepositoryUrl: '', linkedInUrl: '', portfolioWebsiteUrl: '', location: '' }, jobs: [], drafts: [], attachments: [], theme: 'paper', activity: [] };
@@ -135,6 +137,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const previousDisposition=job.disposition;
     const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
+      if (isBitwealthPilot(job) && action.employerConsent!==true) throw new DomainError('Agree to Bitwealth Systems processing your application before swiping Apply.');
       if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
       if (!safeJobUrl(job.url)) throw new DomainError('Add the original job listing URL before applying.', 409);
       const existing = state.applications?.find(item => item.jobId === job.id);
@@ -148,7 +151,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       }
       const cv=selectedCv(state);
       const authorized=!!(cv&&state.profile.reviewed&&state.agentPairing&&state.agentPairing.expiresAt>at);
-      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), at, status:authorized?'queued':'needs_action', reason: !cv?'cv_required':state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url,...(authorized?{agentAuthorizedAt:at}:{}) };
+      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), ...(isBitwealthPilot(job)?{employerConsent:true}:{}), at, status:authorized?'queued':'needs_action', reason: !cv?'cv_required':state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url,...(authorized?{agentAuthorizedAt:at}:{}) };
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
       state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};

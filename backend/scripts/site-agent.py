@@ -30,6 +30,8 @@ def configured_form(job: dict, registry: dict):
     for key, form in registry.items():
         if not isinstance(form, dict) or form.get("company") != job.get("company"):
             continue
+        if form.get("job_titles") and job.get("title") not in form["job_titles"]:
+            continue
         if target in form.get("apply_urls", []) and target_origin in form.get("origins", []) and any(
             urlsplit(target).path.startswith(prefix)
             for prefix in form.get("path_prefixes", [])
@@ -39,7 +41,7 @@ def configured_form(job: dict, registry: dict):
     raise ApplicationAttention("This employer form has not been reviewed and configured for automatic submission")
 
 
-def answers_from_candidate(candidate: dict):
+def answers_from_candidate(candidate: dict, *, job_title: str = "", employer_consent: bool = False):
     name = str(candidate.get("fullName") or "").strip()
     parts = name.split(None, 1)
     return {
@@ -51,6 +53,8 @@ def answers_from_candidate(candidate: dict):
         "linkedin": candidate.get("linkedInUrl") or "",
         "github": candidate.get("githubRepositoryUrl") or "",
         "portfolio": candidate.get("portfolioWebsiteUrl") or "",
+        "role": job_title,
+        "consent": employer_consent,
     }
 
 
@@ -69,10 +73,18 @@ def run_once(client: httpx.Client, registry: dict, *, submit: bool):
             raise ApplicationAttention("This employer form needs a verified receipt selector before automatic submission")
         if not submit:
             raise ApplicationAttention("Local agent is in inspection mode; no employer form was submitted")
+        if form.get("consent_text") and application_data.get("employerConsent") is not True:
+            raise ApplicationAttention("Review and accept the employer's exact data-processing consent in CyberApply before applying")
         candidate = application_data["candidate"]
         if not candidate.get("reviewed"):
             raise ApplicationAttention("Candidate facts were not reviewed")
         cv = application_data["cv"]
+        accepted = form.get("accepted_cv_types")
+        if accepted and cv.get("type") not in accepted:
+            raise ApplicationAttention("This employer requires a PDF or Word CV; choose an accepted saved CV")
+        max_cv_bytes = form.get("max_cv_bytes")
+        if max_cv_bytes and cv.get("size", 0) > max_cv_bytes:
+            raise ApplicationAttention("The chosen CV exceeds the employer's file-size limit")
         document = client.get("/api/agent/cv", params={"applicationId": application_id, "claimId": claim_id})
         document.raise_for_status()
         if len(document.content) != cv["size"] or len(document.content) > 12_000_000:
@@ -92,7 +104,7 @@ def run_once(client: httpx.Client, registry: dict, *, submit: bool):
             idempotency_key=application_id,
             user_id="paired-site-user",
             cover_letter=application_data["coverLetter"],
-            answers=answers_from_candidate(candidate),
+            answers=answers_from_candidate(candidate, job_title=job_data.get("title") or "", employer_consent=application_data.get("employerConsent") is True),
         )
         def upload(_application):
             return {"name": cv["name"], "mimeType": cv["type"], "buffer": document.content}
