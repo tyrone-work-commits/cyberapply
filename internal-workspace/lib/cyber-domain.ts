@@ -40,7 +40,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
   z.object({ type: z.literal('complete_tutorial') }).strict(),
-  z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills, saved:z.boolean().optional() }).strict(),
+  z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), employerConsent:z.boolean().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type:z.literal('queue_application'), applicationId:id }).strict(),
@@ -124,8 +124,8 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const url = safeJobUrl(action.url);
     if (!url) throw new DomainError('Add the original public HTTPS job listing URL.');
     if (url && state.jobs.some(job => job.url === url)) throw new DomainError('That listing URL is already in your workspace.', 409);
-    state.jobs.unshift({ id: crypto.randomUUID(), title: action.title, company: action.company, location: action.location, workMode: action.workMode, url, description: action.description, skills: unique(action.skills), sample: false, saved: action.saved===true, disposition: 'open', createdAt: at });
-    message = action.saved?'Listing added to Saved. Automatic application has not been verified for this vacancy.':'Listing saved with its source. Availability has not been independently verified.';
+    state.jobs.unshift({ id: crypto.randomUUID(), title: action.title, company: action.company, location: action.location, workMode: action.workMode, url, description: action.description, skills: unique(action.skills), sample: false, saved: false, disposition: 'open', createdAt: at });
+    message = 'Listing saved with its source. Availability has not been independently verified.';
   } else if (action.type === 'save_job') {
     const job=getJob(state,action.jobId);
     if(action.saved&&!job.saved)state.lastDecision={jobId:job.id,decision:'save',operationId:operationId||crypto.randomUUID(),previousDisposition:job.disposition,previousSaved:job.saved,at};

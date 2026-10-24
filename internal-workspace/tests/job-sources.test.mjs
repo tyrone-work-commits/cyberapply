@@ -3,28 +3,18 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 await mkdir('.sites-runtime/source-tests',{recursive:true});
-for(const name of ['candidate-facts','cover-letter','cyber-domain','job-catalog','job-discovery','auto-apply-eligibility']){
+for(const name of ['candidate-facts','cover-letter','cyber-domain','job-catalog','job-discovery']){
  const out=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'");
  await writeFile(`.sites-runtime/source-tests/${name}.mjs`,out);
 }
 const {boardFromUrl,searchSchema,defaultSearch,boardKey,matchesSearch,addRecommendedSources,recommendedBoards,MAX_EMPLOYER_BOARDS,broadCybersecurityQuery}=await import('../.sites-runtime/source-tests/job-catalog.mjs');
 const {normalizeJob,discover,mergeDiscovery,fetchBoard}=await import('../.sites-runtime/source-tests/job-discovery.mjs');
-const {verifiedAutoApplyForms,verifiedAutoApplyBoards,verifiedAutoApplySearch,isVerifiedAutoApplyJob}=await import('../.sites-runtime/source-tests/auto-apply-eligibility.mjs');
 const {emptyState,reduceAction}=await import('../.sites-runtime/source-tests/cyber-domain.mjs');
 const at='2026-10-17T17:00:00.000Z';
 const board={provider:'greenhouse',board:'qa',region:'global',company:'Local QA'};
 const search={...defaultSearch,boards:[board]};
 const raw={id:1,title:'Security Engineer',company_name:'Local QA',absolute_url:'https://job-boards.greenhouse.io/qa/jobs/1',location:{name:'Remote · UK'},content:'&lt;p&gt;Investigate incidents with &lt;strong&gt;SIEM&lt;/strong&gt; and Python.&lt;/p&gt;&lt;script&gt;steal()&lt;/script&gt;'};
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
-test('public feeds and the unverified pilot never qualify as automatic-apply sources',()=>{
- assert.equal(verifiedAutoApplyForms.length,0);
- assert.deepEqual(verifiedAutoApplyBoards(),[]);
- const filtered=verifiedAutoApplySearch({...search,keyword:'cybersecurity',location:'Lagos',remoteOnly:true});
- assert.deepEqual(filtered.boards,[]);
- assert.equal(filtered.keyword,'cybersecurity');assert.equal(filtered.location,'Lagos');assert.equal(filtered.remoteOnly,true);
- assert.equal(isVerifiedAutoApplyJob(normalizeJob(raw,board,at)),false);
- assert.equal(isVerifiedAutoApplyJob({...normalizeJob(raw,board,at),source:undefined}),false);
-});
 test('board parsing fixes hosts and rejects private URLs, job URLs, credentials, query injection and duplicate sources',()=>{
  assert.equal(boardFromUrl('https://job-boards.greenhouse.io/huntress','Huntress').provider,'greenhouse');
  assert.equal(boardFromUrl('https://jobs.eu.lever.co/acme','Acme').region,'eu');
