@@ -14,6 +14,14 @@ const listing={type:'add_job',title:'QA SOC Analyst',company:'QA Company',locati
 const ready=()=>act(act(emptyState(),listing),{type:'save_profile',profile});
 const apply=s=>act(s,{type:'decide_job',jobId:s.jobs[0].id,decision:'apply'});
 
+test('manual listings added from Saved stay visible there without claiming automatic eligibility',()=>{
+ const saved=act(emptyState(),{...listing,saved:true});
+ assert.equal(saved.jobs[0].saved,true);
+ assert.equal(saved.jobs[0].source,undefined);
+ assert.match(reduceAction(emptyState(),actionSchema.parse({...listing,saved:true}),'interface',at).message,/not been verified/i);
+ assert.equal(act(emptyState(),listing).jobs[0].saved,false);
+});
+
 test('candidate links and location save without losing values on an older profile update',()=>{
  const links={githubRepositoryUrl:'https://github.com/example/security-tool',linkedInUrl:'https://www.linkedin.com/in/qa-candidate',portfolioWebsiteUrl:'https://portfolio.example.test',location:'Lagos, Nigeria'};
  let state=act(emptyState(),{type:'save_profile',profile:{...profile,...links,reviewed:false}});

@@ -4,13 +4,15 @@ Private mobile-responsive CV review, real cybersecurity vacancy discovery and ap
 
 ## Current journey
 
-Sign in / Create account → account profile → own workspace → upload and choose a CV → review Candidate Facts → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → see the chosen CV and next action in Applications.
+Sign in / Create account → account profile → own workspace → upload and choose a CV → review Candidate Facts → inspect individually verified auto-apply roles in Explore → swipe left to pass or right to **Apply** → see the chosen CV and actual submission status in Applications. Explore currently has no verified roles; it explains the dependency instead of presenting ordinary listings as auto-applicable.
 
 LinkedIn-specific links, connection prompts and feed status have been removed from the internal application. Existing personal records and their original source URLs/history are preserved. Demo flows, fabricated listings, seeded candidates and simulated receipts remain removed; retired demo APIs return 410.
 
 ## Real employer job discovery
 
-Explore searches public employer boards through documented Greenhouse and Lever GET APIs. Initial boards: **Huntress**, **Recorded Future**, **Safe Security**, **GuidePoint Security**, **KnowBe4**, **Abnormal AI**, **Wiz** and **Chainguard**. Users can manage up to ten Greenhouse/Lever board URLs (including Lever EU), filter by a role-title phrase or broad cybersecurity category and location, and select Remote only. Existing saved source selections can be expanded with Add recommended sources without resetting filters. Remote status uses explicit vacancy location/workplace data, not company boilerplate. Remote does not imply worldwide eligibility.
+The historical public Greenhouse and Lever feeds remain available to the discovery backend and in saved records. They include **Huntress**, **Recorded Future**, **Safe Security**, **GuidePoint Security**, **KnowBe4**, **Abnormal AI**, **Wiz** and **Chainguard**. Explore now exposes only exact vacancies entered in the verified auto-apply registry, matching provider, board, posting ID and application URL. That registry is empty because no employer form has yet passed authorized end-to-end submission and receipt verification. Explore therefore makes no new feed request and shows a clear empty state. Prior Saved, Applications and Activity records are not removed. A user can add a manual listing to Saved, but it does not become an automatic-apply card.
+
+The verified-source list can be populated only after an exact employer form, selected-CV upload, required questions, authorized submission and confirmation have been tested with the paired worker. A public feed, an application URL or the unverified Bitwealth form mapping does not qualify. When verified entries exist, Explore searches only those employer boards and filters cards again by exact posting and application URL. Remote status uses explicit vacancy location/workplace data, not company boilerplate; remote does not imply worldwide eligibility.
 
 Search is on request, not a scheduled background feed. Settings, per-board results and imported listings are saved per user and survive refresh; the agent uses the same records through `get_job_sources` and `discover_jobs`. There are 16 current MCP tools. Source calls send only board identifiers/pagination and do not send CVs, profile details, job-search filters or candidate credentials to providers.
 
@@ -32,7 +34,7 @@ Right swipe / Apply records an owner-specific request and exact candidate/applic
 
 Settings can create, rotate and revoke a one-time agent pairing token. The token is shown once; the Site stores its hash, binds it to the signed-in owner, and expires it after 30 days. The local companion polls outward over HTTPS while running; the Site never reaches into the user's laptop. It uses an exact employer-form registry and stops on missing answers, unsupported forms or uncertain results. No real employer form is configured. See `../docs/application-agent.md` for operation and current pilot limits.
 
-Greenhouse/Lever public job feeds do not grant application-submission permission. An employer's authorized application API access is still needed before an actual send can be enabled and validated. Opening the original employer application form is a manual fallback, never proof of submission. No employer submission, paid provider or additional hosting subscription was configured for this release. See FDE-27 in Linear.
+Greenhouse/Lever public job feeds do not grant application-submission permission. Authorized API access is one route; an individually reviewed browser-form route can work without an API key. Either route needs the employer-specific form, required candidate answers and a confirmed result. Opening the original employer application form is a manual fallback, never proof of submission. No employer submission, paid provider or additional hosting subscription was configured for this release. See FDE-27 in Linear.
 
 ## CV review, identity and saved work
 
