@@ -20,7 +20,7 @@ class FakeLocator:
         if self.selector.startswith("[data-sitekey]"):
             return int(self.page.captcha)
         if self.selector.startswith("input[required]"):
-            return 2
+            return 3 if self.page.unmapped_required or (self.page.conditional_unmapped and "#role" in self.page.filled) else 2
         return 0 if self.selector == self.page.missing_selector else 1
     def nth(self, index):
         return FakeLocator(self.page, self.selector, index)
@@ -31,14 +31,19 @@ class FakeLocator:
     def is_enabled(self):
         return True
     def fill(self, value):
-        self.page.filled[self.selector] = value
+        key = f"{self.selector}[{self.index}]" if self.selector.startswith("input[required]") else self.selector
+        self.page.filled[key] = value
     def select_option(self, value):
         self.page.filled[self.selector] = value
     def set_checked(self, value):
         self.page.filled[self.selector] = value
     def set_input_files(self, value):
         self.page.upload = value
-    def evaluate(self, _):
+    def evaluate(self, expression, _arg=None):
+        if "element.getClientRects" in expression:
+            return {"visible": True, "mapped": self.index != 2,
+                    "label": self.page.required_label if self.index == 2 else "Reviewed field",
+                    "tag": "input", "type": "text"}
         return self.page.valid
     def click(self, **_):
         self.page.clicked = True
@@ -65,6 +70,8 @@ class FakePage:
         self.clicked = False
         self.captcha = self.click_error = self.confirmation_error = self.post_click_redirect = False
         self.preexisting_confirmation = False
+        self.unmapped_required = self.conditional_unmapped = False
+        self.required_label = "Work authorization"
         self.employer_consent_text = "I agree to employer processing."
         self.valid = True
         self.missing_selector = None
@@ -139,6 +146,42 @@ def test_pre_submission_problems_need_attention_without_clicking(settings, fault
         connector.submit(application, job)
     assert not page.clicked
     assert browser.closed is (fault != "missing_answer")
+
+
+def test_new_required_vacancy_question_stops_before_personal_details(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    page.unmapped_required = True
+    with pytest.raises(ApplicationAttention, match="Work authorization"):
+        connector.submit(application, job)
+    assert not page.filled and not page.clicked and browser.closed
+
+
+def test_conditional_required_question_after_role_selection_stops_before_submit(settings):
+    connector, application, job, page, browser = setup_connector(settings, role={"selector": "#role", "type": "select"})
+    application.answers["role"] = "SOC Analyst"
+    page.conditional_unmapped = True
+    with pytest.raises(ApplicationAttention, match="Work authorization"):
+        connector.submit(application, job)
+    assert page.filled["#role"] == "SOC Analyst"
+    assert not page.clicked and browser.closed
+
+
+def test_known_required_vacancy_field_uses_reviewed_candidate_fact(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    page.unmapped_required = True
+    page.required_label = "Email address"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == "candidate@example.com"
+    assert page.clicked and browser.closed
+
+
+def test_known_label_without_reviewed_answer_still_needs_attention(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    page.unmapped_required = True
+    page.required_label = "GitHub repository"
+    with pytest.raises(ApplicationAttention, match="GitHub repository"):
+        connector.submit(application, job)
+    assert not page.filled and not page.clicked and browser.closed
 
 
 def test_employer_consent_is_checked_before_browser_launch(settings):

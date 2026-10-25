@@ -6,6 +6,7 @@ selectors and origins come from server configuration, never an application form.
 from __future__ import annotations
 
 import hashlib
+import re
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -100,6 +101,59 @@ class BrowserFormConnector:
                 raise ApplicationAttention("The stored resume content does not match the reviewed snapshot")
             return {"name": document.filename, "mimeType": document.content_type, "buffer": data}
 
+    @staticmethod
+    def _adapt_required_fields(page, fields, answers):
+        """Fill only unmistakable reviewed facts; surface other new questions.
+
+        This runs both before filling and after mapped selections, which can
+        reveal additional required questions. A preselected answer is not
+        permission to submit an unknown screening response.
+        """
+        required = page.locator('input[required], textarea[required], select[required], [aria-required="true"]')
+        count = required.count()
+        if count > 100:
+            raise ApplicationAttention("The employer form has too many required questions to review automatically")
+        selectors = [mapping["selector"] for mapping in fields.values()]
+        labels_to_answers = {
+            "full name": "full_name", "first name": "first_name", "last name": "last_name",
+            "email": "email", "email address": "email", "your email": "email",
+            "linkedin": "linkedin", "linkedin url": "linkedin", "linkedin profile": "linkedin",
+            "github": "github", "github url": "github", "github repository": "github",
+            "portfolio": "portfolio", "portfolio website": "portfolio", "portfolio url": "portfolio",
+        }
+        unknown = []
+        fill = []
+        for index in range(count):
+            item = required.nth(index).evaluate("""(element, selectors) => {
+                const visible = element.getClientRects().length > 0 &&
+                    getComputedStyle(element).visibility !== 'hidden' && !element.disabled;
+                const mapped = selectors.some(selector => {
+                    try { return element.matches(selector); } catch { return false; }
+                });
+                const labels = element.labels ? Array.from(element.labels).map(label => label.innerText).join(' ') : '';
+                const label = labels || element.getAttribute('aria-label') ||
+                    element.closest('label')?.innerText || element.getAttribute('name') ||
+                    element.getAttribute('id') || 'Unnamed question';
+                return { visible, mapped, label: String(label).replace(/\\s+/g, ' ').trim().slice(0, 80),
+                    tag: element.tagName.toLowerCase(), type: (element.getAttribute('type') || 'text').toLowerCase() };
+            }""", selectors)
+            if item["visible"] and not item["mapped"]:
+                label = item["label"] or "Unnamed question"
+                normalized = re.sub(r"[^a-z0-9]+", " ", label.lower()).strip()
+                answer_key = labels_to_answers.get(normalized)
+                answer = answers.get(answer_key) if answer_key else None
+                is_text = item["tag"] == "textarea" or (item["tag"] == "input" and item["type"] in {"text", "email", "url"})
+                if is_text and isinstance(answer, str) and answer.strip() and len(answer) <= 500:
+                    fill.append((required.nth(index), answer.strip()))
+                else:
+                    unknown.append(label)
+        if unknown:
+            labels = ", ".join(dict.fromkeys(unknown[:3]))
+            remainder = " and more" if len(unknown) > 3 else ""
+            raise ApplicationAttention(f"This vacancy has required employer questions that need review: {labels}{remainder}")
+        for locator, answer in fill:
+            locator.fill(answer)
+
     def _browser_operation(self, application, job, *, reconciliation=False):
         form, trusted = self._form(job)
         if not reconciliation:
@@ -166,6 +220,8 @@ class BrowserFormConnector:
                         before_confirmation = page.locator(form["confirmation_selector"])
                         if before_confirmation.count() > 1 or (before_confirmation.count() == 1 and before_confirmation.is_visible()):
                             raise ApplicationAttention("The employer confirmation is already visible before submission; review the form mapping")
+                        answers = {**application.answers, "cover_letter": application.cover_letter}
+                        self._adapt_required_fields(page, form["fields"], answers)
                         for name, mapping in form["fields"].items():
                             locator = page.locator(mapping["selector"])
                             kind = mapping.get("type", "text")
@@ -192,6 +248,7 @@ class BrowserFormConnector:
                                 locator.fill(str(value))
                             else:
                                 raise ApplicationAttention("This employer answer needs a supported text or selection mapping")
+                        self._adapt_required_fields(page, form["fields"], answers)
                         invalid = page.locator("input[required], textarea[required], select[required]")
                         if invalid.count() > 100 or any(not invalid.nth(index).evaluate("element => element.checkValidity()") for index in range(invalid.count())):
                             raise ApplicationAttention("The employer has unanswered or invalid required fields")
