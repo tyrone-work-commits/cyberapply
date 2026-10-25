@@ -3,19 +3,23 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 
 export type TourArea = 'explore'|'saved'|'applications'|'workspace'|'activity'|'account';
+const areaLabel:Record<TourArea,string>={explore:'Explore',saved:'Saved',applications:'Applications',workspace:'CV review',activity:'Activity',account:'Settings'};
 type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string};
 export const tourSteps:ReadonlyArray<Step>=[
- {area:'explore',title:'Find live jobs',description:'Search selected Greenhouse and Lever boards using role, location and remote filters. Manage sources to choose different employer boards. Next and Back only move this guide.',target:'.job-sources .source-search'},
- {area:'explore',title:'Explore a job card',description:'Open details to check the source and requirements. Swipe left to reject, up to save for later, or right to Apply.',target:'.swipe-card',fallback:'.swipe-stage'},
- {area:'explore',title:'Undo a choice',description:'Undo restores your latest reject, save or unsent Apply choice when one is available.',target:'.swipe-actions .undo-button'},
- {area:'saved',title:'Saved jobs',description:'Bookmarked roles appear here. Return to their original listings or decide what to do with them later.',target:'.sidebar nav button:nth-child(2)',mobileTarget:'.mobile-nav button:nth-child(2)'},
- {area:'applications',title:'Track applications',description:'See each Apply request, its source and selected CV. A request is not proof the employer received it; check the status and finish any action needed.',target:'.sidebar nav button:nth-child(3)',mobileTarget:'.mobile-nav button:nth-child(3)'},
- {area:'workspace',title:'Upload your CV',description:'Upload a searchable PDF, DOCX or TXT. CyberApply reads its text, prepares a readiness score and fills candidate details it can identify.',target:'.cv-upload-button'},
- {area:'workspace',title:'Review your CV score',description:'Read the score and recommendations for text readiness, structure and evidence. This is guidance, not an employer ATS score.',target:'.quality-panel .quality-score'},
- {area:'workspace',title:'Confirm candidate facts',description:'Check your name, email, location, links, skills, preferred roles and CV text. Correct and save them before relying on application materials.',target:'.profile-form .section-title'},
- {area:'activity',title:'Review activity',description:'See saved actions and earlier versions. You can export your records for your own review.',target:'.sidebar nav button:nth-child(5)',mobileTarget:'.mobile-nav button:nth-child(5)'},
- {area:'activity',title:'Open Settings',description:'The gear opens your account settings for profile changes, agent pairing, export, tutorial replay, sign-out and account deletion.',target:'.topbar a[aria-label="Settings"]'},
- {area:'account',title:'Replay this guide',description:'Replay this shorter tour whenever you want. Settings also holds your account controls. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
+ {area:'explore',title:'Explore: find your next role',description:'Explore shows cybersecurity vacancies from your chosen employer boards. Review each role here before deciding. This guide only points to controls; it does not change jobs.',target:'.page-heading'},
+ {area:'explore',title:'Search live openings',description:'Choose a role, location and remote filter, then search Greenhouse and Lever boards. Manage sources to change the employer boards you search.',target:'.job-sources .source-search'},
+ {area:'explore',title:'Review and decide',description:'Read the card and original source. Swipe left to reject, up to save, or right to Apply. Undo restores the latest choice. Apply alone is not proof of employer submission.',target:'.swipe-actions',fallback:'.swipe-stage'},
+ {area:'saved',title:'Saved: revisit roles',description:'Saved keeps jobs you bookmarked so you can compare them later. Saving a role does not apply for it.',target:'.page-heading'},
+ {area:'saved',title:'Use saved job actions',description:'Open a role and its original listing, remove the bookmark, or choose Apply when ready. If this page is empty, save a card in Explore first.',target:'.list-grid .listing-row .row-actions',fallback:'.list-grid .empty-state'},
+ {area:'applications',title:'Applications: track requests',description:'Applications tracks the roles you chose to Apply for, where each vacancy came from and what still needs attention.',target:'.page-heading'},
+ {area:'applications',title:'Check submission status',description:'Review the source link, chosen CV, draft and status. A saved Apply request is not sent; only an employer confirmation means Applied. Open the original vacancy if action is needed.',target:'.application-overview-card',fallback:'.application-overview'},
+ {area:'workspace',title:'CV review: improve your CV',description:'CV review reads your uploaded file, explains its text readiness and helps you verify candidate details before using them in applications.',target:'.page-heading'},
+ {area:'workspace',title:'Upload and assess',description:'Upload a searchable PDF, DOCX or TXT file. The page gives a score out of 100 and recommendations; this is guidance, not an employer ATS decision.',target:'.cv-upload-button'},
+ {area:'workspace',title:'Confirm candidate facts',description:'Check your name, email, links, location, skills and preferred roles. Correct anything missed, confirm accuracy and save. Your chosen CV is used for new Apply requests.',target:'.profile-form .section-title'},
+ {area:'activity',title:'Activity: see what changed',description:'Activity records actions and earlier saved versions, so you can review what happened in the workspace and show evidence of your work.',target:'.page-heading'},
+ {area:'activity',title:'Review history and export',description:'View recent actions and earlier versions below. Export evidence to download your workspace records for your own review.',target:'.evidence-strip > a',fallback:'.activity-grid'},
+ {area:'account',title:'Settings: manage your account',description:'Settings holds your profile, local agent connection and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
+ {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. Agent pairing alone does not submit jobs. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
 ];
 type Box={top:number;left:number;width:number;height:number};
 function visible(selector:string):HTMLElement|null{
@@ -73,7 +77,7 @@ export function GuidedTour({step,busy,error,onBack,onNext,onExit}:{step:number;b
   <div className="tour-shield" aria-hidden="true"/>
   {box&&<><div className="tour-spotlight" style={box} aria-hidden="true"/><span className="tour-pointer" style={{top:box.top+Math.min(box.height/2,28),left:box.left+Math.min(box.width/2,28)}} aria-hidden="true"/></>}
   <section ref={panel} className={'guided-tour'+(popup?.above?' tour-above':'')} style={popup?{top:popup.top,left:popup.left}:undefined}>
-   <div className="tour-top"><span className="tour-counter">CYBERAPPLY GUIDE · {step+1} OF {tourSteps.length}</span><button type="button" className="tour-close" aria-label="Skip tutorial" title="Skip tutorial" disabled={busy} onClick={onExit}><X size={18}/></button></div>
+   <div className="tour-top"><span className="tour-counter">{areaLabel[current.area].toUpperCase()} · GUIDE {step+1} OF {tourSteps.length}</span><button type="button" className="tour-close" aria-label="Skip tutorial" title="Skip tutorial" disabled={busy} onClick={onExit}><X size={18}/></button></div>
    <div className="tour-progress" role="progressbar" aria-valuemin={1} aria-valuemax={tourSteps.length} aria-valuenow={step+1}><span style={{width:((step+1)/tourSteps.length*100)+'%'}}/></div>
    <h2 id="tour-title" ref={heading} tabIndex={-1}>{current.title}</h2><p id="tour-description" className="tour-description">{current.description}</p>
    {error&&<p className="tour-error" role="alert">{error}</p>}
