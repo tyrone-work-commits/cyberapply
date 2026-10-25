@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.domain.documents import extract_text
 from app.services.browser_apply import BrowserFormConnector, origin
 from app.workers import ApplicationAttention, UncertainSubmission
 
@@ -56,6 +57,19 @@ def answers_from_candidate(candidate: dict, *, job_title: str = "", employer_con
         "role": job_title,
         "consent": employer_consent,
     }
+
+
+def selected_cv_text(filename: str, content: bytes) -> str:
+    """Read evidence from the selected file, never from a different profile CV."""
+    extension = Path(filename).suffix.lower()
+    if extension not in {".pdf", ".docx", ".txt"}:
+        return ""
+    try:
+        return extract_text(content, extension)
+    except Exception:
+        # Extraction failure leaves unfamiliar employer questions unanswered.
+        # Standard mapped fields can still use the reviewed candidate facts.
+        return ""
 
 
 def run_once(client: httpx.Client, registry: dict, *, submit: bool):
@@ -99,12 +113,14 @@ def run_once(client: httpx.Client, registry: dict, *, submit: bool):
             browser_channel="chromium",
         )
         job = SimpleNamespace(apply_url=job_data["applyUrl"], attributes={"browser_connector_key": key})
+        answers = answers_from_candidate(candidate, job_title=job_data.get("title") or "", employer_consent=application_data.get("employerConsent") is True)
+        answers["resume_text"] = selected_cv_text(cv["name"], document.content)
         application = SimpleNamespace(
             id=application_id,
             idempotency_key=application_id,
             user_id="paired-site-user",
             cover_letter=application_data["coverLetter"],
-            answers=answers_from_candidate(candidate, job_title=job_data.get("title") or "", employer_consent=application_data.get("employerConsent") is True),
+            answers=answers,
         )
         def upload(_application):
             return {"name": cv["name"], "mimeType": cv["type"], "buffer": document.content}

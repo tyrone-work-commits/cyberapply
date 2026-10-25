@@ -184,6 +184,44 @@ def test_known_label_without_reviewed_answer_still_needs_attention(settings):
     assert not page.filled and not page.clicked and browser.closed
 
 
+def test_new_vacancy_skills_question_uses_selected_cv_evidence(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["resume_text"] = "Amina Okafor\nSkills: Splunk, Python, Incident response\nExperience\nMonitored security alerts using Splunk."
+    page.unmapped_required = True
+    page.required_label = "Which technical skills and tools do you have?"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == "My CV lists Splunk, Python, Incident response."
+    assert page.clicked and browser.closed
+
+
+def test_new_vacancy_experience_question_uses_cv_action_not_skills_list(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["resume_text"] = "Skills: SIEM, Python\nExperience\nInvestigated SIEM alerts and escalated incidents."
+    page.unmapped_required = True
+    page.required_label = "Describe your experience with SIEM"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == "My CV states: Investigated SIEM alerts and escalated incidents."
+    assert page.clicked and browser.closed
+
+
+@pytest.mark.parametrize("question", [
+    "How many years of SIEM experience do you have?",
+    "Are you authorized to work in the United States?",
+    "What salary do you expect?",
+    "Why do you want this role?",
+    "Which tools have you used for incident response?",
+    "Describe your experience with Kubernetes",
+])
+def test_new_vacancy_question_without_cv_evidence_stops(settings, question):
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["resume_text"] = "Skills: SIEM, Python\nExperience\nInvestigated SIEM alerts."
+    page.unmapped_required = True
+    page.required_label = question
+    with pytest.raises(ApplicationAttention, match="need review"):
+        connector.submit(application, job)
+    assert not page.filled and not page.clicked and browser.closed
+
+
 def test_employer_consent_is_checked_before_browser_launch(settings):
     connector, application, job, page, browser = setup_connector(settings, consent={"selector": "#consent", "type": "checkbox"})
     with pytest.raises(ApplicationAttention, match="consent"):
@@ -294,6 +332,7 @@ def test_real_browser_submits_only_to_intercepted_employer_fixture(settings, mon
             else:
                 pytest.skip("A Chromium or Edge runtime is required to exercise the real DOM fixture")
     connector, application, job, _, _ = setup_connector(settings)
+    application.answers["resume_text"] = "Skills: SIEM, Python\nExperience\nInvestigated SIEM alerts."
     settings.browser_timeout_seconds = 5
     seen = []
     class RouteProxy:
@@ -305,10 +344,10 @@ def test_real_browser_submits_only_to_intercepted_employer_fixture(settings, mon
             path = urlsplit(self.request.url).path
             seen.append((self.request.method, path))
             if self.request.method == "GET" and path == "/apply/security-engineer":
-                html = '<form action="/applications" method="post"><input id="name" name="full_name" required><input id="email" type="email" name="email" required><button id="submit" type="submit">Apply</button></form>'
+                html = '<form action="/applications" method="post"><input id="name" name="full_name" required><input id="email" type="email" name="email" required><label for="skills">Which technical skills and tools do you have?</label><textarea id="skills" name="skills" required></textarea><button id="submit" type="submit">Apply</button></form>'
             elif self.request.method == "POST" and path == "/applications":
                 fields = parse_qs(self.request.post_data)
-                assert fields == {"full_name": ["Candidate"], "email": ["candidate@example.com"]}
+                assert fields == {"full_name": ["Candidate"], "email": ["candidate@example.com"], "skills": ["My CV lists SIEM, Python."]}
                 html = '<h1 id="success">Application submitted</h1><p id="receipt">local-browser-fixture-receipt</p>'
             else:
                 self.route.abort()

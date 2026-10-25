@@ -4,9 +4,9 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
-from types import SimpleNamespace
 
 from app.workers import ApplicationAttention
 
@@ -64,6 +64,7 @@ def test_companion_sends_only_a_confirmed_fixture_receipt(monkeypatch):
             assert upload_provider(None)["buffer"] == b"test"
         def submit(self, application, job):
             assert application.answers["first_name"] == "Amina"
+            assert application.answers["resume_text"] == "test"
             assert job.apply_url == claim["job"]["applyUrl"]
             return SimpleNamespace(confirmation_id="FIXTURE-RECEIPT")
     monkeypatch.setattr(site_agent, "BrowserFormConnector", Connector)
@@ -71,6 +72,12 @@ def test_companion_sends_only_a_confirmed_fixture_receipt(monkeypatch):
     assert site_agent.run_once(client, registry, submit=True)
     assert client.result["status"] == "applied"
     assert client.result["receipt"] == "FIXTURE-RECEIPT"
+
+
+def test_selected_cv_text_never_falls_back_to_another_profile_cv():
+    assert site_agent.selected_cv_text("selected.txt", b"Skills: SIEM") == "Skills: SIEM"
+    assert site_agent.selected_cv_text("selected.doc", b"Skills: SIEM") == ""
+    assert site_agent.selected_cv_text("broken.txt", b"\x00") == ""
 
 
 def test_unconfigured_employer_needs_attention_without_browser(monkeypatch):
