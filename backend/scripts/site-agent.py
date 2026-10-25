@@ -72,6 +72,14 @@ def selected_cv_text(filename: str, content: bytes) -> str:
         return ""
 
 
+def site_headers(pairing_token: str, site_access_token: str = "") -> dict[str, str]:
+    """Authenticate to the app and, for private Sites, its outer access gate."""
+    headers = {"Authorization": f"Bearer {pairing_token}"}
+    if site_access_token:
+        headers["OAI-Sites-Authorization"] = f"Bearer {site_access_token}"
+    return headers
+
+
 def browser_channel(*, edge_installed: bool | None = None) -> str:
     """Use an installed Windows Edge when bundled Playwright Chromium is absent."""
     requested = os.getenv("CYBERAPPLY_BROWSER_CHANNEL", "").strip().lower()
@@ -173,7 +181,8 @@ def main():
         parser.error("The employer form registry must be a JSON object")
     if not args.submit:
         parser.error("This agent cannot claim applications without --submit; review the exact employer registry first")
-    with httpx.Client(base_url=args.site_url, headers={"Authorization": f"Bearer {token}"}, timeout=45, follow_redirects=False) as client:
+    headers = site_headers(token, os.getenv("CYBERAPPLY_SITE_ACCESS_TOKEN", ""))
+    with httpx.Client(base_url=args.site_url, headers=headers, timeout=45, follow_redirects=False) as client:
         while True:
             try:
                 worked = run_once(client, registry, submit=True)

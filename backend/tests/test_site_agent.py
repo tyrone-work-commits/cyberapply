@@ -80,6 +80,14 @@ def test_selected_cv_text_never_falls_back_to_another_profile_cv():
     assert site_agent.selected_cv_text("broken.txt", b"\x00") == ""
 
 
+def test_private_site_auth_uses_separate_outer_and_agent_tokens():
+    assert site_agent.site_headers("ca1.pairing") == {"Authorization": "Bearer ca1.pairing"}
+    assert site_agent.site_headers("ca1.pairing", "site-access") == {
+        "Authorization": "Bearer ca1.pairing",
+        "OAI-Sites-Authorization": "Bearer site-access",
+    }
+
+
 def test_local_agent_uses_installed_edge_or_explicit_browser_choice(monkeypatch):
     monkeypatch.delenv("CYBERAPPLY_BROWSER_CHANNEL", raising=False)
     assert site_agent.browser_channel(edge_installed=True) == "msedge"
