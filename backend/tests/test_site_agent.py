@@ -80,6 +80,17 @@ def test_selected_cv_text_never_falls_back_to_another_profile_cv():
     assert site_agent.selected_cv_text("broken.txt", b"\x00") == ""
 
 
+def test_local_agent_uses_installed_edge_or_explicit_browser_choice(monkeypatch):
+    monkeypatch.delenv("CYBERAPPLY_BROWSER_CHANNEL", raising=False)
+    assert site_agent.browser_channel(edge_installed=True) == "msedge"
+    assert site_agent.browser_channel(edge_installed=False) == "chromium"
+    monkeypatch.setenv("CYBERAPPLY_BROWSER_CHANNEL", "chrome")
+    assert site_agent.browser_channel(edge_installed=True) == "chrome"
+    monkeypatch.setenv("CYBERAPPLY_BROWSER_CHANNEL", "untrusted")
+    with pytest.raises(ApplicationAttention, match="BROWSER_CHANNEL"):
+        site_agent.browser_channel()
+
+
 def test_unconfigured_employer_needs_attention_without_browser(monkeypatch):
     class Response:
         def __init__(self, data): self.data = data

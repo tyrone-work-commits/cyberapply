@@ -20,6 +20,8 @@ The hosted Site now offers an owner-scoped outbound pairing bridge. In Settings,
 
 The Site's lightweight Worker cannot run Playwright. The local companion in `backend/scripts/site-agent.py` must be running on a computer with the browser runtime installed, including when the user swipes on a phone. Pairing alone does not mean the worker is online. The paired worker reuses the existing supported-form `BrowserFormConnector`; it does not make arbitrary imported job URLs executable. A real employer form must be reviewed and placed in a local registry with the exact application URL, origin, path, selectors, required fields, confirmation marker and receipt selector. The sample registry in `backend/config/site-agent.registry.example.json` is fictional and cannot send a real application.
 
+On Windows the companion uses an installed Microsoft Edge for its isolated browser session when available; otherwise it uses Playwright Chromium. Set `CYBERAPPLY_BROWSER_CHANNEL` to `chromium`, `msedge` or `chrome` only when you intentionally need a different installed runtime. Browser choice does not bypass the employer registry, required-answer checks or receipt verification.
+
 To start a reviewed form pilot on this Windows computer, copy the example registry to a private local JSON file and replace the fictional entry with the exact employer configuration. In CyberApply Settings, create a pairing token and enter it privately at the PowerShell prompt. From the repository root run:
 
 ```powershell

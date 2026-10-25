@@ -72,6 +72,21 @@ def selected_cv_text(filename: str, content: bytes) -> str:
         return ""
 
 
+def browser_channel(*, edge_installed: bool | None = None) -> str:
+    """Use an installed Windows Edge when bundled Playwright Chromium is absent."""
+    requested = os.getenv("CYBERAPPLY_BROWSER_CHANNEL", "").strip().lower()
+    if requested:
+        if requested not in {"chromium", "msedge", "chrome"}:
+            raise ApplicationAttention("CYBERAPPLY_BROWSER_CHANNEL must be chromium, msedge or chrome")
+        return requested
+    if edge_installed is None:
+        edge_installed = sys.platform == "win32" and any(path.exists() for path in (
+            Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+        ))
+    return "msedge" if edge_installed else "chromium"
+
+
 def run_once(client: httpx.Client, registry: dict, *, submit: bool):
     response = client.post("/api/agent/claim")
     response.raise_for_status()
@@ -110,7 +125,7 @@ def run_once(client: httpx.Client, registry: dict, *, submit: bool):
             browser_connector_config={key: form},
             connector_allowed_hosts=list(allowed_hosts),
             browser_timeout_seconds=30,
-            browser_channel="chromium",
+            browser_channel=browser_channel(),
         )
         job = SimpleNamespace(apply_url=job_data["applyUrl"], attributes={"browser_connector_key": key})
         answers = answers_from_candidate(candidate, job_title=job_data.get("title") or "", employer_consent=application_data.get("employerConsent") is True)
