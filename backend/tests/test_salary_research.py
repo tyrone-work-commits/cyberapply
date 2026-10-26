@@ -1,6 +1,11 @@
 """Salary research uses only the exact employer's public pay disclosure."""
 
-from app.services.salary_research import answer_salary_question, research_salary
+from app.services.salary_research import (
+    answer_current_salary_question,
+    answer_salary_question,
+    format_current_salary,
+    research_salary,
+)
 
 JOB = {
     "title": "Security Analyst",
@@ -61,3 +66,15 @@ def test_salary_history_personal_floor_and_mismatched_units_still_need_review():
     assert answer_salary_question("What is the lowest salary you would accept?", proposal) is None
     assert answer_salary_question("What is your expected annual salary?", proposal) is None
     assert answer_salary_question("What is your expected USD salary?", proposal) is None
+
+
+def test_current_salary_uses_only_explicit_reviewed_candidate_fact():
+    facts = {"amount": 125000, "currency": "USD", "period": "year"}
+    assert format_current_salary(facts) == "USD 125,000 per year"
+    assert answer_current_salary_question("What is your current salary?", facts) == "USD 125,000 per year"
+    assert answer_current_salary_question("What is your expected salary?", facts) is None
+    assert answer_current_salary_question("What is your current monthly salary?", facts) is None
+    assert answer_current_salary_question("What is your current NGN salary?", facts) is None
+    assert answer_current_salary_question("What is your previous salary?", facts) is None
+    assert answer_current_salary_question("What is your current salary?", None) is None
+    assert format_current_salary({"amount": 125000, "currency": [], "period": "year"}) is None

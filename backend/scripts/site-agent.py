@@ -21,7 +21,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.domain.documents import extract_text
 from app.services.browser_apply import BrowserFormConnector, origin
-from app.services.salary_research import research_salary
+from app.services.salary_research import format_current_salary, research_salary
 from app.workers import ApplicationAttention, UncertainSubmission
 
 
@@ -46,7 +46,7 @@ def configured_form(job: dict, registry: dict):
 def answers_from_candidate(candidate: dict, *, job_title: str = "", employer_consent: bool = False):
     name = str(candidate.get("fullName") or "").strip()
     parts = name.split(None, 1)
-    return {
+    answers = {
         "full_name": name,
         "first_name": parts[0] if parts else "",
         "last_name": parts[1] if len(parts) > 1 else "",
@@ -58,6 +58,11 @@ def answers_from_candidate(candidate: dict, *, job_title: str = "", employer_con
         "role": job_title,
         "consent": employer_consent,
     }
+    current_salary = format_current_salary(candidate.get("currentSalary"))
+    if current_salary:
+        answers["current_salary"] = current_salary
+        answers["current_salary_facts"] = candidate["currentSalary"]
+    return answers
 
 
 def selected_cv_text(filename: str, content: bytes) -> str:

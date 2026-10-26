@@ -219,6 +219,22 @@ def test_salary_question_uses_exact_employer_pay_when_available(settings):
     assert page.clicked and browser.closed
 
 
+def test_current_salary_question_uses_candidate_fact_not_job_pay(settings):
+    from app.services.salary_research import SalaryProposal
+
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["current_salary_facts"] = {"amount": 125000, "currency": "USD", "period": "year"}
+    application.answers["salary_proposal"] = SalaryProposal(
+        answer="I am seeking NGN 200,000–300,000 per month.",
+        source_url="https://jobs.lever.co/example/1234/apply",
+    )
+    page.unmapped_required = True
+    page.required_label = "What is your current salary?"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == "USD 125,000 per year"
+    assert page.clicked and browser.closed
+
+
 @pytest.mark.parametrize("question", [
     "How many years of SIEM experience do you have?",
     "Are you authorized to work in the United States?",

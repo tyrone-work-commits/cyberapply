@@ -36,7 +36,15 @@ def test_candidate_answers_use_reviewed_fields_only_and_do_not_invent_screening_
     assert answers["last_name"] == "Okafor"
     assert answers["email"] == "amina@example.test"
     assert "salary" not in answers
+    assert "current_salary" not in answers
     assert "clearance" not in answers
+
+    with_salary = site_agent.answers_from_candidate({
+        "fullName": "Amina Okafor", "email": "amina@example.test",
+        "currentSalary": {"amount": 125000, "currency": "USD", "period": "year"},
+    })
+    assert with_salary["current_salary"] == "USD 125,000 per year"
+    assert with_salary["current_salary_facts"] == {"amount": 125000, "currency": "USD", "period": "year"}
 
 
 def test_companion_sends_only_a_confirmed_fixture_receipt(monkeypatch):

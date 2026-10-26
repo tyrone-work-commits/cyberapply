@@ -25,6 +25,43 @@ _INTERVALS = {
     "per-month-salary": "month",
     "per-hour-wage": "hour",
 }
+_CURRENCIES = {"USD", "NGN", "GBP", "EUR", "CAD", "AUD", "GHS", "KES", "ZAR", "AED", "INR", "SGD"}
+
+
+def format_current_salary(facts: dict | None) -> str | None:
+    """Format only a candidate-entered amount with explicit currency and period."""
+    if not isinstance(facts, dict):
+        return None
+    amount, currency, period = facts.get("amount"), facts.get("currency"), facts.get("period")
+    if (isinstance(amount, bool) or not isinstance(amount, (int, float))
+            or not math.isfinite(amount) or not 0 < amount <= 1_000_000_000_000
+            or not isinstance(currency, str) or currency not in _CURRENCIES
+            or not isinstance(period, str) or period not in {"year", "month", "hour"}):
+        return None
+    value = f"{amount:,.0f}" if float(amount).is_integer() else f"{amount:,.2f}"
+    return f"{currency} {value} per {period}"
+
+
+def answer_current_salary_question(question: str, facts: dict | None) -> str | None:
+    """Answer an explicit current-pay question; never substitute target salary."""
+    salary = format_current_salary(facts)
+    if salary is None or not isinstance(question, str):
+        return None
+    normalized = re.sub(r"\s+", " ", question).strip().lower()
+    if len(normalized) > 240 or not re.search(r"\b(current|present)\b", normalized):
+        return None
+    if not re.search(r"\b(salary|compensation|pay)\b", normalized):
+        return None
+    if re.search(r"\b(expect|desired|seeking|target|previous|past|last|minimum|lowest)\w*\b", normalized):
+        return None
+    periods = {"annual": "year", "yearly": "year", "monthly": "month", "hourly": "hour",
+               "per year": "year", "per month": "month", "per hour": "hour"}
+    if any(word in normalized and f"per {period}" not in salary.lower() for word, period in periods.items()):
+        return None
+    mentioned = re.findall(r"\b(?:USD|NGN|GBP|EUR|CAD|AUD|GHS|KES|ZAR|AED|INR|SGD)\b", question.upper())
+    if mentioned and mentioned[0] != facts["currency"]:
+        return None
+    return salary
 
 
 def _posting_path(url: str, board: str, posting_id: str, region: str) -> bool:
