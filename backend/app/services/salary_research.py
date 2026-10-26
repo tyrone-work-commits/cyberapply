@@ -1,14 +1,14 @@
-"""Salary suggestions from the exact employer's public, structured job posting.
+"""Employer-advertised salary suggestions and reviewed current-pay conversion.
 
-No candidate salary preference can be inferred from a CV. This module uses only
-an explicitly advertised range and returns no answer when that evidence is
-absent, ambiguous, or for a different vacancy.
+Expected pay comes only from the exact employer's public posting. Current pay
+comes only from candidate-entered facts, never an inference from a CV.
 """
 from __future__ import annotations
 
 import math
 import re
 from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urlsplit
 
 import httpx
@@ -18,12 +18,17 @@ import httpx
 class SalaryProposal:
     answer: str
     source_url: str
+    currency: str | None = None
+    period: str | None = None
 
 
 _INTERVALS = {
     "per-year-salary": "year",
+    "per-year": "year",
     "per-month-salary": "month",
+    "per-month": "month",
     "per-hour-wage": "hour",
+    "per-hour": "hour",
 }
 _CURRENCIES = {"USD", "NGN", "GBP", "EUR", "CAD", "AUD", "GHS", "KES", "ZAR", "AED", "INR", "SGD"}
 
@@ -42,10 +47,15 @@ def format_current_salary(facts: dict | None) -> str | None:
     return f"{currency} {value} per {period}"
 
 
-def answer_current_salary_question(question: str, facts: dict | None) -> str | None:
-    """Answer an explicit current-pay question; never substitute target salary."""
-    salary = format_current_salary(facts)
-    if salary is None or not isinstance(question, str):
+_QUESTION_PERIODS = {
+    "year": (r"\b(?:annual|annually|yearly|per year|a year)\b",),
+    "month": (r"\b(?:monthly|per month|a month)\b",),
+    "hour": (r"\b(?:hourly|per hour|an hour)\b",),
+}
+
+
+def _current_pay_question(question: str, facts: dict | None) -> tuple[str, str | None] | None:
+    if format_current_salary(facts) is None or not isinstance(question, str):
         return None
     normalized = re.sub(r"\s+", " ", question).strip().lower()
     if len(normalized) > 240 or not re.search(r"\b(current|present)\b", normalized):
@@ -54,14 +64,61 @@ def answer_current_salary_question(question: str, facts: dict | None) -> str | N
         return None
     if re.search(r"\b(expect|desired|seeking|target|previous|past|last|minimum|lowest)\w*\b", normalized):
         return None
-    periods = {"annual": "year", "yearly": "year", "monthly": "month", "hourly": "hour",
-               "per year": "year", "per month": "month", "per hour": "hour"}
-    if any(word in normalized and f"per {period}" not in salary.lower() for word, period in periods.items()):
+    periods = {period for period, patterns in _QUESTION_PERIODS.items()
+               if any(re.search(pattern, normalized) for pattern in patterns)}
+    if len(periods) > 1:
         return None
     mentioned = re.findall(r"\b(?:USD|NGN|GBP|EUR|CAD|AUD|GHS|KES|ZAR|AED|INR|SGD)\b", question.upper())
-    if mentioned and mentioned[0] != facts["currency"]:
+    if mentioned and (len(set(mentioned)) > 1 or mentioned[0] != facts["currency"]):
         return None
-    return salary
+    return normalized, next(iter(periods)) if periods else None
+
+
+def _current_amount(facts: dict, target_period: str) -> Decimal | None:
+    source_period = facts["period"]
+    amount = Decimal(str(facts["amount"]))
+    if source_period == target_period:
+        return amount
+    if {source_period, target_period} != {"month", "year"}:
+        return None  # Hourly conversion needs an explicit hours-per-week fact.
+    converted = amount * 12 if source_period == "month" else amount / 12
+    converted = converted.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return converted if converted <= Decimal("1000000000000") else None
+
+
+def _money(amount: Decimal) -> str:
+    return f"{amount:,.0f}" if amount == amount.to_integral_value() else f"{amount:,.2f}"
+
+
+def answer_current_salary_question(question: str, facts: dict | None,
+                                   proposal: SalaryProposal | None = None) -> str | None:
+    """Convert reviewed current pay between month and year when the form requests it."""
+    parsed = _current_pay_question(question, facts)
+    if parsed is None:
+        return None
+    _normalized, requested_period = parsed
+    original = format_current_salary(facts)
+    target_period = requested_period
+    if target_period is None and proposal and proposal.currency == facts["currency"]:
+        target_period = proposal.period if proposal.period in {"month", "year"} else None
+    if target_period is None or target_period == facts["period"]:
+        return original
+    converted = _current_amount(facts, target_period)
+    if converted is None:
+        return None if requested_period else original
+    return (f"{facts['currency']} {_money(converted)} per {target_period} "
+            f"(converted from {original})")
+
+
+def answer_current_salary_number_question(question: str, facts: dict | None) -> str | None:
+    """A numeric field is safe only with an explicit currency and pay period."""
+    parsed = _current_pay_question(question, facts)
+    if parsed is None or parsed[1] is None or facts["currency"] not in question.upper():
+        return None
+    amount = _current_amount(facts, parsed[1])
+    if amount is None:
+        return None
+    return f"{amount:.0f}" if amount == amount.to_integral_value() else f"{amount:.2f}"
 
 
 def _posting_path(url: str, board: str, posting_id: str, region: str) -> bool:
@@ -131,7 +188,7 @@ def research_salary(job: dict, *, total_experience_years: float | None = None,
         return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.2f}"
     answer = (f"I am seeking {currency} {amount(minimum)}–{amount(maximum)} per {interval}, "
               "within the range advertised for this role; open to discussing the full package.")
-    return SalaryProposal(answer=answer, source_url=posting["applyUrl"])
+    return SalaryProposal(answer=answer, source_url=posting["applyUrl"], currency=currency, period=interval)
 
 
 def answer_salary_question(question: str, proposal: SalaryProposal | None) -> str | None:

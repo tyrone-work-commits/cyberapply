@@ -43,7 +43,7 @@ class FakeLocator:
         if "element.getClientRects" in expression:
             return {"visible": True, "mapped": self.index != 2,
                     "label": self.page.required_label if self.index == 2 else "Reviewed field",
-                    "tag": "input", "type": "text"}
+                    "tag": "input", "type": self.page.required_type if self.index == 2 else "text"}
         return self.page.valid
     def click(self, **_):
         self.page.clicked = True
@@ -72,6 +72,7 @@ class FakePage:
         self.preexisting_confirmation = False
         self.unmapped_required = self.conditional_unmapped = False
         self.required_label = "Work authorization"
+        self.required_type = "text"
         self.employer_consent_text = "I agree to employer processing."
         self.valid = True
         self.missing_selector = None
@@ -233,6 +234,32 @@ def test_current_salary_question_uses_candidate_fact_not_job_pay(settings):
     assert connector.submit(application, job).confirmation_id == "receipt-123"
     assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == "USD 125,000 per year"
     assert page.clicked and browser.closed
+
+
+def test_current_monthly_salary_converts_for_explicit_annual_employer_field(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["current_salary_facts"] = {"amount": 5000, "currency": "USD", "period": "month"}
+    page.unmapped_required = True
+    page.required_label = "Current annual salary (USD)"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == (
+        "USD 60,000 per year (converted from USD 5,000 per month)")
+
+
+def test_current_salary_numeric_field_requires_period_and_currency(settings):
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["current_salary_facts"] = {"amount": 5000, "currency": "USD", "period": "month"}
+    page.unmapped_required = True
+    page.required_type = "number"
+    page.required_label = "Current annual salary (USD)"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]'] == "60000"
+    page.filled.clear()
+    page.clicked = False
+    page.required_label = "Current annual salary"
+    with pytest.raises(ApplicationAttention, match="Current annual salary"):
+        connector.submit(application, job)
+    assert not page.filled and not page.clicked
 
 
 @pytest.mark.parametrize("question", [

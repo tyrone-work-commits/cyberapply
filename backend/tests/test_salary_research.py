@@ -1,6 +1,8 @@
 """Salary research uses only the exact employer's public pay disclosure."""
 
 from app.services.salary_research import (
+    SalaryProposal,
+    answer_current_salary_number_question,
     answer_current_salary_question,
     answer_salary_question,
     format_current_salary,
@@ -52,6 +54,10 @@ def test_exact_public_salary_range_answers_expectation_without_claiming_experien
     assert "NGN 200,000–250,000 per month" in early.answer
     assert "cybersecurity experience" not in early.answer.lower()
 
+    annual = research_salary(JOB, get=lambda *_a, **_k: Response(
+        salaryRange={"currency": "NGN", "interval": "per-year", "min": 2400000, "max": 3600000}))
+    assert annual.period == "year" and annual.currency == "NGN"
+
 
 def test_rejects_mismatched_job_and_unsupported_pay():
     assert research_salary({**JOB, "applyUrl": "https://example.org/apply"}, get=lambda *_a, **_k: Response()) is None
@@ -73,8 +79,28 @@ def test_current_salary_uses_only_explicit_reviewed_candidate_fact():
     assert format_current_salary(facts) == "USD 125,000 per year"
     assert answer_current_salary_question("What is your current salary?", facts) == "USD 125,000 per year"
     assert answer_current_salary_question("What is your expected salary?", facts) is None
-    assert answer_current_salary_question("What is your current monthly salary?", facts) is None
+    assert answer_current_salary_question("What is your current monthly salary?", facts) == (
+        "USD 10,416.67 per month (converted from USD 125,000 per year)")
     assert answer_current_salary_question("What is your current NGN salary?", facts) is None
     assert answer_current_salary_question("What is your previous salary?", facts) is None
     assert answer_current_salary_question("What is your current salary?", None) is None
     assert format_current_salary({"amount": 125000, "currency": [], "period": "year"}) is None
+
+
+def test_monthly_current_pay_converts_to_annual_without_changing_currency():
+    facts = {"amount": 5000, "currency": "USD", "period": "month"}
+    converted = "USD 60,000 per year (converted from USD 5,000 per month)"
+    assert answer_current_salary_question("Current annual salary (USD)", facts) == converted
+    annual_job = SalaryProposal("Expected pay", "https://example.test/job", currency="USD", period="year")
+    assert answer_current_salary_question("What is your current salary?", facts, annual_job) == converted
+    other_currency = SalaryProposal("Expected pay", "https://example.test/job", currency="NGN", period="year")
+    assert answer_current_salary_question("What is your current salary?", facts, other_currency) == "USD 5,000 per month"
+    assert answer_current_salary_number_question("Current annual salary (USD)", facts) == "60000"
+    assert answer_current_salary_number_question("Current annual salary", facts) is None
+    assert answer_current_salary_question("Current USD annual or monthly salary", facts) is None
+
+
+def test_hourly_pay_needs_hours_fact_for_annual_conversion():
+    facts = {"amount": 35, "currency": "USD", "period": "hour"}
+    assert answer_current_salary_question("Current annual salary (USD)", facts) is None
+    assert answer_current_salary_number_question("Current annual salary (USD)", facts) is None

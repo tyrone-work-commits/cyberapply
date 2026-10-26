@@ -11,6 +11,8 @@ export function CandidateContactFields({ profile, onChange }: { profile: Profile
   useEffect(()=>setSalaryText(profile.currentSalary?.amount.toString()??''),[profile.currentSalary?.amount]);
   useEffect(()=>{if(profile.currentSalary){setCurrency(profile.currentSalary.currency);setPeriod(profile.currentSalary.period);}},[profile.currentSalary?.currency,profile.currentSalary?.period]);
   const salary=profile.currentSalary;
+  const equivalent=salary?.period==='month'?{amount:salary.amount*12,period:'year'}:salary?.period==='year'?{amount:salary.amount/12,period:'month'}:null;
+  const equivalentText=equivalent?`${salary!.currency} ${new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(equivalent.amount)} per ${equivalent.period}`:null;
   return <>
     <div className="form-pair">
       <label>GitHub repository
@@ -48,6 +50,7 @@ export function CandidateContactFields({ profile, onChange }: { profile: Profile
     <label>Current salary pay period
       <select value={period} onChange={event=>{const next=event.target.value as SalaryFacts['period'];setPeriod(next);if(salary)onChange({currentSalary:{...salary,period:next}});}}><option value="year">Per year</option><option value="month">Per month</option><option value="hour">Per hour</option></select>
     </label>
-    <p className="subtle">Current salary is a fact you enter and review; it is not taken from your CV or estimated online. The agent uses it only if an employer form explicitly asks for current pay. Changing it makes unsent application materials need review again.</p>
+    {equivalentText&&<p className="subtle" role="status">Equivalent in the same currency: approximately {equivalentText}. The agent can convert monthly and yearly current pay when an employer form asks for the other period.</p>}
+    <p className="subtle">Current salary is a fact you enter and review; it is not taken from your CV or estimated online. The agent uses it only if an employer form explicitly asks for current pay. Currency exchange and hourly-to-yearly conversion need review. Changing this fact makes unsent application materials need review again.</p>
   </>;
 }
