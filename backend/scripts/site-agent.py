@@ -21,6 +21,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.domain.documents import extract_text
 from app.services.browser_apply import BrowserFormConnector, origin
+from app.services.salary_research import research_salary
 from app.workers import ApplicationAttention, UncertainSubmission
 
 
@@ -138,6 +139,13 @@ def run_once(client: httpx.Client, registry: dict, *, submit: bool):
         job = SimpleNamespace(apply_url=job_data["applyUrl"], attributes={"browser_connector_key": key})
         answers = answers_from_candidate(candidate, job_title=job_data.get("title") or "", employer_consent=application_data.get("employerConsent") is True)
         answers["resume_text"] = selected_cv_text(cv["name"], document.content)
+        salary_proposal = research_salary(
+            job_data,
+            total_experience_years=candidate.get("totalExperienceYears"),
+            cybersecurity_experience_years=candidate.get("cybersecurityExperienceYears"),
+        )
+        if salary_proposal:
+            answers["salary_proposal"] = salary_proposal
         application = SimpleNamespace(
             id=application_id,
             idempotency_key=application_id,
@@ -148,7 +156,10 @@ def run_once(client: httpx.Client, registry: dict, *, submit: bool):
         def upload(_application):
             return {"name": cv["name"], "mimeType": cv["type"], "buffer": document.content}
         receipt = BrowserFormConnector(config, upload_provider=upload).submit(application, job)
-        outcome.update(status="applied", message="Employer confirmation and receipt observed by the application agent.", receipt=receipt.confirmation_id)
+        message = "Employer confirmation and receipt observed by the application agent."
+        if salary_proposal:
+            message += f" Advertised pay checked at {salary_proposal.source_url}."
+        outcome.update(status="applied", message=message[:500], receipt=receipt.confirmation_id)
     except ApplicationAttention as exc:
         outcome.update(status="needs_attention", message=str(exc)[:500])
     except UncertainSubmission as exc:

@@ -204,6 +204,21 @@ def test_new_vacancy_experience_question_uses_cv_action_not_skills_list(settings
     assert page.clicked and browser.closed
 
 
+def test_salary_question_uses_exact_employer_pay_when_available(settings):
+    from app.services.salary_research import SalaryProposal
+
+    connector, application, job, page, browser = setup_connector(settings)
+    application.answers["salary_proposal"] = SalaryProposal(
+        answer="I am seeking NGN 200,000–300,000 per month, in line with the range advertised for this role; open to discussing the full package.",
+        source_url="https://jobs.lever.co/example/1234/apply",
+    )
+    page.unmapped_required = True
+    page.required_label = "What salary do you expect?"
+    assert connector.submit(application, job).confirmation_id == "receipt-123"
+    assert "NGN 200,000–300,000 per month" in page.filled['input[required], textarea[required], select[required], [aria-required="true"][2]']
+    assert page.clicked and browser.closed
+
+
 @pytest.mark.parametrize("question", [
     "How many years of SIEM experience do you have?",
     "Are you authorized to work in the United States?",

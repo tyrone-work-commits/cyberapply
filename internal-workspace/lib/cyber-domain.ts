@@ -5,7 +5,7 @@ import { coverLetter } from './cover-letter';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
-export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean; githubRepositoryUrl?: string; linkedInUrl?: string; portfolioWebsiteUrl?: string; location?: string };
+export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean; githubRepositoryUrl?: string; linkedInUrl?: string; portfolioWebsiteUrl?: string; location?: string; totalExperienceYears?: number; cybersecurityExperienceYears?: number };
 export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
 export const bitwealthPilot = { company:'Bitwealth Systems Limited', title:'Cybersecurity Trainee', url:'https://www.bitwealthsystems.com.ng/careers', consent:'I agree that Bitwealth Systems can store and process this information to review my application.' } as const;
 export function isBitwealthPilot(job:Pick<Job,'company'|'title'|'url'|'applyUrl'>){return job.company===bitwealthPilot.company&&job.title===bitwealthPilot.title&&(job.applyUrl||job.url)===bitwealthPilot.url;}
@@ -35,7 +35,7 @@ const short = z.string().trim().max(200);
 const skills = z.array(z.string().trim().min(1).max(100)).max(80);
 const id = z.string().min(1).max(300);
 const candidateLink = z.string().trim().max(2000).refine(value => { try { return !value || Boolean(safeJobUrl(value)); } catch { return false; } }, 'Use a public https:// link.').optional();
-const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional() }).strict();
+const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional(), totalExperienceYears: z.number().min(0).max(60).optional(), cybersecurityExperienceYears: z.number().min(0).max(60).optional() }).strict().superRefine((value,ctx)=>{if(value.totalExperienceYears!==undefined&&value.cybersecurityExperienceYears!==undefined&&value.cybersecurityExperienceYears>value.totalExperienceYears)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Cybersecurity experience cannot exceed total experience.'});});
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),

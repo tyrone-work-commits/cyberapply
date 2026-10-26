@@ -15,6 +15,7 @@ from app.core.db import SessionLocal
 from app.core.storage import Storage
 from app.models import Document
 from app.services.cv_answers import answer_from_cv
+from app.services.salary_research import answer_salary_question
 from app.workers import ApplicationAttention, SubmissionConfirmation, UncertainSubmission
 
 try:
@@ -145,7 +146,7 @@ class BrowserFormConnector:
                 answer = answers.get(answer_key) if answer_key else None
                 is_text = item["tag"] == "textarea" or (item["tag"] == "input" and item["type"] in {"text", "email", "url"})
                 if is_text and not answer_key:
-                    answer = answer_from_cv(label, answers.get("resume_text", ""))
+                    answer = answer_salary_question(label, answers.get("salary_proposal")) or answer_from_cv(label, answers.get("resume_text", ""))
                 if is_text and isinstance(answer, str) and answer.strip() and len(answer) <= 500:
                     fill.append((required.nth(index), answer.strip()))
                 else:
