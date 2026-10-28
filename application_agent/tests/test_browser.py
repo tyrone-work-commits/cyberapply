@@ -5,6 +5,7 @@ import pytest
 
 from application_agent.browser import ApplicationAttention, execute_application, validate_public_url
 from application_agent.runner import parse_connection
+from application_agent.browser import automatic_application_hosts
 
 
 CV = b'Private selected CV bytes'
@@ -73,6 +74,41 @@ def test_blocks_local_and_unapproved_hosts():
         validate_public_url('https://evil.example',{'employer.example'},dns)
     with pytest.raises(ApplicationAttention):
         validate_public_url('http://employer.example',resolver=dns)
+
+
+def test_provider_aliases_are_automatic_exact_and_region_scoped():
+    aliases=automatic_application_hosts({'url':'https://boards.greenhouse.io/company/jobs/123'})
+    assert 'job-boards.greenhouse.io' in aliases and 'jobs.lever.co' not in aliases
+    assert automatic_application_hosts({'url':'https://job-boards.greenhouse.io.evil.example/job'})==set()
+    assert 'jobs.lever.co' not in automatic_application_hosts({'url':'https://jobs.eu.lever.co/company/job'})
+
+
+def test_greenhouse_board_transition_follows_apply_link_without_approval():
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'url':'https://boards.greenhouse.io/company/jobs/123','applyUrl':'https://boards.greenhouse.io/company/jobs/123'}}
+    def html(req):
+        if 'boards.greenhouse.io/company/jobs/123' in req.url and 'job-boards' not in req.url:
+            return '<a href="https://job-boards.greenhouse.io/company/jobs/123">Apply</a>'
+        return FORM.replace('{extra}','') if req.method=='GET' else 'Your application has been submitted'
+    result,posts=run(html,payload=payload)
+    assert result['status']=='applied' and len(posts)==1
+    assert result['evidence']['url'].startswith('https://job-boards.greenhouse.io/')
+    assert 'job-boards.greenhouse.io' in result['report']['navigation']['automatic_application_hosts']
+
+
+def test_lever_form_endpoint_is_automatic_without_extra_host_argument():
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://jobs.lever.co/company/job'}}
+    result,posts=run(FORM.replace('{extra}','').replace('action="/submit"','action="https://api.lever.co/submit"'),payload=payload)
+    assert result['status']=='applied' and len(posts)==1
+
+
+def test_optional_unrelated_image_is_blocked_without_stalling_form():
+    result,posts=run(FORM.replace('{extra}','<img src="https://unrelated.example/pixel">'))
+    assert result['status']=='applied' and len(posts)==1
+
+
+def test_unknown_form_destination_never_receives_cv():
+    result,posts=run(FORM.replace('{extra}','').replace('action="/submit"','action="https://unrelated.example/submit"'))
+    assert result['status']=='uncertain' and not posts
 
 
 def test_exact_cv_uploaded_and_explicit_confirmation_required():

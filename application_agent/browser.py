@@ -11,6 +11,21 @@ import re
 import socket
 from urllib.parse import urlsplit
 
+# Exact provider domains only: never trust lookalike suffixes or private DNS.
+# These aliases are part of one supported application service, so the user
+# does not have to approve a normal legacy-to-current board transition.
+APPLICATION_HOST_GROUPS = (
+    frozenset({'boards.greenhouse.io','job-boards.greenhouse.io','boards-api.greenhouse.io'}),
+    frozenset({'boards.eu.greenhouse.io','job-boards.eu.greenhouse.io','boards-api.eu.greenhouse.io'}),
+    frozenset({'jobs.lever.co','api.lever.co'}),
+    frozenset({'jobs.eu.lever.co','api.eu.lever.co'}),
+)
+
+
+def automatic_application_hosts(job):
+    origins={(urlsplit(str(job.get(key) or '')).hostname or '').lower().rstrip('.') for key in ('url','applyUrl')}
+    return set().union(*(group for group in APPLICATION_HOST_GROUPS if origins.intersection(group)))
+
 
 class ApplicationAttention(Exception):
     pass
@@ -24,7 +39,7 @@ def validate_public_url(url, allowed_hosts=None, resolver=socket.getaddrinfo):
         if parsed.scheme != "https" or not host or parsed.username or parsed.password or parsed.port not in (None, 443):
             raise ValueError()
         if allowed_hosts is not None and host not in allowed_hosts:
-            raise ApplicationAttention(f"The destination {host} needs approval before the agent can continue.")
+            raise ApplicationAttention(f"This employer form uses an unsupported destination: {host}.")
         addresses = resolver(host, 443, type=socket.SOCK_STREAM)
         if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
             raise ValueError()
@@ -85,15 +100,24 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         job = payload.get("job") or {}
         url = job.get("applyUrl") or job.get("url") or ""
         original_host = validate_public_url(url, resolver=resolver)
-        hosts = {original_host, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        automatic=automatic_application_hosts(job)
+        requested_hosts = {original_host, *automatic, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        hosts=set()
         pins = []
-        for host in hosts:
-            validate_public_url("https://" + host, resolver=resolver)
-            addresses = resolver(host,443,type=socket.SOCK_STREAM)
+        for host in [original_host,*sorted(requested_hosts-{original_host})]:
+            try:
+                validate_public_url("https://" + host, resolver=resolver)
+                addresses = resolver(host,443,type=socket.SOCK_STREAM)
+            except ApplicationAttention:
+                if host in automatic and host!=original_host:
+                    continue  # An unavailable optional alias must not stop the selected board.
+                raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
+            hosts.add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
+        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic))}
         report["research"] = research_fn(payload)
         if playwright_factory is None:
             from playwright.sync_api import sync_playwright
@@ -118,8 +142,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 nonlocal submitted
                 req = route.request
                 try:
-                    # Every network destination is explicitly allowed and DNS-pinned,
-                    # including scripts and images. Add required ATS/CDN hosts explicitly.
+                    # Supported provider aliases are resolved and pinned before launch.
+                    # Unrelated assets are blocked without making optional telemetry
+                    # a reason to stop an otherwise readable application form.
                     validate_public_url(req.url, hosts, resolver)
                     if req.method not in ('GET','HEAD','OPTIONS'):
                         if not submit:
@@ -132,7 +157,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         submitted = True  # Some forms autosave as fields change.
                     route.continue_()
                 except ApplicationAttention:
-                    blocked.append(req.url.split('?')[0])
+                    if req.method not in ('GET','HEAD','OPTIONS') or req.resource_type in ('document','xhr','fetch'):
+                        blocked.append(req.url.split('?')[0])
                     route.abort()
 
             context.route("**/*", guard)
@@ -144,7 +170,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             for _step in range(6):
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
-                    raise ApplicationAttention("An employer redirect or request needs an additional approved host. Review the destination before continuing.")
+                    raise ApplicationAttention("This employer form uses an unsupported application destination. Open its original page to continue manually.")
                 frames = []
                 for frame in page.frames:
                     if frame.url in ("about:blank", ""):
