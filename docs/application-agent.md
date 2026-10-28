@@ -22,6 +22,22 @@ For a new checkout create a Python virtual environment and install `application_
 
 ## Operational boundaries
 
+### Automatic Windows background operation
+
+Run `.venv/Scripts/python.exe -m application_agent.background setup` once. A private local setup window accepts the connection string from Settings. It encrypts the connection with Windows DPAPI for the current Windows user under `%LOCALAPPDATA%/CyberApply/application-agent/connection.dat`; no plaintext credential is saved. It registers a current-user Startup shortcut and launches `pythonw` without a console. The worker runs with submission enabled for the requests the user authorized through CyberApply. No Windows password or administrator account is saved.
+
+The background loop checks every five seconds, uses one instance per Windows session, reconnects after network failures with bounded backoff, and honors the existing claim/uncertain-outcome protections rather than replaying a potentially submitted form. Invalid/revoked credentials require setup again. Connection credentials expire after 30 days. Automatic startup happens after Windows sign-in; the laptop must be awake and online. This is local background operation, not an always-on cloud service.
+
+Management commands from the repository:
+
+```powershell
+.venv/Scripts/python.exe -m application_agent.background status
+.venv/Scripts/python.exe -m application_agent.background stop
+.venv/Scripts/python.exe -m application_agent.background uninstall
+```
+
+Stop writes a local stop request; a browser action already underway may finish first. Uninstall also removes the Startup shortcut and encrypted local connection. Disconnect in CyberApply Settings revokes the server credential. Status output contains process/timing/state metadata only, without CV content or credentials. Re-run setup to reconnect or re-enable after a stop.
+
 Standard readable forms are supported; this does not promise every vacancy or employer system. Keep the computer and runner running when applying from a phone. Expired tokens, blocked resources and unapproved redirects can interrupt work. Settings shows the last claim heartbeat, not proof of continuous availability. Disconnect revokes the credential. Information already sent during an in-progress browser action cannot be recalled; check its outcome.
 
 The old `/api/agent/*` routes still return HTTP 410. Old tokens cannot operate the replacement `/api/application-agent/*` bridge. Historical requests are not automatically queued. Existing receipts and application history remain intact.
