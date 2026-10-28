@@ -1,9 +1,5 @@
-import { z } from 'zod';
-import { identity, load, save, response, failure } from '@/lib/cyber-store';
-import { DomainError } from '@/lib/cyber-domain';
-import { createPairToken, tokenHash, sameOrigin } from '@/lib/agent-bridge';
+import { retiredAgentResponse } from '@/lib/retired-agent';
 export const dynamic='force-dynamic';
-const input=z.object({revision:z.number().int().nonnegative()}).strict();
-export async function GET(request:Request){try{const user=await identity(request),current=await load(user);return response({paired:!!current.state.agentPairing&&current.state.agentPairing.expiresAt>new Date().toISOString(),expiresAt:current.state.agentPairing?.expiresAt||null});}catch(error){return failure(error);}}
-export async function POST(request:Request){try{sameOrigin(request);const user=await identity(request),body=input.parse(await request.json()),current=await load(user);if(current.revision!==body.revision)throw new DomainError('Reload before pairing the agent.',409);const token=await createPairToken(user.userId),now=new Date(),expiresAt=new Date(now.getTime()+30*86400000).toISOString();current.state.agentPairing={tokenHash:await tokenHash(token),issuedAt:now.toISOString(),expiresAt};const saved=await save(user,current.revision,current.state,'pair_application_agent');return response({token,expiresAt,revision:saved.revision});}catch(error){return failure(error);}}
-export async function DELETE(request:Request){try{sameOrigin(request);const user=await identity(request),body=input.parse(await request.json()),current=await load(user);if(current.revision!==body.revision)throw new DomainError('Reload before disconnecting the agent.',409);delete current.state.agentPairing;for(const item of current.state.applications||[])if(item.status==='queued'){item.status='needs_action';delete item.agentAuthorizedAt;}const saved=await save(user,current.revision,current.state,'disconnect_application_agent');return response({paired:false,revision:saved.revision});}catch(error){return failure(error);}}
+export async function GET(){return retiredAgentResponse();}
+export async function POST(){return retiredAgentResponse();}
+export async function DELETE(){return retiredAgentResponse();}

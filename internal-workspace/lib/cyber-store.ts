@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { actionSchema, emptyState, liveState, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
+import { actionSchema, emptyState, liveState, retireLocalAgent, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
 import { discover, mergeDiscovery } from './job-discovery';
 import { defaultSearch } from './job-catalog';
 import { liveSearchCooldown, type SearchCooldown } from './search-cooldown';
@@ -24,7 +24,7 @@ export async function load(user: Identity): Promise<Snapshot> {
   if (!row) throw new DomainError('Workspace could not be loaded.', 503);
   const stored=JSON.parse(row.payload);
   if(stored.__deleting===true)throw new DomainError('Your CyberApply account deletion is in progress. Open Account to retry cleanup.',409);
-  const state=liveState(stored);
+  const state=retireLocalAgent(stored);
   return {revision:row.revision, updatedAt:row.updated_at, state, searchCooldown:liveSearchCooldown(state.discovery?.lastSearch.at)};
 }
 export async function save(user: Identity, expected: number, state: State, action: string): Promise<Snapshot> {

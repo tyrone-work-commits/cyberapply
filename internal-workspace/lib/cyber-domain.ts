@@ -8,8 +8,6 @@ export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
 export type SalaryFacts = { amount:number; currency:'USD'|'NGN'|'GBP'|'EUR'|'CAD'|'AUD'|'GHS'|'KES'|'ZAR'|'AED'|'INR'|'SGD'; period:'year'|'month'|'hour' };
 export type Profile = { fullName: string; email: string; skills: string[]; preferredRoles: string[]; resumeText: string; reviewed: boolean; githubRepositoryUrl?: string; linkedInUrl?: string; portfolioWebsiteUrl?: string; location?: string; totalExperienceYears?: number; cybersecurityExperienceYears?: number; currentSalary?:SalaryFacts };
 export type Job = { id: string; title: string; company: string; department?:string; location: string; workMode: string; url: string; applyUrl?: string; source?: JobSource; description: string; skills: string[]; sample: boolean; saved: boolean; disposition: 'open' | 'passed' | 'apply_requested'; previousDisposition?: Job['disposition']; decidedAt?: string; createdAt: string };
-export const bitwealthPilot = { company:'Bitwealth Systems Limited', title:'Cybersecurity Trainee', url:'https://www.bitwealthsystems.com.ng/careers', consent:'I agree that Bitwealth Systems can store and process this information to review my application.' } as const;
-export function isBitwealthPilot(job:Pick<Job,'company'|'title'|'url'|'applyUrl'>){return job.company===bitwealthPilot.company&&job.title===bitwealthPilot.title&&(job.applyUrl||job.url)===bitwealthPilot.url;}
 export type Draft = { id: string; jobId: string; text: string; status: 'draft' | 'ready'; version: number; createdAt: string; updatedAt: string };
 export type Attachment = { id: string; key: string; name: string; type: string; size: number; createdAt: string; textExtracted: boolean; reviewSnapshot?:{score:number;at:string} };
 export type Activity = { id: string; at: string; action: string; source: 'interface' | 'agent'; message: string };
@@ -44,7 +42,6 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), employerConsent:z.boolean().optional(), operationId:z.string().uuid().optional() }).strict(),
-  z.object({ type:z.literal('queue_application'), applicationId:id }).strict(),
   z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
@@ -138,7 +135,6 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const previousDisposition=job.disposition;
     const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
-      if (isBitwealthPilot(job) && action.employerConsent!==true) throw new DomainError('Agree to Bitwealth Systems processing your application before swiping Apply.');
       if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
       if (!safeJobUrl(job.url)) throw new DomainError('Add the original job listing URL before applying.', 409);
       const existing = state.applications?.find(item => item.jobId === job.id);
@@ -151,12 +147,11 @@ export function reduceAction(before: State, action: Action, source: Activity['so
         state.drafts.unshift(draft);
       }
       const cv=selectedCv(state);
-      const authorized=!!(cv&&state.profile.reviewed&&state.agentPairing&&state.agentPairing.expiresAt>at);
-      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), ...(isBitwealthPilot(job)?{employerConsent:true}:{}), at, status:authorized?'queued':'needs_action', reason: !cv?'cv_required':state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url,...(authorized?{agentAuthorizedAt:at}:{}) };
+      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), at, status:'needs_action', reason: !cv?'cv_required':state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url };
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
       state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};
-      message = authorized?'Your chosen CV and role-specific letter are queued for the paired agent. This is not yet submitted.':!cv?'Apply request saved without a CV. Choose an uploaded CV in CV review and attach it in Applications; nothing has been sent.':state.profile.reviewed?'Apply request saved with your chosen CV. Pair the application agent to send it; no application has been sent.':'Apply request saved with your chosen CV. Review candidate facts before using the materials; nothing has been sent.';
+      message = !cv?'Apply request saved without a CV. Choose an uploaded CV in CV review and attach it in Applications; nothing has been sent.':state.profile.reviewed?'Apply request saved with your chosen CV. No automatic application agent is connected; nothing has been sent.':'Apply request saved with your chosen CV. Review candidate facts before using the materials; nothing has been sent.';
     } else {
       if (state.applications?.some(item => item.jobId === job.id)) throw new DomainError('An Apply request already exists for this job. Open Applications.', 409);
       job.previousDisposition = job.disposition; job.decidedAt = at; job.disposition = 'passed';
@@ -206,14 +201,6 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     request.reason=state.profile.reviewed?'connection_required':'candidate_review_required';
     request.status='needs_action';delete request.agentAuthorizedAt;delete request.claim;delete request.result;
     message=`${cv.name} and current candidate facts attached to the unsent Apply request. No employer has received it.`;
-  } else if(action.type==='queue_application'){
-    const request=state.applications?.find(item=>item.id===action.applicationId);
-    if(!request||!['needs_action','needs_attention','failed'].includes(request.status))throw new DomainError('Only an unsent request can be queued.',409);
-    if(!state.agentPairing||state.agentPairing.expiresAt<=at)throw new DomainError('Pair the local application agent in Settings first.',409);
-    if(!request.cv||!state.attachments.some(file=>file.id===request.cv?.fileId))throw new DomainError('Attach an available CV first.',409);
-    if(!request.candidate.reviewed||request.reason!=='connection_required')throw new DomainError('Review and update the candidate facts and exact materials first.',409);
-    request.status='queued';request.agentAuthorizedAt=at;delete request.result;
-    message='Application queued for the paired agent. It has not been submitted.';
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
     const reviewSource=state.resumeReview?.source;
@@ -267,7 +254,7 @@ export function analyzeResume(profile: Profile, at = new Date().toISOString()): 
 }
 
 
-export const connectionStatus = { jobDiscovery: {greenhouse:'available',lever:'available',method:'public_employer_boards',refresh:'on_request'}, applicationSubmission: 'local_agent_pairing_available', automaticApplications: false, message: 'A paired local agent can attempt only configured employer forms while running. A queued request is not an application receipt.' } as const;
+export const connectionStatus = { jobDiscovery: {greenhouse:'available',lever:'available',method:'public_employer_boards',refresh:'on_request'}, applicationSubmission: 'not_connected', automaticApplications: false, message: 'The previous local application agent has been retired. Apply saves an unsent request and materials; no automatic employer submission is connected.' } as const;
 
 export function liveState(input: State): State {
   const state = structuredClone(input) as State & {demo?: boolean; submissions?: unknown};
@@ -281,5 +268,25 @@ export function liveState(input: State): State {
     job.disposition = 'open'; delete job.previousDisposition; delete job.decidedAt;
   }
   state.activity = state.activity.filter(item => (item.source as string) !== 'example' && !['load_examples','simulate_apply'].includes(item.action));
+  return state;
+}
+
+export function retireLocalAgent(input: State): State {
+  const state=liveState(input);
+  // Old pairing hashes remain in immutable history, but are not exposed or
+  // carried into current writes. The retired endpoints reject every token.
+  delete state.agentPairing;
+  for(const request of state.applications||[]){
+    if(request.status==='queued'){
+      request.status='needs_action';
+      delete request.agentAuthorizedAt;
+      delete request.claim;
+    }else if(request.status==='processing'){
+      request.status='uncertain';
+      request.result||={at:request.claim?.at||request.at,message:'The previous local agent was retired while this request was in progress. Check with the employer before trying again.'};
+      delete request.claim;
+      delete request.agentAuthorizedAt;
+    }
+  }
   return state;
 }

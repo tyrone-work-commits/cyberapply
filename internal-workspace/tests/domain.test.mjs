@@ -6,7 +6,7 @@ await mkdir('.sites-runtime/tests',{recursive:true});
 await writeFile('.sites-runtime/tests/candidate-facts.mjs',ts.transpileModule(await readFile('lib/candidate-facts.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
 await writeFile('.sites-runtime/tests/cover-letter.mjs',ts.transpileModule(await readFile('lib/cover-letter.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
 await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './candidate-facts'","from './candidate-facts.mjs'").replace("from './cover-letter'","from './cover-letter.mjs'"));
-const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,connectionStatus,activateCv}=await import('../.sites-runtime/tests/domain.mjs');
+const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,retireLocalAgent,connectionStatus,activateCv}=await import('../.sites-runtime/tests/domain.mjs');
 const at='2026-10-17T12:00:00.000Z';
 const act=(s,a,time=at)=>reduceAction(s,actionSchema.parse(a),'interface',time).state;
 const profile={fullName:'QA Candidate',email:'candidate@example.test',skills:['SIEM','Python'],preferredRoles:['SOC Analyst'],resumeText:'QA Candidate\ncandidate@example.test\nSUMMARY\nCybersecurity practice with SIEM and incident response.\nEXPERIENCE\n- Investigated 20 alerts per day.\n- Reduced response time by 10 hours.\n- Built monitoring queries.\n- Documented incidents.\nSKILLS\nSIEM, Python\nEDUCATION\nSecurity studies.',reviewed:true};
@@ -123,32 +123,44 @@ test('saving and undoing a bookmark preserve an existing Apply request, edits an
  s=act(s,{type:'save_job',jobId,saved:true});s=act(s,{type:'undo_decision',jobId,decisionId:s.lastDecision.operationId});assert.deepEqual(s.drafts,before.drafts);assert.deepEqual(s.applications,before.applications);assert.equal(s.jobs[0].disposition,'apply_requested');assert.equal(s.jobs[0].saved,false);
 });
 
-test('paired right swipe queues only a reviewed chosen CV and role-specific letter',()=>{
+test('retired pairing never queues a right swipe; the chosen CV and letter are retained',()=>{
  let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';
  s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
- s=apply(s);assert.equal(s.applications[0].status,'queued');assert.equal(s.applications[0].cv.fileId,'cv');
+ s=apply(s);assert.equal(s.applications[0].status,'needs_action');assert.equal(s.applications[0].cv.fileId,'cv');
  assert.match(s.applications[0].text,/QA SOC Analyst role at QA Company/);
  assert.match(s.applications[0].text,/SIEM/);
  assert.doesNotMatch(s.applications[0].text,/Splunk experience/);
+ assert.equal(actionSchema.safeParse({type:'queue_application',applicationId:s.applications[0].id}).success,false);
  assert.equal(act(s,{type:'undo_decision',jobId:s.jobs[0].id}).applications.length,0);
 });
-test('the exact employer pilot needs explicit consent before a swipe can queue submission',()=>{
+test('retired Bitwealth pilot saves an unsent request without employer consent',()=>{
  const pilot={...listing,title:'Cybersecurity Trainee',company:'Bitwealth Systems Limited',url:'https://www.bitwealthsystems.com.ng/careers'};
  let state=act(act(emptyState(),pilot),{type:'save_profile',profile});
  state.attachments=[{id:'pilot-cv',key:'owners/qa/pilot-cv',name:'cv.pdf',type:'application/pdf',size:300,createdAt:at,textExtracted:true}];
  state.selectedCvId='pilot-cv';
  state.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
- assert.throws(()=>act(state,{type:'decide_job',jobId:state.jobs[0].id,decision:'apply'}),/Agree to Bitwealth/);
- assert.equal(state.applications?.length||0,0);
- const queued=act(state,{type:'decide_job',jobId:state.jobs[0].id,decision:'apply',employerConsent:true});
- assert.equal(queued.applications[0].status,'queued');
- assert.equal(queued.applications[0].employerConsent,true);
- assert.equal(queued.applications[0].cv.name,'cv.pdf');
+ const saved=act(state,{type:'decide_job',jobId:state.jobs[0].id,decision:'apply'});
+ assert.equal(saved.applications[0].status,'needs_action');
+ assert.equal(saved.applications[0].employerConsent,undefined);
+ assert.equal(saved.applications[0].cv.name,'cv.pdf');
 });
-test('CV or profile edits stop unsent queue work without rewriting a confirmed application',()=>{
+test('CV or profile edits update unsent work without rewriting a confirmed application',()=>{
  let s=ready();s.attachments=[{id:'cv',key:'owners/qa/cv',name:'cv.txt',type:'text/plain',size:300,createdAt:at,textExtracted:true}];s.selectedCvId='cv';s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
  s=apply(s);const updated=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});
  assert.equal(updated.applications[0].status,'needs_action');assert.equal(updated.applications[0].reason,'materials_changed');
  s.applications[0].status='applied';const after=act(s,{type:'save_profile',profile:{...profile,location:'Lagos, Nigeria'}});
  assert.equal(after.applications[0].status,'applied');assert.equal(after.applications[0].reason,'connection_required');
+});
+test('current reads retire legacy pairing and preserve confirmed receipts',()=>{
+ let s=ready();s.agentPairing={tokenHash:'test-only-hash',issuedAt:at,expiresAt:'2026-11-17T12:00:00.000Z'};
+ s=apply(s);const first=s.applications[0];first.status='queued';first.agentAuthorizedAt=at;
+ const second={...structuredClone(first),id:'processing-request',status:'processing',claim:{id:crypto.randomUUID(),at,expiresAt:'2026-11-17T12:00:00.000Z'}};
+ const third={...structuredClone(first),id:'applied-request',status:'applied',result:{at,message:'Employer confirmed',receipt:'REAL-123'}};
+ s.applications=[first,second,third];
+ const retired=retireLocalAgent(s);
+ assert.equal(retired.agentPairing,undefined);
+ assert.equal(retired.applications[0].status,'needs_action');assert.equal(retired.applications[0].agentAuthorizedAt,undefined);
+ assert.equal(retired.applications[1].status,'uncertain');assert.match(retired.applications[1].result.message,/Check with the employer/);
+ assert.equal(retired.applications[2].status,'applied');assert.equal(retired.applications[2].result.receipt,'REAL-123');
+ assert.equal(s.agentPairing.tokenHash,'test-only-hash','historical input is unchanged');
 });

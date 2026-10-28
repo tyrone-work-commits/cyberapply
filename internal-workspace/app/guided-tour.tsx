@@ -18,8 +18,8 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'workspace',title:'Confirm candidate facts',description:'Check your name, email, links, location, skills and preferred roles. Correct anything missed, confirm accuracy and save. Your chosen CV is used for new Apply requests.',target:'.profile-form .section-title'},
  {area:'activity',title:'Activity: see what changed',description:'Activity records actions and earlier saved versions, so you can review what happened in the workspace and show evidence of your work.',target:'.page-heading'},
  {area:'activity',title:'Review history and export',description:'View recent actions and earlier versions below. Export evidence to download your workspace records for your own review.',target:'.evidence-strip > a',fallback:'.activity-grid'},
- {area:'account',title:'Settings: manage your account',description:'Settings holds your profile, local agent connection and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
- {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. Agent pairing alone does not submit jobs. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
+ {area:'account',title:'Settings: manage your account',description:'Settings holds your profile and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
+ {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. No automatic application agent is connected. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
 ];
 type Box={top:number;left:number;width:number;height:number};
 function visible(selector:string):HTMLElement|null{

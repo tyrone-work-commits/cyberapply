@@ -2,6 +2,8 @@
 
 Cybersecurity job application workspace. The original local version has a responsive frontend and FastAPI backend; the private Covenda pilot is linked below.
 
+**Current hosted Site:** The former local application agent has been removed. Apply saves an unsent request and selected CV reference; it does not submit to an employer. Existing confirmed receipts remain in Applications. The original local frontend/backend described below are historical development components and are not connected to the hosted Site. See [the internal workspace](internal-workspace/README.md) and [application-agent status](docs/application-agent.md).
+
 1. [Start the backend and worker](backend/README.md).
 2. Start the frontend from this folder:
 

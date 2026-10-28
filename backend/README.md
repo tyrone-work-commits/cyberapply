@@ -152,7 +152,7 @@ Provider protocol behavior has automated tests. Live Google/Apple login, SMS del
 
 ## Employer integrations
 
-The local application agent and its deployment boundary are documented in [the application-agent guide](../docs/application-agent.md). The worker now prepares a conservative cover letter from confirmed profile skills shared with the job listing; it makes no unsupported experience claims. Browser-form applications can map this text through a `cover_letter` field. The hosted Covenda Site still uses a separate unsent-request workflow until a secure browser worker is connected.
+The hosted Site's former local application agent and pairing bridge have been removed; see [the application-agent status](../docs/application-agent.md). This FastAPI backend retains generic, opt-in browser-form integration code for development, but it is not connected to the hosted Site. Its cover-letter helper uses confirmed profile skills shared with a listing and makes no unsupported experience claims. External submission remains off by default.
 
 External submission is off by default. A server administrator must configure and validate each employer integration, then assign its connector to trusted job records. Public job import requests cannot assign a submission connector. Arbitrary job URLs are not automatically executable forms. After configuring the registry/webhook, use the server-only CLI from `backend`:
 
