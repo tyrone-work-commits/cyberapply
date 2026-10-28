@@ -61,8 +61,14 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)
         def authorize():
             return call_site(site,token,"/api/application-agent/authorize",{"requestId":task["requestId"],"claimId":task["claimId"]}, site_access_token=site_access_token).get("authorized") is True
+        import sys
+        sessions=None
+        if sys.platform=='win32':
+            from .login_sessions import LoginSessions
+            sessions=LoginSessions(site,token.split('.')[1])
         result = execute_application(task, cv_bytes, submit=submit, allowed_hosts=allowed_hosts, before_submit=authorize,
-                                     browser_channel=None if browser_channel=='chromium' else browser_channel)
+                                     browser_channel=None if browser_channel=='chromium' else browser_channel,
+                                     session_store=sessions,interactive_login=submit)
     except Exception:
         result = {"status":"failed", "message":"The selected CV could not be read. No employer submission was attempted."}
     # This result POST is never automatically retried: retain the claim if delivery is uncertain.

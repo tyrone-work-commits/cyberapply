@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 
 from .runner import parse_connection, run_once
+from .secure_storage import protect
 
 SITE = 'https://cyberapply-internal.covenda-1182.chatgpt.site'
 TASK_NAME = 'CyberApply Application Agent'
@@ -22,31 +23,6 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def data_dir():
     return Path(os.environ['LOCALAPPDATA']) / 'CyberApply' / 'application-agent'
-
-
-class Blob(ctypes.Structure):
-    _fields_ = [('size', wintypes.DWORD), ('data', ctypes.POINTER(ctypes.c_ubyte))]
-
-
-def protect(raw: bytes, decrypt=False):
-    if sys.platform != 'win32':
-        raise RuntimeError('Background setup requires Windows.')
-    buf = ctypes.create_string_buffer(raw)
-    source = Blob(len(raw), ctypes.cast(buf, ctypes.POINTER(ctypes.c_ubyte)))
-    target = Blob()
-    api = ctypes.windll.crypt32.CryptUnprotectData if decrypt else ctypes.windll.crypt32.CryptProtectData
-    api.argtypes=[ctypes.POINTER(Blob),ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,wintypes.DWORD,ctypes.POINTER(Blob)]
-    api.restype=wintypes.BOOL
-    # CRYPTPROTECT_UI_FORBIDDEN, current user scope; never machine-wide.
-    if not api(ctypes.byref(source), None, None, None, None, 1, ctypes.byref(target)):
-        raise OSError('Windows could not access the encrypted connection.')
-    try:
-        return ctypes.string_at(target.data, target.size)
-    finally:
-        free=ctypes.windll.kernel32.LocalFree
-        free.argtypes=[ctypes.c_void_p]
-        free.restype=ctypes.c_void_p
-        free(target.data)
 
 
 def status(state, **extra):
@@ -169,7 +145,7 @@ def setup_window():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['setup','run','status','stop','uninstall'])
+    parser.add_argument('action',choices=['setup','run','status','stop','uninstall','clear-sessions'])
     args=parser.parse_args()
     if args.action=='setup':
         setup_window()
@@ -178,6 +154,12 @@ def main():
     elif args.action=='status':
         path=data_dir()/'status.json'
         print(path.read_text(encoding='utf-8') if path.exists() else '{"state":"not_configured"}')
+    elif args.action=='clear-sessions':
+        from .login_sessions import LoginSessions
+        raw=protect((data_dir()/'connection.dat').read_bytes(),decrypt=True).decode('utf-8')
+        token,_=parse_connection(raw,SITE)
+        LoginSessions(SITE,token.split('.')[1]).clear()
+        print('Saved employer sign-in sessions cleared for this CyberApply account.')
     elif args.action in ('stop','uninstall'):
         data_dir().mkdir(parents=True,exist_ok=True)
         (data_dir()/'stop').touch()

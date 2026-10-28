@@ -32,6 +32,7 @@ def browser_factory(html, posts, success=True):
     with sync_playwright() as pw:
         class Context:
             def __init__(self, context): self.context=context
+            def __getattr__(self,name):return getattr(self.context,name)
             def route_web_socket(self,*args,**kwargs): return self.context.route_web_socket(*args,**kwargs)
             def add_init_script(self,*args,**kwargs): return self.context.add_init_script(*args,**kwargs)
             def route(self, pattern, guard):
@@ -74,6 +75,60 @@ def test_blocks_local_and_unapproved_hosts():
         validate_public_url('https://evil.example',{'employer.example'},dns)
     with pytest.raises(ApplicationAttention):
         validate_public_url('http://employer.example',resolver=dns)
+
+
+AUTH_STATE={'cookies':[{'name':'login','value':'test-session','domain':'employer.example','path':'/','expires':-1,'httpOnly':True,'secure':True,'sameSite':'Lax'}],'origins':[]}
+
+class MemorySessions:
+    def __init__(self,state=None):self.state=state;self.saves=[]
+    def load(self,job,hosts):return self.state
+    def save(self,job,hosts,state,refresh=False):self.state=state;self.saves.append((state,refresh))
+
+def protected_form(req):
+    if req.method=='POST':return 'Your application has been submitted'
+    if 'login=test-session' in req.headers.get('cookie',''):return FORM.replace('{extra}','')
+    return '<form><label>Password<input type="password"></label><button>Sign in</button></form>'
+
+def test_saved_login_session_is_reused_without_prompt():
+    posts=[];store=MemorySessions(AUTH_STATE)
+    def no_prompt(*args):raise AssertionError('Existing valid sign-in should be automatic')
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+      playwright_factory=lambda:browser_factory(protected_form,posts),before_submit=lambda:True,timeout=3000,
+      session_store=store,interactive_login=True,login_handler=no_prompt)
+    assert result['status']=='applied' and len(posts)==1 and result['report']['login_session']['reused']
+
+def test_first_private_sign_in_resumes_and_saves_only_scoped_state():
+    posts=[];store=MemorySessions();calls=[]
+    def signed_in(*args):calls.append(True);return {'state':AUTH_STATE,'url':'https://employer.example/apply'}
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+      playwright_factory=lambda:browser_factory(protected_form,posts),before_submit=lambda:True,timeout=3000,
+      session_store=store,interactive_login=True,login_handler=signed_in)
+    assert result['status']=='applied' and len(posts)==1 and len(calls)==1
+    assert result['report']['login_session']['saved'] and store.saves
+
+def test_cancelled_sign_in_never_submits_or_saves_a_session():
+    posts=[];store=MemorySessions()
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+      playwright_factory=lambda:browser_factory(protected_form,posts),before_submit=lambda:True,timeout=3000,
+      session_store=store,interactive_login=True,login_handler=lambda *args:None)
+    assert result['status']=='needs_attention' and not posts and not store.saves
+
+def test_revocation_after_sign_in_prevents_saving_and_submission():
+    posts=[];store=MemorySessions();auth=iter([True,False])
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+      playwright_factory=lambda:browser_factory(protected_form,posts),before_submit=lambda:next(auth),timeout=3000,
+      session_store=store,interactive_login=True,login_handler=lambda *args:{'state':AUTH_STATE})
+    assert result['status']=='needs_attention' and not posts and not store.saves
+
+def test_login_after_possible_partial_delivery_never_restarts_application():
+    posts=[];store=MemorySessions()
+    def page(req):
+        if req.url.endswith('/step2'):return '<input type="password" aria-label="Password">'
+        return FORM.replace('{extra}','').replace('/submit','/step2').replace('Submit application','Continue')
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+      playwright_factory=lambda:browser_factory(page,posts),before_submit=lambda:True,timeout=3000,
+      session_store=store,interactive_login=True,login_handler=lambda *args:(_ for _ in ()).throw(AssertionError('Must not restart partial application')))
+    assert result['status']=='uncertain' and len(posts)==1
 
 
 def test_provider_aliases_are_automatic_exact_and_region_scoped():

@@ -80,9 +80,20 @@ def _result(status, message, report=None, **kwargs):
     return {"status": status, "message": message, **({"report": report} if report else {}), **kwargs}
 
 
+def restrict_transports(context):
+    context.route_web_socket('**/*',lambda websocket:websocket.close())
+    context.add_init_script("""(() => {
+      for (const name of ['WebSocket','WebTransport','RTCPeerConnection','webkitRTCPeerConnection']) {
+        Object.defineProperty(globalThis,name,{value:class {
+          constructor(){throw new Error('This network transport is unavailable in the application agent.');}
+        },writable:false,configurable:false});
+      }
+    })();""")
+
+
 def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), playwright_factory=None,
                         research_fn=None, planner=None, resolver=socket.getaddrinfo, timeout=15000, before_submit=None,
-                        browser_channel=None):
+                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None):
     """Inspect/fill a single claim. No application is retried after final click."""
     if planner is None:
         from .reasoning import build_plan
@@ -93,6 +104,13 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     report = {"answers": [], "unresolved": [], "research": {}, "experience": {}, "cover_letter": ""}
     submitted = False
     browser = None
+    context = None
+    session_active = False
+    def finish(*args,**kwargs):
+        if session_active and context and session_store:
+            try:session_store.save(job,hosts,context.storage_state(),refresh=True)
+            except Exception:pass
+        return _result(*args,**kwargs)
     try:
         cv = payload.get("cv") or {}
         if not cv_bytes or len(cv_bytes) > 15_000_000 or hashlib.sha256(cv_bytes).hexdigest() != cv.get("sha256"):
@@ -123,19 +141,15 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             from playwright.sync_api import sync_playwright
             playwright_factory = sync_playwright
         with playwright_factory() as runtime:
-            browser = runtime.chromium.launch(headless=True, args=['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],
-                                               **({'channel':browser_channel} if browser_channel else {}))
-            context = browser.new_context(accept_downloads=False, service_workers="block")
+            launch_options=dict(headless=True, args=['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
+            browser = runtime.chromium.launch(**launch_options)
+            saved_session=session_store.load(job,hosts) if session_store else None
+            session_active=bool(saved_session)
+            report['login_session']={'reused':session_active,'saved':False}
+            context = browser.new_context(accept_downloads=False, service_workers="block",**({'storage_state':saved_session} if saved_session else {}))
             # Job forms need HTTP, not arbitrary peer/socket transports that bypass
             # request routing. Apply this before any page or iframe script executes.
-            context.route_web_socket('**/*',lambda websocket:websocket.close())
-            context.add_init_script("""(() => {
-              for (const name of ['WebSocket','WebTransport','RTCPeerConnection','webkitRTCPeerConnection']) {
-                Object.defineProperty(globalThis,name,{value:class {
-                  constructor(){throw new Error('This network transport is unavailable in the application agent.');}
-                },writable:false,configurable:false});
-              }
-            })();""")
+            restrict_transports(context)
             blocked = []
 
             def guard(route):
@@ -167,6 +181,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             page.goto(url, wait_until="domcontentloaded", timeout=timeout * 2)
             page.wait_for_timeout(700)
             seen_steps = set()
+            login_attempted=False
             for _step in range(6):
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
@@ -178,9 +193,41 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     validate_public_url(frame.url, hosts, resolver)
                     frames.append(frame)
                 fields, controls = [], {}
+                login_frame=next((frame for frame in frames if frame.locator('input[type="password"]:visible').count()),None)
+                if login_frame:
+                    if submitted:
+                        raise ApplicationAttention('Sign-in was requested after possible partial delivery. Check the employer outcome before retrying.')
+                    if not interactive_login or not session_store or login_attempted:
+                        raise ApplicationAttention('The employer requires sign-in. Its saved session is unavailable or expired; sign in privately before continuing.')
+                    login_attempted=True
+                    if before_submit is None or before_submit() is not True:
+                        raise ApplicationAttention('This request no longer has authorization for employer sign-in.')
+                    if login_handler is None:
+                        from .login_handoff import sign_in
+                        login_handler=sign_in
+                    signed_in=login_handler(runtime,launch_options,context.storage_state(),login_frame.url,hosts,before_submit)
+                    if not signed_in:
+                        raise ApplicationAttention('Sign-in was cancelled or timed out. No application was submitted.')
+                    if before_submit() is not True:
+                        raise ApplicationAttention('This request no longer has authorization after sign-in.')
+                    # Resume the selected vacancy using the private sign-in state.
+                    # Never return to the start after a possibly delivered POST.
+                    from .login_sessions import scoped_state
+                    restored=scoped_state(signed_in['state'],hosts)
+                    session_store.save(job,hosts,restored)
+                    session_active=True
+                    report['login_session']['saved']=True
+                    context.close()
+                    context=browser.new_context(accept_downloads=False,service_workers='block',storage_state=restored)
+                    restrict_transports(context)
+                    context.route('**/*',guard)
+                    blocked.clear()
+                    page=context.new_page()
+                    page.set_default_timeout(timeout)
+                    page.goto(url,wait_until='domcontentloaded',timeout=timeout*2)
+                    page.wait_for_timeout(500)
+                    continue
                 for fidx, frame in enumerate(frames):
-                    if frame.locator('input[type="password"]:visible').count():
-                        raise ApplicationAttention("The employer requires sign-in. Complete it yourself before continuing.")
                     if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
                         raise ApplicationAttention("The employer requires a verification challenge. Please complete it yourself.")
                     for field in frame.evaluate(INSPECT):
@@ -304,7 +351,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
                 if report["unresolved"]:
-                    return _result("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "The form needs answers or choices that the CV cannot establish. Review the saved agent report.", report)
+                    return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "The form needs answers or choices that the CV cannot establish. Review the saved agent report.", report)
                 page.wait_for_timeout(300)
                 refreshed = [(fidx, f) for fidx, frame in enumerate(frames) for f in frame.evaluate(INSPECT)]
                 refreshed_signature = tuple((f'{idx}:{f["id"]}', f['label'], f['type']) for idx, f in refreshed)
@@ -334,7 +381,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     raise ApplicationAttention("A confirmation message was already on the page. Check the employer before making another application.")
                 if action == "next":
                     if not submit:
-                        return _result("needs_attention", "Dry run filled this step. Advancing could send data to the employer, so no next-step or submit button was clicked.", report)
+                        return finish("needs_attention", "Dry run filled this step. Advancing could send data to the employer, so no next-step or submit button was clicked.", report)
                     if before_submit is None or before_submit() is not True:
                         raise ApplicationAttention("This request no longer has current authorization to advance the employer form.")
                     verify_expected()
@@ -343,7 +390,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     page.wait_for_timeout(600)
                     continue
                 if not submit:
-                    return _result("needs_attention", "Dry run complete: the form was filled but not submitted. Review the agent report before enabling submission.", report)
+                    return finish("needs_attention", "Dry run complete: the form was filled but not submitted. Review the agent report before enabling submission.", report)
                 if before_submit is None or before_submit() is not True:
                     raise ApplicationAttention("This request no longer has current submission authorization. Review it in CyberApply.")
                 verify_expected()
@@ -356,18 +403,18 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 page.wait_for_timeout(1200)
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
-                    return _result("uncertain", "The employer may have received the application, but a redirect prevented confirmation. Check before retrying.", report)
+                    return finish("uncertain", "The employer may have received the application, but a redirect prevented confirmation. Check before retrying.", report)
                 texts = [f.locator('body').inner_text() for f in page.frames if f.url not in ('about:blank','')]
                 confirmation = next((SUCCESS.search(t) for t in texts if SUCCESS.search(t)), None)
                 if confirmation:
                     text = confirmation.group(0)
-                    return _result("applied", "The employer displayed an application confirmation.", report, receipt=text, evidence={"url":page.url,"text":text})
-                return _result("uncertain", "Submit was clicked, but no explicit employer confirmation was found. Check the employer or inbox before retrying.", report)
+                    return finish("applied", "The employer displayed an application confirmation.", report, receipt=text, evidence={"url":page.url,"text":text})
+                return finish("uncertain", "Submit was clicked, but no explicit employer confirmation was found. Check the employer or inbox before retrying.", report)
             raise ApplicationAttention("This application exceeded the six-step limit. Please review it yourself.")
     except ApplicationAttention as exc:
-        return _result("uncertain" if submitted else "needs_attention", str(exc), report)
+        return finish("uncertain" if submitted else "needs_attention", str(exc), report)
     except Exception:
-        return _result("uncertain" if submitted else "failed", "The browser stopped after a possible submission; check the employer before retrying." if submitted else "The browser could not finish this form. No submission was attempted.", report)
+        return finish("uncertain" if submitted else "failed", "The browser stopped after a possible submission; check the employer before retrying." if submitted else "The browser could not finish this form. No submission was attempted.", report)
     finally:
         if browser:
             try:
