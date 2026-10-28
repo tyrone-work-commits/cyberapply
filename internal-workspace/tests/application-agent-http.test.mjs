@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import {randomUUID,createHash} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8792';
+if(!['localhost','127.0.0.1'].includes(new URL(base).hostname))throw Error('Use an isolated loopback Worker.');
+const who=`agent-test-${randomUUID()}`,auth=process.env.CYBER_TEST_DEV_AUTH==='1'?{Cookie:'__sites_local_auth=1'}:{'oai-authenticated-user-id':who,'oai-authenticated-user-email':'agent-test@example.test'};
+async function call(path,{method='GET',body,headers=auth,binary=false}={}){const r=await fetch(base+path,{method,headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(30000)});return {status:r.status,data:binary?new Uint8Array(await r.arrayBuffer()):await r.json()};}
+let current=(await call('/api/workspace')).data;
+const cv='Test Candidate\ncv-test@example.test\nLocation: Lagos, Nigeria\nEXPERIENCE\nSOC Analyst | 2023 - 2025\nInvestigated security incidents.\nSKILLS\nSIEM, Python\nEDUCATION\nComputer science.';
+const form=new FormData();form.set('revision',String(current.revision));form.set('file',new File([cv],'chosen.txt',{type:'text/plain'}));current=(await call('/api/files',{method:'POST',body:form})).data;
+assert.equal((await call('/api/application-agent/claim',{method:'POST',body:{},headers:{Authorization:'Bearer ca1.old'}})).status,401);
+const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});assert.equal(pair.status,200);const bundle=JSON.parse(pair.data.token),headers={Authorization:`Bearer ${bundle.token}`};
+current=(await call('/api/workspace')).data;
+async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});assert.equal(r.status,200,JSON.stringify(r.data));current=r.data;}
+await act({type:'add_job',title:'SOC Analyst',company:'Test',location:'Lagos',workMode:'Remote',url:`https://employer.example/jobs/${who}`,description:'Monitor security alerts and investigate incidents for this fixture only.',skills:['SIEM']});
+await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});assert.equal(current.state.applications[0].status,'queued');
+const tasks=await Promise.all([call('/api/application-agent/claim',{method:'POST',body:{},headers}),call('/api/application-agent/claim',{method:'POST',body:{},headers})]);assert.equal(tasks.filter(x=>x.data.task).length,1,'one worker wins a claim');
+const task=tasks.find(x=>x.data.task).data.task;
+assert.equal(task.cv.text,cv);assert.equal(task.cv.sha256,createHash('sha256').update(cv).digest('hex'));
+const query=new URLSearchParams({requestId:task.requestId,claimId:task.claimId});assert.equal((await call('/api/application-agent/cv?'+query,{headers,binary:true})).data.length,Buffer.byteLength(cv));
+const input={requestId:task.requestId,claimId:task.claimId};assert.equal((await call('/api/application-agent/authorize',{method:'POST',headers,body:input})).data.authorized,true);
+current=(await call('/api/workspace')).data;
+assert.equal((await call(`/api/files/${task.cv.id}`,{method:'DELETE',body:{revision:current.revision,confirmation:'DELETE_FILE'}})).status,409);
+assert.equal((await call('/api/application-agent/result',{method:'POST',headers,body:{...input,status:'applied',message:'Missing evidence'}})).status,409);
+const done=await call('/api/application-agent/result',{method:'POST',headers,body:{...input,status:'applied',message:'Fixture confirmation verified',receipt:'Thank you for applying',evidence:{url:'https://employer.example/thanks',text:'Thank you for applying'},report:{experience:{years:2},cover_letter:'Fixture letter'}}});assert.equal(done.status,200);
+current=(await call('/api/workspace')).data;
+await act({type:'add_job',title:'SOC Analyst',company:'Second Test',location:'Lagos',workMode:'Remote',url:`https://employer.example/second/${who}`,description:'Monitor security alerts for this local question fixture only.',skills:['SIEM']});
+await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
+const pausedTask=(await call('/api/application-agent/claim',{method:'POST',body:{},headers})).data.task;
+await call('/api/application-agent/result',{method:'POST',headers,body:{requestId:pausedTask.requestId,claimId:pausedTask.claimId,status:'needs_attention',message:'Missing answer',report:{unresolved:[{field_id:'eligibility',question:'Are you authorized to work in Nigeria?',reason:'User answer required'}]}}});
+current=(await call('/api/workspace')).data;
+await act({type:'answer_application_questions',applicationId:pausedTask.requestId,answers:[{question:'Are you authorized to work in Nigeria?',value:'Yes'}],confirmation:'CONFIRMED'});
+await act({type:'queue_application_agent',applicationId:pausedTask.requestId});
+const resumed=(await call('/api/application-agent/claim',{method:'POST',body:{},headers})).data.task;assert.deepEqual(resumed.confirmedAnswers,[{question:'Are you authorized to work in Nigeria?',value:'Yes'}]);
+await call('/api/application-agent/result',{method:'POST',headers,body:{requestId:resumed.requestId,claimId:resumed.claimId,status:'needs_attention',message:'Dry run complete'}});
+const before=(await call('/api/workspace')).data;await call('/api/application-agent/claim',{method:'POST',body:{},headers});assert.equal((await call('/api/workspace')).data.revision,before.revision,'idle polls create no revisions');
+await call('/api/application-agent/pair',{method:'DELETE'});assert.equal((await call('/api/application-agent/claim',{method:'POST',body:{},headers})).status,401);
+assert.equal((await call('/api/agent/claim',{method:'POST',body:{},headers})).status,410);
+console.log('PASS new agent: token scope, queue, concurrent claim, exact CV, authorization, receipt gate, idle polling, revocation, old bridge rejected');

@@ -7,6 +7,7 @@ type Storage<S extends Snapshot>={load:()=>Promise<S>;save:(expected:number,stat
 export async function deleteSavedFile<S extends Snapshot>(current:S,id:string,storage:Storage<S>){
  const file=current.state.attachments.find(item=>item.id===id),pending=current.state.pendingFileDeletions?.find(item=>item.id===id);
  if(!file&&!pending)throw new DomainError('File not found in your workspace.',404);
+ if(current.state.applications?.some(item=>item.cv?.fileId===id&&item.agentVersion===2&&item.status==='processing'))throw new DomainError('The application agent is using this CV. Wait for its outcome before deleting the file.',409);
  let saved=current;
  if(file){
   if((current.state.pendingFileDeletions?.length||0)>=20)throw new DomainError('Finish pending file deletions before deleting another file.',409);

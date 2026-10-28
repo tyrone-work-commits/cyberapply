@@ -4,7 +4,7 @@ Private mobile-responsive CV review, real cybersecurity vacancy discovery and ap
 
 ## Current journey
 
-Sign in / Create account → account profile → own workspace → upload and choose a CV → review Candidate Facts → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → see the chosen CV and next action in Applications → check related messages in Inbox.
+Sign in / Create account → account profile → own workspace → upload and choose a CV → review the CV → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → follow the chosen CV and agent result in Applications → check related messages in Inbox.
 
 ## Application inbox
 
@@ -217,3 +217,11 @@ Validation: TypeScript, production build, 51 focused unit checks, the new loopba
 ## 28 October 2026 — Temporarily remove Candidate Facts
 
 The Candidate Facts form and its dedicated agent tools are hidden while `lib/features.ts` sets `CANDIDATE_FACTS_ENABLED` to `false`. This preserves existing saved records and the form implementation for restoration on request. CV upload, scoring, saved-file selection, application requests and the tutorial remain. The app now asks users to review their chosen CV and exact application draft directly; a saved Apply request still does not submit anything to an employer. Historical application snapshots and activity are preserved rather than rewritten.
+
+## 28 October 2026 — New CV application agent
+
+The replacement agent is in `../application_agent/`, with setup and operating boundaries in `../docs/application-agent.md`. Settings creates a new user-scoped, expiring connection. On this private Site its one-time connection package includes supported Site service access from the secret `APPLICATION_AGENT_SITE_ACCESS`, configured through Sites runtime variables. Do not put this secret in source, logs or workspace records. The runner accepts the package through a hidden prompt, holds credentials in memory and sends them only to that Site without redirects.
+
+With the connection enabled and a selected CV, a right swipe queues a v2 request while staying in Explore. Historical requests require an explicit Queue action. `/api/application-agent/claim`, `/cv`, `/authorize` and `/result` isolate the exact CV/claim, check revocation, prevent duplicate claims and require confirmation evidence for Applied. Idle polls do not create workspace revisions. `/api/agent/*` remains retired and old tokens are rejected. Candidate Facts remains hidden.
+
+The computer's browser runner must stay open. It supports readable standard form controls and bounded multi-step/iframe navigation, grounded CV answers, overlap-aware dated cybersecurity experience, employer/company-page research and a tailored cover letter. Missing personal facts or consent can be answered for the exact application in Applications. Any possible partial submission or missing receipt becomes Check outcome and is not automatically retried. Verified employer salary bands or supplied matching market observations can produce a midpoint with monthly/yearly conversion; a web-wide salary search and paid model/research APIs are not connected. This is not universal employer coverage or a verified live submission.

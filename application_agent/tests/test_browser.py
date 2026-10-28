@@ -1,0 +1,239 @@
+import hashlib
+from contextlib import contextmanager
+
+import pytest
+
+from application_agent.browser import ApplicationAttention, execute_application, validate_public_url
+from application_agent.runner import parse_connection
+
+
+CV = b'Private selected CV bytes'
+PAYLOAD = {'requestId':'one', 'job':{'applyUrl':'https://employer.example/apply','company':'Example','title':'Security analyst'},
+           'cv':{'name':'chosen.pdf','type':'application/pdf','sha256':hashlib.sha256(CV).hexdigest(),'text':'Alex alex@example.com'}}
+FORM = '''<html><body><form action="/submit" method="post" enctype="multipart/form-data">
+<label>Email<input type="email" name="email" required></label>
+<label>Resume<input type="file" name="resume" required></label>
+{extra}<button type="submit">Submit application</button></form></body></html>'''
+
+
+def dns(_host, _port, **_kw):
+    return [(2,1,6,'',('93.184.216.34',443))]
+
+
+def plan(_payload, fields, _research):
+    return {'answers':[{'field_id':f['id'],'value':'alex@example.com','source':'cv','evidence':'alex@example.com'} for f in fields if f['label']=='Email'],
+            'unresolved':[], 'cover_letter':'I can contribute the skills described in my CV.', 'experience':{'cybersecurity_years':1}}
+
+
+@contextmanager
+def browser_factory(html, posts, success=True):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        class Context:
+            def __init__(self, context): self.context=context
+            def route_web_socket(self,*args,**kwargs): return self.context.route_web_socket(*args,**kwargs)
+            def add_init_script(self,*args,**kwargs): return self.context.add_init_script(*args,**kwargs)
+            def route(self, pattern, guard):
+                def dispatch(route):
+                    class Route:
+                        request=route.request
+                        def continue_(self):
+                            if route.request.method=='POST':
+                                posts.append(route.request.post_data_buffer)
+                                body=html(route.request) if callable(html) else 'Your application has been submitted' if success else 'Unexpected reply'
+                            else:
+                                body=html(route.request) if callable(html) else html
+                            route.fulfill(status=200,content_type='text/html',body=body)
+                        def abort(self): route.abort()
+                    guard(Route())
+                self.context.route(pattern,dispatch)
+            def new_page(self): return self.context.new_page()
+        class Browser:
+            def __init__(self, browser): self.browser=browser
+            def new_context(self,**kw): return Context(self.browser.new_context(**kw))
+            def close(self): self.browser.close()
+        class Chromium:
+            def launch(self,**kw): return Browser(pw.chromium.launch(channel='chrome',**kw))
+        class Runtime:
+            chromium=Chromium()
+        yield Runtime()
+
+
+def run(html, *, submit=True, success=True, cv=CV, payload=PAYLOAD, planner=plan):
+    posts=[]
+    result=execute_application(payload,cv,submit=submit,planner=planner,research_fn=lambda _:{'sources':[]},resolver=dns,
+                               playwright_factory=lambda:browser_factory(html,posts,success),timeout=3000,before_submit=lambda:True)
+    return result,posts
+
+
+def test_blocks_local_and_unapproved_hosts():
+    with pytest.raises(ApplicationAttention):
+        validate_public_url('https://employer.example',resolver=lambda *a,**k:[(2,1,6,'',('127.0.0.1',443))])
+    with pytest.raises(ApplicationAttention):
+        validate_public_url('https://evil.example',{'employer.example'},dns)
+    with pytest.raises(ApplicationAttention):
+        validate_public_url('http://employer.example',resolver=dns)
+
+
+def test_exact_cv_uploaded_and_explicit_confirmation_required():
+    result,posts=run(FORM.replace('{extra}',''))
+    assert result['status']=='applied'
+    assert len(posts)==1 and CV in posts[0]
+    assert b'filename="chosen.pdf"' in posts[0]
+    assert result['evidence']['url']=='https://employer.example/submit'
+
+
+def test_dry_run_never_submits():
+    result,posts=run(FORM.replace('{extra}',''),submit=False)
+    assert result['status']=='needs_attention'
+    assert not posts
+    assert 'Dry run' in result['message']
+
+
+def test_unknown_required_question_and_consent_pause():
+    for extra in ('<label>Legal work authorization<input name="legal" required></label>',
+                  '<label><input type="checkbox" name="consent" required>I agree to processing</label>'):
+        result,posts=run(FORM.replace('{extra}',extra))
+        assert result['status']=='needs_attention'
+        assert result['report']['unresolved'] and not posts
+
+
+def test_ambiguous_confirmation_is_uncertain_no_retry():
+    result,posts=run(FORM.replace('{extra}',''),success=False)
+    assert result['status']=='uncertain' and len(posts)==1
+    assert 'receipt' not in result
+
+
+def test_changed_cv_stops_before_browser():
+    result,posts=run(FORM.replace('{extra}',''),cv=b'different bytes')
+    assert result['status']=='needs_attention' and not posts
+
+
+def test_password_form_pauses_without_submission():
+    result,posts=run(FORM.replace('{extra}','<input type="password" required>'))
+    assert result['status']=='needs_attention' and 'sign-in' in result['message'] and not posts
+
+
+def test_conditional_question_is_inspected_before_submit():
+    extra='''<script>document.querySelector('[name=email]').addEventListener('input',()=>{
+      if (!document.querySelector('[name=authorization]')) {const input=document.createElement('input');input.name='authorization';input.required=true;input.setAttribute('aria-label','Work authorization');document.querySelector('form').append(input);}
+    })</script>'''
+    result,posts=run(FORM.replace('{extra}',extra))
+    assert result['status']=='needs_attention' and not posts
+    assert any('authorization' in x['question'] for x in result['report']['unresolved'])
+
+
+def test_revoked_authorization_prevents_final_click():
+    posts=[]
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+      playwright_factory=lambda:browser_factory(FORM.replace('{extra}',''),posts),before_submit=lambda:False,timeout=3000)
+    assert result['status']=='needs_attention' and not posts
+    assert 'authorization' in result['message']
+
+
+def test_stale_confirmation_in_iframe_cannot_mark_applied():
+    def html(req):
+        if req.url.endswith('/receipt'):
+            return '<body>Your application has been submitted</body>'
+        return FORM.replace('{extra}','<iframe src="/receipt"></iframe>')
+    result,posts=run(html)
+    assert result['status']=='needs_attention' and not posts
+    assert 'already' in result['message']
+
+
+def test_dry_run_does_not_click_continue_or_save_partial_application():
+    result,posts=run(FORM.replace('{extra}','').replace('Submit application','Continue'),submit=False)
+    assert result['status']=='needs_attention' and not posts
+    assert 'Advancing' in result['message']
+
+
+def test_multi_step_reinspects_new_required_questions():
+    def html(req):
+        if req.url.endswith('/step2'):
+            return '<form action="/submit" method="post"><label>Work authorization<input required name="legal"></label><button>Submit application</button></form>'
+        return FORM.replace('{extra}','').replace('/submit','/step2').replace('Submit application','Continue')
+    result,posts=run(html)
+    assert result['status']=='uncertain' and len(posts)==1
+    assert any(x['question']=='Work authorization' for x in result['report']['unresolved'])
+
+
+def test_dns_address_change_blocks_before_browser():
+    calls=[]
+    def rebinding(host,port,**kw):
+        calls.append(host)
+        return dns(host,port,**kw) if len(calls)<3 else [(2,1,6,'',('127.0.0.1',443))]
+    result=execute_application(PAYLOAD,CV,resolver=rebinding,planner=plan,research_fn=lambda _:{})
+    assert result['status']=='needs_attention' and 'non-public' in result['message']
+
+
+def test_connection_bundle_is_bound_to_exact_site_and_legacy_tokens_rejected():
+    import json
+    site='https://cyberapply.example'
+    token='ca2.owner.'+'a'*64
+    assert parse_connection(json.dumps({'token':token,'serviceToken':'private','site':site}),site)==(token,'private')
+    with pytest.raises(ValueError):
+        parse_connection(json.dumps({'token':token,'serviceToken':'private','site':'https://other.example'}),site)
+    with pytest.raises(ValueError):
+        parse_connection('old-pairing-token',site)
+
+
+def test_exact_user_confirmed_consent_can_be_checked():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'I agree to processing','value':'true'}]}
+    result,posts=run(FORM.replace('{extra}','<label><input type="checkbox" name="consent" required>I agree to processing</label>'),payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert b'name="consent"' in posts[0]
+
+
+def test_explicit_radio_selects_only_the_exact_option():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'Work authorization','value':'Yes'}]}
+    extra='''<fieldset><legend>Work authorization</legend><label><input type="radio" name="work" value="yes" required>Yes</label><label><input type="radio" name="work" value="no">No</label></fieldset>'''
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert b'name="work"\r\n\r\nyes' in posts[0] and b'name="work"\r\n\r\nno' not in posts[0]
+
+
+def test_optional_employer_default_opt_ins_are_cleared():
+    extra='''<label><input type="checkbox" name="marketing" checked>Send marketing</label>
+      <fieldset><legend>Gender</legend><label><input type="radio" name="gender" value="female" checked>Female</label><label><input type="radio" name="gender" value="male">Male</label></fieldset>'''
+    result,posts=run(FORM.replace('{extra}',extra))
+    assert result['status']=='applied' and len(posts)==1
+    assert b'name="marketing"' not in posts[0] and b'name="gender"' not in posts[0]
+
+
+def test_other_question_confirmation_cannot_accept_consent():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'I agree to other processing','value':'true'}]}
+    result,posts=run(FORM.replace('{extra}','<label><input type="checkbox" name="consent" required>I agree to processing</label>'),payload=payload,planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+
+
+def test_duplicate_vague_consent_labels_need_separate_review():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'I agree','value':'true'}]}
+    extra='<label><input type="checkbox" name="one" required>I agree</label><label><input type="checkbox" name="two" required>I agree</label>'
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+
+
+def test_employer_script_cannot_silently_change_prepared_answer():
+    extra='''<script>document.querySelector('[name=resume]').addEventListener('change',()=>{document.querySelector('[name=email]').value='changed@example.com'})</script>'''
+    result,posts=run(FORM.replace('{extra}',extra))
+    assert result['status']=='needs_attention' and not posts
+    assert 'changed after preparation' in result['message']
+
+
+def test_employer_script_cannot_open_websocket_or_peer_transports():
+    extra='''<script>
+      let blocked=0;
+      for (const start of [()=>new WebSocket('wss://unapproved.example/socket'),
+                          ()=>new RTCPeerConnection({iceServers:[{urls:'stun:127.0.0.1'}]}),
+                          ()=>new WebTransport('https://unapproved.example')]) {
+        try {start()} catch {blocked++}
+      }
+      const proof=document.createElement('input');proof.type='hidden';proof.name='transports_blocked';proof.value=String(blocked);document.querySelector('form').append(proof);
+    </script>'''
+    result,posts=run(FORM.replace('{extra}',extra))
+    assert result['status']=='applied' and len(posts)==1
+    assert b'name="transports_blocked"\r\n\r\n3' in posts[0]

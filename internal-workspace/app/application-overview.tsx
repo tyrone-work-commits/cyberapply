@@ -1,4 +1,6 @@
-import { ArrowRight, Download, ExternalLink, Eye, FileText } from 'lucide-react';
+"use client";
+import { useState } from 'react';
+import { ArrowRight, Bot, Check, Download, ExternalLink, Eye, FileText } from 'lucide-react';
 import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-domain';
 
 function httpsUrl(value?: string) {
@@ -16,7 +18,7 @@ function sourceName(job?: Job) {
   return `${job.source.provider === 'greenhouse' ? 'Greenhouse' : 'Lever'} · ${job.company}`;
 }
 
-export function ApplicationOverview({ applications, jobs, drafts, files, selectedCvId, busy, onRefresh, onChooseCv }: {
+export function ApplicationOverview({ applications, jobs, drafts, files, selectedCvId, busy, onRefresh, onChooseCv, onQueue, onAnswer }: {
   applications: ApplicationRequest[];
   jobs: Job[];
   drafts: Draft[];
@@ -25,6 +27,8 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
   busy: boolean;
   onRefresh: (id:string)=>Promise<void>;
   onChooseCv: ()=>void;
+  onQueue: (id:string)=>Promise<void>;
+  onAnswer: (id:string,answers:{question:string;value:string}[])=>Promise<void>;
 }) {
   const draftIds = new Set(drafts.map(draft => draft.id));
   const chosenCv=files.find(file=>file.id===selectedCvId);
@@ -50,12 +54,15 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
             <h3>{job?.title || 'Job listing unavailable'}</h3>
             <p>{job?.company || 'Employer not available'}{job?.location ? ` · ${job.location}` : ''}</p>
           </div>
-          <span className="badge">{application.status==='applied'?'APPLIED':application.status==='processing'||application.status==='uncertain'?'CHECK OUTCOME':application.status==='queued'?'NOT SUBMITTED':application.status==='needs_attention'?'NEEDS ATTENTION':'NOT SUBMITTED'}</span>
+          <span className="badge">{application.status==='applied'?'APPLIED':application.status==='processing'?'APPLYING':application.status==='uncertain'?'CHECK OUTCOME':application.status==='queued'?'QUEUED':application.status==='needs_attention'?'NEEDS ATTENTION':'NOT SUBMITTED'}</span>
         </div>
         <p className="application-overview-source"><strong>Vacancy source:</strong> {sourceName(job)}</p>
         <p className="application-overview-source"><strong>CV for this request:</strong> {application.cv?.name||'No CV attached'}{application.cv&&!attachedFile?' · original file unavailable':''}</p>
-        <p className="application-overview-status">{application.result?`${application.result.message}${application.result.receipt?` Confirmation: ${application.result.receipt}`:''}`:application.status==='queued'?'The previous local agent has been removed. This request was not submitted.':application.status==='processing'||application.status==='uncertain'?'The previous agent may have started this request. Check with the employer before trying again.':!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or application materials changed after this request. Update them before applying.':application.reason==='candidate_review_required'?'This older request needs an updated CV snapshot. Use Update request with chosen CV, then review its draft.':'No automatic application agent is connected. Review your chosen CV and draft, then open the employer application page if you want to submit now.'}</p>
+        <p className="application-overview-status">{application.result?`${application.result.message}${application.result.receipt?` Confirmation: ${application.result.receipt}`:''}`:application.status==='queued'?'Waiting for your connected browser runner. Keep it open on your computer to work through this application.':application.status==='processing'?'The agent is working on the employer website with this request’s chosen CV. Submission is not confirmed yet.':application.status==='uncertain'?'The submission outcome is unknown. Check with the employer before trying again.':!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or application materials changed after this request. Update them before applying.':application.reason==='candidate_review_required'?'This older request needs an updated CV snapshot. Use Update request with chosen CV, then review its draft.':'Connect the CV application agent in Settings, then queue this request to apply using its chosen CV.'}</p>
+        {application.report&&<AgentReport value={application.report}/>}
+        {application.status==='needs_attention'&&<ApplicationQuestionAnswers key={application.id} application={application} busy={busy} onSave={answers=>onAnswer(application.id,answers)}/>}
         <div className="application-overview-actions">
+          {attachedFile&&['needs_action','needs_attention','failed'].includes(application.status)&&!refreshNeeded&&<button type="button" className="button" disabled={busy} onClick={()=>void onQueue(application.id)}><Bot size={15}/>Queue application agent</button>}
           {attachedFile&&<><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer">View chosen CV<Eye size={15}/></a><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}`} download>Download chosen CV<Download size={15}/></a></>}
           {refreshNeeded&&<button type="button" className="button quiet" disabled={busy} onClick={()=>void onRefresh(application.id)}>{application.cv?'Update request with chosen CV':'Attach chosen CV'}<FileText size={15}/></button>}
           {!chosenCv&&<button type="button" className="button quiet" onClick={onChooseCv}>Choose a CV<ArrowRight size={15}/></button>}
@@ -67,4 +74,42 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
       </li>;
     })}</ol> : <div className="panel application-overview-empty"><FileText size={26}/><strong>No Apply requests yet</strong><p>Choose Apply on a role in Explore to save a request here.</p></div>}
   </section>;
+}
+
+function ApplicationQuestionAnswers({application,busy,onSave}:{application:ApplicationRequest;busy:boolean;onSave:(answers:{question:string;value:string}[])=>Promise<void>}){
+ const raw=Array.isArray(application.report?.unresolved)?application.report.unresolved:[];
+ const questions=[...new Map(raw.filter(item=>item&&typeof item==='object'&&typeof (item as Record<string,unknown>).question==='string').map(item=>{
+  const entry=item as Record<string,unknown>,question=String(entry.question).slice(0,1000);
+  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:''}] as const;
+ })).values()].filter(item=>item.question.trim()).slice(0,40);
+ const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries((application.confirmedAnswers||[]).map(item=>[item.question,item.value])));
+ const [confirmed,setConfirmed]=useState(false);
+ const answers=questions.map(item=>({question:item.question,value:(values[item.question]||'').trim()})).filter(item=>item.value);
+ if(!questions.length)return null;
+ return <form className="application-question-answers" onSubmit={event=>{event.preventDefault();if(!busy&&confirmed&&answers.length)void onSave(answers);}}>
+  <h4>Answer this employer’s questions</h4>
+  <p className="subtle">These answers are saved for this application only. Read each question carefully and enter only facts you can confirm. Leave an answer blank if you are unsure; the agent will keep that question paused.</p>
+  {questions.map((item,index)=><label key={item.question} htmlFor={`application-answer-${application.id}-${index}`}>{item.question}<textarea id={`application-answer-${application.id}-${index}`} rows={2} maxLength={2000} value={values[item.question]||''} disabled={busy} onChange={event=>{setValues({...values,[item.question]:event.target.value});setConfirmed(false);}}/>{item.reason&&<span className="label-hint">{item.reason}</span>}</label>)}
+  <p className="subtle">For a checkbox or consent question, enter “Yes” only if you personally agree to its exact wording above for this employer. Enter “No” to decline. The agent will not choose an opt-in for you.</p>
+  <label className="check-label"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)}/><span>I confirm that these answers are accurate. Any “Yes” I entered for a consent or checkbox question is my explicit choice for that exact question in this application.</span></label>
+  <button type="submit" className="button quiet" disabled={busy||!confirmed||!answers.length}><Check size={16}/>Save my answers</button>
+  <p className="subtle">After saving, choose Queue application agent to try this application again with your confirmed answers.</p>
+ </form>;
+}
+
+function AgentReport({value}:{value:unknown}){
+ if(!value||typeof value!=='object')return null;
+ const report=value as Record<string,unknown>;
+ const answers=Array.isArray(report.answers)?report.answers.filter(item=>item&&typeof item==='object') as Record<string,unknown>[]:[];
+ const unresolved=Array.isArray(report.unresolved)?report.unresolved.filter(item=>item&&typeof item==='object') as Record<string,unknown>[]:[];
+ const experience=report.experience&&typeof report.experience==='object'?report.experience as Record<string,unknown>:null;
+ const research=report.research&&typeof report.research==='object'?report.research as Record<string,unknown>:null;
+ const findings=Array.isArray(research?.company_findings)?research.company_findings.filter(item=>item&&typeof item==='object') as Record<string,unknown>[]:[];
+ return <details><summary>Agent preparation and evidence</summary>
+  {experience&&<><h4>Cybersecurity experience found in this CV</h4><p>{experience.established?`${experience.years} years${experience.approximate?' (approximately)':''}`:'Not established from dated work history'}. {String(experience.note||'')}</p></>}
+  {!!findings.length&&<><h4>Company research</h4><ul>{findings.map((finding,index)=><li key={index}>{String(finding.text||'')}{typeof finding.source_url==='string'&&httpsUrl(finding.source_url)&&<> <a href={httpsUrl(finding.source_url)!} target="_blank" rel="noopener noreferrer">Source</a></>}</li>)}</ul></>}
+  {typeof report.cover_letter==='string'&&<><h4>Tailored cover letter</h4><pre className="snapshot-text">{report.cover_letter}</pre></>}
+  {!!answers.length&&<><h4>Answers prepared from your CV and research</h4><ul>{answers.map((answer,index)=><li key={index}><strong>{String(answer.question||answer.label||answer.field_id||'Form question')}</strong>: {String(answer.value??'')}<p className="subtle">{String(answer.source||'')}{answer.evidence?` · ${typeof answer.evidence==='string'?answer.evidence:JSON.stringify(answer.evidence)}`:''}</p></li>)}</ul></>}
+  {!!unresolved.length&&<><h4>Questions that need your input</h4><ul>{unresolved.map((item,index)=><li key={index}><strong>{String(item.question||'Form question')}</strong><p className="subtle">{String(item.reason||'Please review this answer.')}</p></li>)}</ul></>}
+ </details>;
 }
