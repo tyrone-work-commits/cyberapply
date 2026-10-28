@@ -222,7 +222,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             control.set_checked(True)
                             expected_values[field['id']]=('checked',True)
                             handled_confirmed.add(field['id'])
-                            report['answers'].append(answer)
+                            report['answers'].append({**answer, 'question':field['label']})
                         elif field['required']:
                             unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required checkbox needs explicit confirmation for this exact question.'})
                         elif field.get('checked'):
@@ -237,7 +237,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if str(answer['value'])==field.get('optionLabel'):
                                 control.check()
                                 expected_values[field['id']]=('checked',True)
-                                report['answers'].append(answer)
+                                report['answers'].append({**answer, 'question':field['label']})
                             handled_confirmed.add(field['id'])
                         elif field['required']:
                             unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required radio question needs an explicit matching choice.'})
@@ -264,7 +264,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             expected_values[field['id']]=('value',value)
                         else:
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This control is not supported."})
-                        report["answers"].append(answer)
+                        report["answers"].append({**answer, "question":field["label"]})
                     elif field["required"]:
                         unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV does not establish an answer."})
                 # De-duplicate and ignore planner file omissions once the exact CV was uploaded.

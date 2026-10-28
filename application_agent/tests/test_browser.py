@@ -81,6 +81,7 @@ def test_exact_cv_uploaded_and_explicit_confirmation_required():
     assert len(posts)==1 and CV in posts[0]
     assert b'filename="chosen.pdf"' in posts[0]
     assert result['evidence']['url']=='https://employer.example/submit'
+    assert result['report']['answers'][0]['question']=='Email'
 
 
 def test_dry_run_never_submits():
@@ -183,6 +184,7 @@ def test_exact_user_confirmed_consent_can_be_checked():
     result,posts=run(FORM.replace('{extra}','<label><input type="checkbox" name="consent" required>I agree to processing</label>'),payload=payload,planner=build_plan)
     assert result['status']=='applied' and len(posts)==1
     assert b'name="consent"' in posts[0]
+    assert any(answer.get('question')=='I agree to processing' for answer in result['report']['answers'])
 
 
 def test_explicit_radio_selects_only_the_exact_option():
@@ -192,6 +194,7 @@ def test_explicit_radio_selects_only_the_exact_option():
     result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
     assert result['status']=='applied' and len(posts)==1
     assert b'name="work"\r\n\r\nyes' in posts[0] and b'name="work"\r\n\r\nno' not in posts[0]
+    assert any(answer.get('question')=='Work authorization' for answer in result['report']['answers'])
 
 
 def test_optional_employer_default_opt_ins_are_cleared():
