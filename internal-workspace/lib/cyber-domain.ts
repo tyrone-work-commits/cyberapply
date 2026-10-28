@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
+import { CANDIDATE_FACTS_ENABLED } from './features';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -69,7 +70,7 @@ export function matchJob(state: State, job: Job) {
   const text = ` ${normalize(state.profile.resumeText)} `;
   const matched = job.skills.filter(skill => declared.includes(normalize(skill)) || text.includes(` ${normalize(skill)} `));
   const missing = job.skills.filter(skill => !matched.includes(skill));
-  return { score: state.profile.reviewed && job.skills.length ? Math.round(100 * matched.length / job.skills.length) : null, matched, missing, requirements: job.skills.length, basis: 'Coverage of supplied skills or recognized keywords mentioned in an imported description, compared with reviewed résumé text and declared skills. Mentions are not necessarily requirements. This is not an ATS score, a hiring probability, or verification of eligibility.' };
+  return { score: (CANDIDATE_FACTS_ENABLED ? state.profile.reviewed : state.profile.resumeText.trim().length >= 20) && job.skills.length ? Math.round(100 * matched.length / job.skills.length) : null, matched, missing, requirements: job.skills.length, basis: 'Coverage of supplied skills or recognized keywords mentioned in an imported description, compared with CV text and extracted skills. Mentions are not necessarily requirements. This is not an ATS score, a hiring probability, or verification of eligibility.' };
 }
 export function record(state: State, action: string, message: string, source: Activity['source'], at = new Date().toISOString()) {
   state.activity.unshift({ id: crypto.randomUUID(), at, action, message, source });
@@ -147,11 +148,11 @@ export function reduceAction(before: State, action: Action, source: Activity['so
         state.drafts.unshift(draft);
       }
       const cv=selectedCv(state);
-      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), at, status:'needs_action', reason: !cv?'cv_required':state.profile.reviewed?'connection_required':'candidate_review_required', sourceUrl: job.url };
+      const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), at, status:'needs_action', reason: !cv?'cv_required':CANDIDATE_FACTS_ENABLED&&!state.profile.reviewed?'candidate_review_required':'connection_required', sourceUrl: job.url };
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
       state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};
-      message = !cv?'Apply request saved without a CV. Choose an uploaded CV in CV review and attach it in Applications; nothing has been sent.':state.profile.reviewed?'Apply request saved with your chosen CV. No automatic application agent is connected; nothing has been sent.':'Apply request saved with your chosen CV. Review candidate facts before using the materials; nothing has been sent.';
+      message = !cv?'Apply request saved without a CV. Choose an uploaded CV in CV review and attach it in Applications; nothing has been sent.':CANDIDATE_FACTS_ENABLED&&!state.profile.reviewed?'Apply request saved with your chosen CV. Review candidate facts before using the materials; nothing has been sent.':'Apply request saved with your chosen CV. Review the CV and draft before using them; nothing has been sent.';
     } else {
       if (state.applications?.some(item => item.jobId === job.id)) throw new DomainError('An Apply request already exists for this job. Open Applications.', 409);
       job.previousDisposition = job.disposition; job.decidedAt = at; job.disposition = 'passed';
@@ -184,7 +185,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if (action.type === 'mark_ready') {
     const draft = getDraft(state, action.draftId);
     if (draft.version !== action.expectedVersion) throw new DomainError('This draft changed. Reload it before reviewing.', 409);
-    if (!state.profile.reviewed || draft.text.trim().length < 20) throw new DomainError('Review your profile and complete the draft first.', 409);
+    if ((CANDIDATE_FACTS_ENABLED && !state.profile.reviewed) || (!CANDIDATE_FACTS_ENABLED && !state.profile.reviewed && !selectedCv(state)) || draft.text.trim().length < 20) throw new DomainError(CANDIDATE_FACTS_ENABLED?'Review your profile and complete the draft first.':'Choose a saved CV and complete the draft before marking it reviewed.', 409);
     draft.status = 'ready'; draft.version++; draft.updatedAt = at;
     message = 'Draft marked ready for manual application. It has not been submitted.';
   } else if (action.type === 'refresh_application_materials') {
@@ -198,9 +199,9 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     request.candidate=structuredClone(state.profile);
     request.text=draft.text;
     request.draftVersion=draft.version;
-    request.reason=state.profile.reviewed?'connection_required':'candidate_review_required';
+    request.reason=CANDIDATE_FACTS_ENABLED&&!state.profile.reviewed?'candidate_review_required':'connection_required';
     request.status='needs_action';delete request.agentAuthorizedAt;delete request.claim;delete request.result;
-    message=`${cv.name} and current candidate facts attached to the unsent Apply request. No employer has received it.`;
+    message=CANDIDATE_FACTS_ENABLED?`${cv.name} and current candidate facts attached to the unsent Apply request. No employer has received it.`:`${cv.name} attached to the unsent Apply request. Review its draft before using it. No employer has received it.`;
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');
     const reviewSource=state.resumeReview?.source;
@@ -217,7 +218,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if(reviewSource)state.resumeReview.source=reviewSource;
     saveFileReview(state);
     const fields=Object.keys(facts).map(key=>({fullName:'name',email:'email',skills:'skills',preferredRoles:'preferred roles',githubRepositoryUrl:'GitHub repository',linkedInUrl:'LinkedIn link',portfolioWebsiteUrl:'portfolio website',location:'location'}[key as keyof typeof facts]));
-    message = `CV rechecked: ${state.resumeReview.score}/100. ${fields.length?`Candidate facts refreshed from saved CV: ${fields.join(', ')}. ${factsChanged?'Review the changed facts and confirm accuracy.':'No values changed.'}`:'No candidate details were clear enough to refill.'} Employer ATS scores can differ.`;
+    message = CANDIDATE_FACTS_ENABLED?`CV rechecked: ${state.resumeReview.score}/100. ${fields.length?`Candidate facts refreshed from saved CV: ${fields.join(', ')}. ${factsChanged?'Review the changed facts and confirm accuracy.':'No values changed.'}`:'No candidate details were clear enough to refill.'} Employer ATS scores can differ.`:`CV rechecked: ${state.resumeReview.score}/100. Check the score, recommendations and application drafts before using them. Employer ATS scores can differ.`;
   }
   if(operationId)state.decisionOperations=[...(state.decisionOperations||[]),{id:operationId,signature}].slice(-100);
   record(state, action.type, message, source, at);

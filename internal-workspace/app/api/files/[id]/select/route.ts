@@ -22,7 +22,7 @@ export async function POST(request:Request,context:Context){
   if(!object)throw new DomainError('The saved CV file is unavailable. Upload it again.',404);
   const extracted=await extractResume(new Uint8Array(await object.arrayBuffer()),file.name);
   activateCv(current.state,file,extracted);
-  const message=`${file.name} is selected for new Apply requests. Review the refreshed candidate facts before using it. Existing unsent requests keep their earlier materials until you update each one in Applications.`;
+  const message=`${file.name} is selected for new Apply requests. Review the CV before using it. Existing unsent requests keep their earlier materials until you update each one in Applications.`;
   record(current.state,'select_cv',message,'interface');
   return response({user,...await save(user,current.revision,current.state,'select_cv'),message});
  }catch(error){return failure(error);}

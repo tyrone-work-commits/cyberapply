@@ -6,7 +6,7 @@ import {fileReviewScore,type Attachment,type ResumeReview} from '@/lib/cyber-dom
 export function SavedCVFiles({files,review,selectedCvId,pending=[],busy,onSelect,onDelete}:{files:Attachment[];review?:ResumeReview;selectedCvId?:string;pending?:Attachment[];busy:boolean;onSelect:(id:string)=>Promise<void>;onDelete:(id:string)=>Promise<boolean>}){
  const [selected,setSelected]=useState<Attachment|null>(null);
  const heading=useRef<HTMLHeadingElement>(null);
- return <section id="saved-cv-files" className="panel saved-cv-files"><div className="panel-icon"><FileText size={20}/></div><h3 ref={heading} tabIndex={-1}>Your saved CV files</h3><p className="subtle">Choose the original CV file to attach to new Apply requests. Selecting an older CV refreshes Candidate Facts from that file, so review them again. Each score belongs to the file shown beside it; deleting a file keeps its text review and history.</p>
+ return <section id="saved-cv-files" className="panel saved-cv-files"><div className="panel-icon"><FileText size={20}/></div><h3 ref={heading} tabIndex={-1}>Your saved CV files</h3><p className="subtle">Choose the original CV file to attach to new Apply requests. Selecting an older CV updates the displayed review from that file. Each score belongs to the file shown beside it; deleting a file keeps its text review and history.</p>
  {files.length?<ul className="cv-file-list">{files.map(file=>{
    const result=fileReviewScore(file,review);
    return <li key={file.id} className="cv-file-row"><div className="cv-file-info"><FileText size={17}/><div>

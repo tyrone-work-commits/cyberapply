@@ -42,7 +42,7 @@ assert.equal(current.state.applications[0].reason,'materials_changed');
 await act({type:'refresh_application_materials',applicationId:current.state.applications[0].id});
 assert.equal(current.state.applications[0].cv.fileId,second.id);
 assert.equal(current.state.applications[0].candidate.resumeText,secondText);
-assert.equal(current.state.applications[0].reason,'candidate_review_required');
+assert.equal(current.state.applications[0].reason,'connection_required');
 result=await request(`/api/files/${second.id}`,{method:'DELETE',body:{revision:current.revision,confirmation:'DELETE_FILE'}});
 assert.equal(result.status,200,JSON.stringify(result.data));current=result.data;
 assert.equal(current.state.selectedCvId,undefined);

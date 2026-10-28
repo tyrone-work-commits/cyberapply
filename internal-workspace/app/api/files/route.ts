@@ -22,9 +22,8 @@ export async function POST(request:Request){
     await files().put(createdKey,bytes,{httpMetadata:{contentType:type}});
     const at=new Date().toISOString();
     current.state.attachments.unshift({id,key:createdKey,name,type,size:file.size,createdAt:at,textExtracted:true});
-    const facts=activateCv(current.state,current.state.attachments[0],extracted,at);
-    const filled=[facts.fullName&&'name',facts.email&&'email',facts.githubRepositoryUrl&&'GitHub repository',facts.linkedInUrl&&'LinkedIn link',facts.portfolioWebsiteUrl&&'portfolio website',facts.location&&'location',facts.skills?.length&&'skills',facts.preferredRoles?.length&&'preferred roles'].filter(Boolean).join(', ');
-    const message=`CV uploaded, selected for new Apply requests and scored: ${current.state.resumeReview!.score}/100. ${filled?`Candidate facts filled from the CV: ${filled}.`:'No candidate fields were clear enough to fill automatically.'} Check every field before using your application materials.`;
+    activateCv(current.state,current.state.attachments[0],extracted,at);
+    const message=`CV uploaded, selected for new Apply requests and scored: ${current.state.resumeReview!.score}/100. Review the CV and each application draft before using them.`;
     record(current.state,'upload_file',message,'interface');
     const saved=await save(user,expected,current.state,'upload_file');createdKey=undefined;
     return response({user,...saved,message});

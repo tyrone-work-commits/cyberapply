@@ -42,7 +42,7 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
       const applyUrl = httpsUrl(job?.applyUrl) || sourceUrl;
       const boardUrl = httpsUrl(job?.source?.boardUrl);
       const attachedFile=files.find(file=>file.id===application.cv?.fileId);
-      const refreshNeeded=!!chosenCv&&['needs_action','queued','needs_attention','failed'].includes(application.status)&&(application.cv?.fileId!==chosenCv.id||application.reason!=='connection_required');
+      const refreshNeeded=!!chosenCv&&['needs_action','queued','needs_attention','failed'].includes(application.status)&&(application.cv?.fileId!==chosenCv.id||['materials_changed','cv_required','candidate_review_required'].includes(application.reason||''));
       return <li key={application.id} className="panel application-overview-card">
         <div className="application-overview-main">
           <div>
@@ -54,7 +54,7 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
         </div>
         <p className="application-overview-source"><strong>Vacancy source:</strong> {sourceName(job)}</p>
         <p className="application-overview-source"><strong>CV for this request:</strong> {application.cv?.name||'No CV attached'}{application.cv&&!attachedFile?' · original file unavailable':''}</p>
-        <p className="application-overview-status">{application.result?`${application.result.message}${application.result.receipt?` Confirmation: ${application.result.receipt}`:''}`:application.status==='queued'?'The previous local agent has been removed. This request was not submitted.':application.status==='processing'||application.status==='uncertain'?'The previous agent may have started this request. Check with the employer before trying again.':!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or candidate facts changed after this request. Update the materials before applying.':!application.candidate.reviewed?'Review your candidate facts and CV before using these materials on the employer site.':'No automatic application agent is connected. Open the original application page if you want to submit now.'}</p>
+        <p className="application-overview-status">{application.result?`${application.result.message}${application.result.receipt?` Confirmation: ${application.result.receipt}`:''}`:application.status==='queued'?'The previous local agent has been removed. This request was not submitted.':application.status==='processing'||application.status==='uncertain'?'The previous agent may have started this request. Check with the employer before trying again.':!application.cv?'Choose a saved CV and attach it to this request before applying.':!attachedFile?'The original CV file has been deleted. Choose another CV and update this request.':application.reason==='materials_changed'?'Your CV or application materials changed after this request. Update them before applying.':application.reason==='candidate_review_required'?'This older request needs an updated CV snapshot. Use Update request with chosen CV, then review its draft.':'No automatic application agent is connected. Review your chosen CV and draft, then open the employer application page if you want to submit now.'}</p>
         <div className="application-overview-actions">
           {attachedFile&&<><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer">View chosen CV<Eye size={15}/></a><a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}`} download>Download chosen CV<Download size={15}/></a></>}
           {refreshNeeded&&<button type="button" className="button quiet" disabled={busy} onClick={()=>void onRefresh(application.id)}>{application.cv?'Update request with chosen CV':'Attach chosen CV'}<FileText size={15}/></button>}
@@ -65,6 +65,6 @@ export function ApplicationOverview({ applications, jobs, drafts, files, selecte
           {draftIds.has(application.draftId) && <a className="button text-button" href={`#application-materials-${application.draftId}`}>Review materials<ArrowRight size={15}/></a>}
         </div>
       </li>;
-    })}</ol> : <div className="panel application-overview-empty"><FileText size={26}/><strong>No Apply requests yet</strong><p>Choose Apply on a role in Explore. Once your candidate facts are confirmed, it will appear here.</p></div>}
+    })}</ol> : <div className="panel application-overview-empty"><FileText size={26}/><strong>No Apply requests yet</strong><p>Choose Apply on a role in Explore to save a request here.</p></div>}
   </section>;
 }
