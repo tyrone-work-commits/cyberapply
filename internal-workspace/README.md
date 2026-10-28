@@ -4,7 +4,13 @@ Private mobile-responsive CV review, real cybersecurity vacancy discovery and ap
 
 ## Current journey
 
-Sign in / Create account → account profile → own workspace → upload and choose a CV → review Candidate Facts → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → see the chosen CV and next action in Applications.
+Sign in / Create account → account profile → own workspace → upload and choose a CV → review Candidate Facts → **Find live jobs** → inspect Greenhouse/Lever roles → swipe left to pass or right to **Apply** → see the chosen CV and next action in Applications → check related messages in Inbox.
+
+## Application inbox
+
+Inbox reads the signed-in visitor's connected Gmail account on request. The Gmail address must match the ChatGPT email used to sign in to CyberApply; a different connected mailbox is rejected before any message search. Sign-in alone does not grant Gmail access, and each visitor must authorize their own connection. This release supports Gmail; other email providers require a separate connection.
+
+The page searches recent Inbox mail for employers tied to the visitor's saved Apply requests, then checks sender, company/role and application context before displaying a message. It excludes generic job alerts, unrelated mail, spam and trash. Results are capped at the first 75 provider matches and 30 displayed messages; a missing or differently worded employer email may not appear. The page provides a validated Gmail link for full reading. CyberApply returns only the matched message fields to the browser and does not save email contents in D1, R2 or the application history. Refresh makes a new read. An email shown here is evidence to review, not an automatic transition to **Applied**.
 
 LinkedIn-specific links, connection prompts and feed status have been removed from the internal application. Existing personal records and their original source URLs/history are preserved. Demo flows, fabricated listings, seeded candidates and simulated receipts remain removed; retired demo APIs return 410.
 

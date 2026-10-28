@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 
-export type TourArea = 'explore'|'saved'|'applications'|'workspace'|'activity'|'account';
-const areaLabel:Record<TourArea,string>={explore:'Explore',saved:'Saved',applications:'Applications',workspace:'CV review',activity:'Activity',account:'Settings'};
+export type TourArea = 'explore'|'saved'|'applications'|'inbox'|'workspace'|'activity'|'account';
+const areaLabel:Record<TourArea,string>={explore:'Explore',saved:'Saved',applications:'Applications',inbox:'Inbox',workspace:'CV review',activity:'Activity',account:'Settings'};
 type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string};
 export const tourSteps:ReadonlyArray<Step>=[
  {area:'explore',title:'Explore: find your next role',description:'Explore shows cybersecurity vacancies from your chosen employer boards. Review each role here before deciding. This guide only points to controls; it does not change jobs.',target:'.page-heading'},
@@ -13,6 +13,8 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'saved',title:'Use saved job actions',description:'Open a role and its original listing, remove the bookmark, or choose Apply when ready. If this page is empty, save a card in Explore first.',target:'.list-grid .listing-row .row-actions',fallback:'.list-grid .empty-state'},
  {area:'applications',title:'Applications: track requests',description:'Applications tracks the roles you chose to Apply for, where each vacancy came from and what still needs attention.',target:'.page-heading'},
  {area:'applications',title:'Check submission status',description:'Review the source link, chosen CV, draft and status. A saved Apply request is not sent; only an employer confirmation means Applied. Open the original vacancy if action is needed.',target:'.application-overview-card',fallback:'.application-overview'},
+ {area:'inbox',title:'Inbox: see application mail',description:'Inbox shows recent Gmail messages related to jobs in your Applications list. The connected Gmail address must match your CyberApply sign-in.',target:'.inbox-page .inbox-intro'},
+ {area:'inbox',title:'Refresh and open messages',description:'Use Refresh to check again, then open a related message in Gmail. Other mail stays hidden here, and no message contents are stored in CyberApply.',target:'.inbox-page .inbox-intro button',fallback:'.inbox-page'},
  {area:'workspace',title:'CV review: improve your CV',description:'CV review reads your uploaded file, explains its text readiness and helps you verify candidate details before using them in applications.',target:'.page-heading'},
  {area:'workspace',title:'Upload and assess',description:'Upload a searchable PDF, DOCX or TXT file. The page gives a score out of 100 and recommendations; this is guidance, not an employer ATS decision.',target:'.cv-upload-button'},
  {area:'workspace',title:'Confirm candidate facts',description:'Check your name, email, links, location, skills and preferred roles. Correct anything missed, confirm accuracy and save. Your chosen CV is used for new Apply requests.',target:'.profile-form .section-title'},
