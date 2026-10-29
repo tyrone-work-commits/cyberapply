@@ -66,7 +66,7 @@ INSPECT = """() => {
       const peers=type==='radio'&&e.name?[...document.querySelectorAll('input[type=radio]')].filter(x=>visible(x)&&x.name===e.name&&x.form===e.form):[];
       const label=type==='radio'&&groupQuestion?groupQuestion:optionLabel;
       return {id,label,type,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
-        nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),
+        nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
         required:e.required||e.getAttribute('aria-required')==='true',
         options:e.options?[...e.options].map(o=>o.text):peers.map(x=>[...(x.labels||[])].map(l=>l.innerText).join(' ').trim()),
         value:e.value||'',checked:e.checked||e.getAttribute('aria-checked')==='true'};
@@ -338,8 +338,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         else:
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This control is not supported."})
                         report["answers"].append({**answer, "question":field["label"]})
-                    elif field["required"]:
-                        unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV does not establish an answer."})
+                    elif field["required"] and not any(item.get('field_id')==field['id'] for item in unresolved):
+                        unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV or saved Edit Profile does not establish an answer."})
                 # De-duplicate and ignore planner file omissions once the exact CV was uploaded.
                 def verify_expected():
                     for field_id,(kind,expected) in expected_values.items():
@@ -351,7 +351,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
                 if report["unresolved"]:
-                    return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "The form needs answers or choices that the CV cannot establish. Review the saved agent report.", report)
+                    return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "The form needs answers or choices missing from the CV or saved Edit Profile. Review the saved agent report.", report)
                 page.wait_for_timeout(300)
                 refreshed = [(fidx, f) for fidx, frame in enumerate(frames) for f in frame.evaluate(INSPECT)]
                 refreshed_signature = tuple((f'{idx}:{f["id"]}', f['label'], f['type']) for idx, f in refreshed)

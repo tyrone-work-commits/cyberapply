@@ -1,4 +1,4 @@
-import { DomainError, record, safeJobUrl, type State } from './cyber-domain';
+import { DomainError, record, safeJobUrl, applicationProfile, type State } from './cyber-domain';
 
 export function claimApplication(state:State,at=new Date().toISOString()){
   for(const item of state.applications||[])if(item.agentVersion===2&&item.status==='processing'&&item.claim&&Date.parse(item.claim.expiresAt)<=Date.parse(at)){
@@ -9,6 +9,7 @@ export function claimApplication(state:State,at=new Date().toISOString()){
   if(!request.cv||!state.attachments.some(item=>item.id===request.cv!.fileId)){
     request.status='needs_attention';request.result={at,message:'The chosen CV is unavailable. Attach a CV before trying again.'};return null;
   }
+  request.applicantProfile=applicationProfile(state);
   request.status='processing';request.claim={id:crypto.randomUUID(),at,expiresAt:new Date(Date.parse(at)+15*60_000).toISOString()};
   record(state,'application_agent_claim','The CV application agent started an authorized request.','agent',at);
   return request;
@@ -27,3 +28,5 @@ export function completeApplication(state:State,input:{requestId:string;claimId:
   record(state,'application_agent_result',`Application agent: ${input.status.replaceAll('_',' ')}. ${input.message}`,'agent',at);
   return request;
 }
+
+export function assertApplicationProfileCurrent(state:State,request:NonNullable<State['applications']>[number]){if(!request.applicantProfile||JSON.stringify(request.applicantProfile)!==JSON.stringify(applicationProfile(state)))throw new DomainError('Edit Profile changed during this application. Stop and update the application before submitting.',409);}

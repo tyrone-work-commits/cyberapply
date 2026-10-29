@@ -176,56 +176,8 @@ def _corporate_root(url: str) -> str | None:
     return f"https://{host}/" if re.search(r"(?:^careers?\.|^jobs\.|/(?:careers?|jobs?)(?:/|$))", accepted, re.I) or host != parsed.hostname else None
 
 
-def _salary_from_page(page: _Page, url: str, job: dict) -> list[dict]:
-    results = []
-    for data in page.jsonld:
-        for item in _objects(data):
-            types = item.get("@type", [])
-            if isinstance(types, str):
-                types = [types]
-            if "JobPosting" not in types or not isinstance(item.get("baseSalary"), dict):
-                continue
-            try:
-                if item.get("validThrough") and date.fromisoformat(str(item["validThrough"])[:10]) < date.today():
-                    continue
-            except ValueError:
-                continue
-            # Structured salary must belong to the displayed job, not a related
-            # vacancy or an organization-wide pay range on the same page.
-            if str(item.get("title", "")).casefold().strip() != str(job.get("title", "")).casefold().strip():
-                continue
-            base = item["baseSalary"]
-            value = base.get("value") or {}
-            if not isinstance(value, dict):
-                continue
-            low, high = value.get("minValue", value.get("value")), value.get("maxValue", value.get("value"))
-            period = {"YEAR": "year", "MONTH": "month", "HOUR": "hour"}.get(str(value.get("unitText", "")).upper())
-            if isinstance(low, (int, float)) and isinstance(high, (int, float)) and 0 < low <= high and period and re.fullmatch(r"[A-Z]{3}", str(base.get("currency", ""))):
-                results.append({"kind": "employer_posted", "low": low, "high": high, "currency": base["currency"], "period": period, "location": job.get("location", ""), "role": job.get("title", ""), "source_url": url, "as_of": date.today().isoformat()})
-    text = " ".join(page.parts)
-    # Currency symbols alone are ambiguous (e.g. USD/CAD/AUD); require ISO code.
-    matches = list(re.finditer(r"\b(USD|GBP|EUR|NGN|CAD|AUD|ZAR|INR|KES|GHS)\s*([\d,]+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(?:\1\s*)?([\d,]+(?:\.\d+)?)\s*(?:per\s+|/|a\s+)?(year|annum|annual|month|hour)\b", text, re.I))
-    salary = matches[0] if len(matches) == 1 else None
-    if salary:
-        context = text[max(0, salary.start() - 500):salary.end() + 200]
-        if str(job.get("title", "")).casefold() not in context.casefold() or re.search(r"\b(?:related|similar|recommended)\s+(?:jobs|vacancies|roles)\b", context, re.I):
-            salary = None
-    if salary:
-        low, high = float(salary[2].replace(",", "")), float(salary[3].replace(",", ""))
-        period = salary[4].lower()
-        if 0 < low <= high:
-            results.append({"kind": "employer_posted", "low": low, "high": high, "currency": salary[1].upper(), "period": "year" if period in {"annum", "annual"} else period, "location": job.get("location", ""), "role": job.get("title", ""), "source_url": url, "as_of": date.today().isoformat()})
-    return results
-
-
 def fetch_research(payload: dict, *, fetch=fetch_public_page) -> dict:
-    """Inspect exact job plus at most one employer website; retain provenance.
-
-    A deployment can supply market salary observations in `salaryEvidence` with
-    an exact `excerpt`. This function rereads that source and verifies the quote;
-    the planner separately checks role/location/experience/date/currency/period.
-    This is not a web-wide salary search.
-    """
+    """Research company statements for the letter; never research salary answers."""
     job = payload.get("job") or {}
     result = {"sources": [], "company_findings": [], "salary_evidence": [], "warnings": []}
     urls = list(dict.fromkeys(url for url in (job.get("url"), job.get("applyUrl")) if isinstance(url, str) and url))[:2]
@@ -242,9 +194,6 @@ def fetch_research(payload: dict, *, fetch=fetch_public_page) -> dict:
             if provenance:
                 record["discovered_from"] = provenance
             result["sources"].append(record)
-            if posting:
-                # Keep original selected vacancy URL as the evidence identity.
-                result["salary_evidence"].extend(_salary_from_page(parser, url, job))
             for raw in "".join(parser.parts).splitlines():
                 line = re.sub(r"\s+", " ", raw).strip()
                 if 45 <= len(line) <= 280 and re.search(r"\b(?:security|threat|risk|protect|compliance|vulnerabilit|incident)\w*\b", line, re.I):
@@ -269,28 +218,4 @@ def fetch_research(payload: dict, *, fetch=fetch_public_page) -> dict:
                 break
     if company_url and company_url not in urls:
         inspect(company_url, posting=False, provenance=discovered_from)
-    supplied = payload.get("salaryEvidence")
-    if isinstance(supplied, list):
-        for item in supplied[:3]:
-            if not isinstance(item, dict) or item.get("kind") == "employer_posted":
-                continue
-            source, excerpt = item.get("source_url"), item.get("excerpt")
-            if not isinstance(source, str) or not isinstance(excerpt, str) or not 40 <= len(excerpt) <= 1500:
-                continue
-            try:
-                response = fetch(source)
-                parser = _Page()
-                parser.feed(str(response["html"]))
-                visible = re.sub(r"\s+", " ", " ".join(parser.parts)).casefold()
-                quote = re.sub(r"\s+", " ", excerpt).casefold()
-                if quote not in visible:
-                    continue
-                required = [str(item.get(key, "")).casefold() for key in ("currency", "location", "role", "as_of")]
-                amounts = [str(item.get(key, "")).replace(",", "") for key in ("low", "high")]
-                if not all(value and value in quote for value in required) or not all(value and value in quote.replace(",", "") for value in amounts):
-                    continue
-                result["salary_evidence"].append(item | {"verified": True})
-                result["sources"].append({"url": source, "accessed_at": date.today().isoformat(), "purpose": "salary observation quote verified"})
-            except (ResearchError, ValueError, KeyError):
-                continue
     return result

@@ -72,21 +72,21 @@ function ApplicationQuestionAnswers({application,busy,onSave}:{application:Appli
  const raw=Array.isArray(application.report?.unresolved)?application.report.unresolved:[];
  const questions=[...new Map(raw.filter(item=>item&&typeof item==='object'&&typeof (item as Record<string,unknown>).question==='string').map(item=>{
   const entry=item as Record<string,unknown>,question=String(entry.question).slice(0,1000);
-  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:''}] as const;
+  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:'',profile:entry.source==='edit_profile'}] as const;
  })).values()].filter(item=>item.question.trim()).slice(0,40);
  const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries((application.confirmedAnswers||[]).map(item=>[item.question,item.value])));
  const [confirmed,setConfirmed]=useState(false);
  const [saving,setSaving]=useState(false),[saved,setSaved]=useState(false);
- const answers=questions.map(item=>({question:item.question,value:(values[item.question]||'').trim()})).filter(item=>item.value);
+ const answers=questions.filter(item=>!item.profile).map(item=>({question:item.question,value:(values[item.question]||'').trim()})).filter(item=>item.value);
  if(!questions.length)return null;
   return <form className="application-question-answers" onSubmit={async event=>{event.preventDefault();if(busy||saving||!confirmed||!answers.length)return;setSaving(true);try{if(await onSave(answers)){setSaved(true);setConfirmed(false);}}finally{setSaving(false);}}}>
   <h4>Answer this employer’s questions</h4>
   <p className="subtle">These answers are saved for this application only. Read each question carefully and enter only facts you can confirm. Leave an answer blank if you are unsure; the agent will keep that question paused.</p>
-  {questions.map((item,index)=><label key={item.question} htmlFor={`application-answer-${application.id}-${index}`}>{item.question}<textarea id={`application-answer-${application.id}-${index}`} rows={2} maxLength={2000} value={values[item.question]||''} disabled={busy||saving} onChange={event=>{setValues({...values,[item.question]:event.target.value});setConfirmed(false);setSaved(false);}}/>{item.reason&&<span className="label-hint">{item.reason}</span>}</label>)}
+  {questions.map((item,index)=>item.profile?<div key={item.question}><strong>{item.question}</strong><p className="subtle">{item.reason}</p><a className="button quiet" href="/onboarding">Update Edit Profile</a></div>:<label key={item.question} htmlFor={`application-answer-${application.id}-${index}`}>{item.question}<textarea id={`application-answer-${application.id}-${index}`} rows={2} maxLength={2000} value={values[item.question]||''} disabled={busy||saving} onChange={event=>{setValues({...values,[item.question]:event.target.value});setConfirmed(false);setSaved(false);}}/>{item.reason&&<span className="label-hint">{item.reason}</span>}</label>)}
   <p className="subtle">For a checkbox or consent question, enter “Yes” only if you personally agree to its exact wording above for this employer. Enter “No” to decline. The agent will not choose an opt-in for you.</p>
   <label className="check-label"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)}/><span>I confirm that these answers are accurate. Any “Yes” I entered for a consent or checkbox question is my explicit choice for that exact question in this application.</span></label>
   <button type="submit" className="button quiet" disabled={busy||saving||!confirmed||!answers.length}><Check size={16}/>{saving?'Saving answers…':'Save my answers'}</button>
-  <p className="subtle" role="status">{saved?'Your answers are saved. Continue with my answers will use these exact responses.':'Save your answers, then choose Continue with my answers to let the agent try again.'}</p>
+  <p className="subtle" role="status">{saved?'Your answers are saved. Continue with my answers will use these exact responses.':'Update missing details in Edit Profile, or save the other answers above. Then queue the agent again.'}</p>
  </form>;
 }
 
@@ -99,7 +99,7 @@ function AgentReport({value}:{value:unknown}){
  const research=report.research&&typeof report.research==='object'?report.research as Record<string,unknown>:null;
  const findings=Array.isArray(research?.company_findings)?research.company_findings.filter(item=>item&&typeof item==='object') as Record<string,unknown>[]:[];
  const sources=Array.isArray(research?.sources)?research.sources.filter(item=>item&&typeof item==='object') as Record<string,unknown>[]:[];
- const sourceLabels:Record<string,string>={cv:'From your CV',cv_and_job:'Generated from your CV and the role',salary_research:'Salary research',user_confirmed:'Your confirmed answer'};
+ const sourceLabels:Record<string,string>={cv:'From your CV',cv_and_job:'Generated from your CV and the role',salary_research:'Earlier salary research',edit_profile:'From Edit Profile',user_confirmed:'Your confirmed answer'};
  return <div className="application-agent-report">
   {experience&&<section className="application-detail-section"><h4>Cybersecurity experience</h4><p>{experience.established?`${experience.years} years${experience.approximate?' (estimated from the dates in your CV)':''}`:'Duration could not be established from dated work history'}.</p><p className="subtle">{String(experience.note||'')}</p>{Array.isArray(experience.evidence)&&<ul>{experience.evidence.map((item,index)=><li key={index}>{String(item)}</li>)}</ul>}</section>}
   {!!findings.length&&<section className="application-detail-section"><h4>Company research and possible contribution</h4><ul>{findings.map((finding,index)=><li key={index}>{String(finding.text||'')}{typeof finding.source_url==='string'&&httpsUrl(finding.source_url)&&<> <a href={httpsUrl(finding.source_url)!} target="_blank" rel="noopener noreferrer">Read source<ExternalLink size={12}/></a></>}</li>)}</ul></section>}

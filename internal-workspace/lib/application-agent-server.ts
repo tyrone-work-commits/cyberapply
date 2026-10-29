@@ -2,7 +2,7 @@ import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
 import { identity, load, save, files, response, failure, type Identity } from './cyber-store';
-import { activeClaim, claimApplication, completeApplication } from './application-agent-state';
+import { activeClaim, claimApplication, completeApplication, assertApplicationProfileCurrent } from './application-agent-state';
 import { extractResume } from './resume-extraction';
 
 const digest=async(value:BufferSource)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',value)),x=>x.toString(16).padStart(2,'0')).join('');
@@ -33,9 +33,10 @@ function stillConnected(state:State,user:Identity&{agentHash:string}){
 async function original(user:Identity&{agentHash:string},requestId:string,claimId:string){
   const current=await load(user);stillConnected(current.state,user);
   const item=activeClaim(current.state,requestId,claimId),file=current.state.attachments.find(file=>file.id===item.cv!.fileId)!;
+  assertApplicationProfileCurrent(current.state,item);
   const object=await files().get(file.key);if(!object)throw new DomainError('The chosen CV file is unavailable.',409);
   const bytes=new Uint8Array(await object.arrayBuffer());if(await digest(bytes)!==item.cvSha256)throw new DomainError('The selected CV content changed.',409);
-  const latest=await load(user);stillConnected(latest.state,user);activeClaim(latest.state,requestId,claimId);
+  const latest=await load(user);stillConnected(latest.state,user);assertApplicationProfileCurrent(latest.state,activeClaim(latest.state,requestId,claimId));
   return {current,item,file,bytes};
 }
 const claimBody=z.object({requestId:z.string().max(300),claimId:z.string().uuid()}).strict();
@@ -68,7 +69,7 @@ export async function pair(request:Request){try{
 }catch(error){return failure(error);}}
 
 export async function claim(request:Request){try{
-  const user=await worker(request);await json(request);
+  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==1)throw new DomainError('Update the browser runner: contact and salary answers must use Edit Profile.',409);
   for(let attempt=0;attempt<3;attempt++){
     const current=await load(user);stillConnected(current.state,user);const before=JSON.stringify(current.state),item=claimApplication(current.state);
     if(!item&&JSON.stringify(current.state)===before)return response({task:null});
@@ -80,7 +81,7 @@ export async function claim(request:Request){try{
         const object=await files().get(file.key);if(!object)throw new Error('missing');
         const bytes=new Uint8Array(await object.arrayBuffer()),extracted=await extractResume(bytes,file.name);
         item.cvSha256=await digest(bytes);
-        task={requestId:item.id,claimId:item.claim!.id,job:{title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
+        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:1,applicantProfile:item.applicantProfile,job:{title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
       }catch{item.status='needs_attention';item.result={at:new Date().toISOString(),message:'The chosen CV could not be read. Select a readable CV and update the request.'};}
     }
     try{await save(user,current.revision,current.state,'application_agent_claim');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}

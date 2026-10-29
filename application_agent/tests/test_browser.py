@@ -67,6 +67,22 @@ def run(html, *, submit=True, success=True, cv=CV, payload=PAYLOAD, planner=plan
                                playwright_factory=lambda:browser_factory(html,posts,success),timeout=3000,before_submit=lambda:True)
     return result,posts
 
+def test_profile_contact_and_salary_reach_form_with_exact_cv():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'applicantProfile':{'location':'Abuja, Nigeria','phone':'+2348012345678','expectedSalary':{'amount':2000,'currency':'USD','period':'month'}}}
+    html=FORM.replace('{extra}','<label>Location<input name="location" required></label><label>Phone number<input name="phone" required></label><label>Expected annual salary USD<input name="salary" inputmode="decimal" required></label>')
+    result,posts=run(html,payload=payload,planner=build_plan)
+    assert result['status']=='applied'
+    assert len(posts)==1 and b'Abuja, Nigeria' in posts[0] and b'+2348012345678' in posts[0] and b'24000' in posts[0]
+    assert CV in posts[0]
+    assert all(answer['source']=='edit_profile' for answer in result['report']['answers'] if answer['question'] in {'Location','Phone number','Expected annual salary USD'})
+
+def test_missing_profile_contact_stops_before_any_submission():
+    from application_agent.reasoning import build_plan
+    result,posts=run(FORM.replace('{extra}','<label>City<input name="city" required></label>'),planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    assert any('Edit Profile' in question['reason'] for question in result['report']['unresolved'])
+
 
 def test_blocks_local_and_unapproved_hosts():
     with pytest.raises(ApplicationAttention):

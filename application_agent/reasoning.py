@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import calendar
 from datetime import date
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation
+from .profile_answers import profile_field, saved_profile_answer
 from html import unescape
 import re
 from urllib.parse import urlsplit
@@ -84,66 +85,18 @@ def cybersecurity_experience(text: str, today: date | None = None) -> dict:
 def _facts(text: str) -> dict:
     lines = _lines(text)
     email = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)
-    phone = re.search(r"(?<!\w)(\+\d[\d ()-]{7,20}\d)(?!\w)", text)
     name = next((line.split(":", 1)[1].strip() for line in lines if re.match(r"^(?:full )?name\s*:", line, re.I)), "")
     if not name and lines:
         first = lines[0]
         if re.fullmatch(r"[^\W\d_]+(?:[ '\-][^\W\d_]+){1,4}", first, re.U) and not re.search(r"resume|curriculum|vitae|engineer|analyst|developer|security|experience|skills", first, re.I):
             name = first
-    location = next((line.split(":", 1)[1].strip() for line in lines if re.match(r"^(?:location|address|based in)\s*:", line, re.I)), "")
     urls = re.findall(r"(?:https?://|www\.)[^\s<>]+|(?:github\.com|linkedin\.com)/[^\s<>]+", text, re.I)
     urls = [url.rstrip(".,;)") if url.startswith("http") else "https://" + url.rstrip(".,;)") for url in urls]
     github = next((url for url in urls if (urlsplit(url).hostname or "").lower() in {"github.com", "www.github.com"}), "")
     linkedin = next((url for url in urls if (urlsplit(url).hostname or "").lower() in {"linkedin.com", "www.linkedin.com"}), "")
     portfolio = next((url for url in urls if url not in {github, linkedin}), "")
     skills = [skill for skill in _SKILLS if re.search(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", text, re.I)]
-    return {"name": name, "email": email.group(0) if email else "", "phone": phone.group(1) if phone else "", "location": location, "github": github, "linkedin": linkedin, "portfolio": portfolio, "skills": skills}
-
-
-def _salary(question: str, research: dict, job: dict, experience: dict, numeric: bool) -> tuple[str, str] | None:
-    if re.search(r"\b(?:current|previous|minimum|lowest|last)\b", question, re.I):
-        return None
-    target_period = "year" if re.search(r"annual|year", question, re.I) else "month" if re.search(r"month", question, re.I) else "hour" if re.search(r"hour", question, re.I) else None
-    currencies = re.findall(r"\b(?:USD|GBP|EUR|NGN|CAD|AUD|ZAR|INR|KES|GHS)\b", question.upper())
-    for item in research.get("salary_evidence", []):
-        try:
-            low, high = Decimal(str(item["low"])), Decimal(str(item["high"]))
-            currency, period = item["currency"], item["period"]
-            if not low.is_finite() or not high.is_finite() or not 0 < low <= high <= 10 ** 12 or not re.fullmatch(r"[A-Z]{3}", currency) or period not in {"year", "month", "hour"}:
-                continue
-            source = item["source_url"]
-            if not source.startswith("https://") or not item.get("location") or str(item["location"]).casefold() != str(job.get("location", "")).casefold():
-                continue
-            if item.get("kind") == "employer_posted":
-                if source not in {job.get("url"), job.get("applyUrl")}:
-                    continue
-            else:
-                if not item.get("verified"):
-                    continue
-                published = date.fromisoformat(item["as_of"])
-                age = (date.today() - published).days
-                if age < 0 or age > 548 or not experience["established"] or not item["min_years"] <= experience["years"] <= item["max_years"]:
-                    continue
-                role_words = set(re.findall(r"[a-z]{3,}", str(job.get("title", "")).lower())) - {"senior", "junior", "lead", "staff"}
-                evidence_words = set(re.findall(r"[a-z]{3,}", str(item["role"]).lower()))
-                if not role_words or not role_words <= evidence_words:
-                    continue
-            if currencies and set(currencies) != {currency}:
-                continue
-            midpoint = (low + high) / 2
-            if target_period and target_period != period:
-                if {target_period, period} != {"month", "year"}:
-                    continue
-                midpoint = midpoint * 12 if target_period == "year" else midpoint / 12
-                period = target_period
-            if numeric and (not target_period or not currencies):
-                continue
-            amount = midpoint.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            value = format(amount, "f").rstrip("0").rstrip(".") if "." in format(amount, "f") else str(amount)
-            return (value if numeric else f"{currency} {value} per {period}", source)
-        except (KeyError, TypeError, ValueError, InvalidOperation):
-            continue
-    return None
+    return {"name": name, "email": email.group(0) if email else "", "github": github, "linkedin": linkedin, "portfolio": portfolio, "skills": skills}
 
 
 def _question_key(question: str) -> str:
@@ -218,15 +171,17 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         normalized = re.sub(r"\s+", " ", question.lower()).strip(" *:?!")
         kind, value, source, proof = field.get("type", "text"), None, "cv", ""
         user_supplied, confirmed_value, confirmed_proof = _confirmed(payload, question, field)
-        if user_supplied:
+        profile_key=profile_field(question)
+        profile_reason=""
+        if profile_key and kind not in {"checkbox","radio","password","hidden","file"}:
+            value,proof,profile_reason=saved_profile_answer(payload,question,field)
+            source="edit_profile"
+        elif profile_key:
+            profile_reason="This personal detail needs a supported field and the matching saved Edit Profile value."
+        elif user_supplied:
             value, source, proof = confirmed_value, "user_confirmed", confirmed_proof
         elif _UNSUPPORTED.search(question) or kind in {"checkbox", "radio", "password", "hidden"}:
             pass
-        elif re.search(r"salary|compensation|expected pay|pay expectation", normalized):
-            proposal = _salary(question, research, job, experience, kind == "number")
-            if proposal:
-                value, proof = proposal
-                source = "salary_research"
         elif re.search(r"years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?", normalized) and experience["established"]:
             value, proof = str(experience["years"]), "; ".join(experience["evidence"])
         elif normalized in {"full name", "name", "your name", "legal name", "first and last name"}:
@@ -237,10 +192,6 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             value = " ".join(facts["name"].split()[1:])
         elif re.fullmatch(r"(?:your )?(?:email|e-mail)(?: address)?", normalized):
             value = facts["email"]
-        elif re.fullmatch(r"(?:your )?(?:phone|telephone|mobile)(?: number)?", normalized):
-            value = facts["phone"]
-        elif normalized in {"location", "current location", "address"}:
-            value = facts["location"]
         elif re.fullmatch(r"(?:your )?github(?: repository| profile| link| url)?", normalized):
             value = facts["github"]
         elif re.fullmatch(r"(?:your )?linkedin(?: profile| link| url)?", normalized):
@@ -276,12 +227,12 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
                 continue
         if field.get("required"):
             reason = "A personal, eligibility, consent or screening answer must be supplied by the user." if _UNSUPPORTED.search(question) or kind in {"checkbox", "radio"} else "The CV and verified research do not establish a reliable answer."
-            if re.search(r"salary|compensation|pay expectation", normalized):
-                reason = "No suitable, verified salary range with role, location, currency and period is available."
+            if profile_key:
+                reason = profile_reason or "The saved Edit Profile value does not match an offered option. Update the profile or complete this field yourself."
             if kind == "file":
                 reason = "The browser runner must upload the selected CV or a separately generated cover-letter file."
-            if user_supplied and confirmed_value is None:
+            if user_supplied and confirmed_value is None and not profile_key:
                 reason = confirmed_proof
-            unresolved.append({"field_id": field.get("id"), "question": question, "reason": reason})
+            unresolved.append({"field_id": field.get("id"), "question": question, "reason": reason, **({"source":"edit_profile","profile_field":profile_key} if profile_key else {})})
     return {"answers": answers, "unresolved": unresolved, "cover_letter": cover_letter, "experience": experience,
-            "research_sources": research.get("sources", []), "method": "cv_evidence_and_public_employer_research"}
+            "research_sources": research.get("sources", []), "method": "cv_evidence_saved_edit_profile_and_company_research"}

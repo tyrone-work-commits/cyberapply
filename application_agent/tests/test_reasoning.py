@@ -57,11 +57,10 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(result["established"])
 
     def test_identity_comes_from_cv(self):
-        result = self.plan([field("Full name"), field("Email address"), field("Location"), field("GitHub repository")])
+        result = self.plan([field("Full name"), field("Email address"), field("GitHub repository")])
         values = {answer["field_id"]: answer["value"] for answer in result["answers"]}
         self.assertEqual(values["Full name"], "TYRONE EKHATOR")
         self.assertEqual(values["Email address"], "tyrone@example.test")
-        self.assertEqual(values["Location"], "Lagos, Nigeria")
         self.assertEqual(values["GitHub repository"], "https://github.com/tyrone/example")
         self.assertFalse(result["unresolved"])
 
@@ -83,25 +82,11 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(result["answers"][0]["value"], "2.0")
         self.assertIn("SOC Analyst", result["answers"][0]["evidence"])
 
-    def test_salary_midpoint_and_month_to_year_conversion(self):
+    def test_research_salary_is_never_an_answer_without_edit_profile(self):
         evidence = {"kind": "employer_posted", "low": 1000, "high": 2000, "currency": "USD", "period": "month", "location": JOB["location"], "source_url": JOB["url"]}
         result = self.plan([field("Expected annual salary in USD", "number")], {"salary_evidence": [evidence]})
-        self.assertEqual(result["answers"][0]["value"], "18000")
-        self.assertEqual(result["answers"][0]["source"], "salary_research")
-
-    def test_salary_unknown_currency_or_geography_pauses(self):
-        evidence = {"kind": "employer_posted", "low": 1000, "high": 2000, "currency": "USD", "period": "month", "location": "New York, USA", "source_url": JOB["url"]}
-        result = self.plan([field("Expected annual salary in USD", "number")], {"salary_evidence": [evidence]})
         self.assertFalse(result["answers"])
-        self.assertEqual(len(result["unresolved"]), 1)
-
-    def test_market_salary_requires_matching_experience_date_and_role(self):
-        evidence = {"kind": "market", "low": 12000, "high": 18000, "currency": "USD", "period": "year", "location": JOB["location"], "source_url": "https://salary.example/report", "role": JOB["title"], "min_years": 1, "max_years": 3, "as_of": date.today().isoformat(), "verified": True}
-        good = self.plan([field("Expected salary")], {"salary_evidence": [evidence]})
-        self.assertEqual(good["answers"][0]["value"], "USD 15000 per year")
-        for changed in ({"as_of": "2020-01-01"}, {"max_years": 1}, {"role": "Software Engineer"}, {"currency": ""}, {"verified": False}):
-            with self.subTest(changed=changed):
-                self.assertFalse(self.plan([field("Expected salary")], {"salary_evidence": [evidence | changed]})["answers"])
+        self.assertIn("Edit Profile", result["unresolved"][0]["reason"])
 
     def test_exact_select_match_only(self):
         result = self.plan([field("Location", "select", options=["UK", "US"])])
@@ -179,11 +164,10 @@ class ResearchTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ResearchError):
                 _target(url)
 
-    def test_structured_salary_and_company_findings_keep_sources(self):
+    def test_company_findings_keep_sources_without_collecting_salary(self):
         html = '<script type="application/ld+json">{"@type":"JobPosting","title":"Cybersecurity Analyst","baseSalary":{"currency":"NGN","value":{"minValue":100000,"maxValue":300000,"unitText":"MONTH"}}}</script><p>Protect our customers through threat detection and security monitoring.</p>'
         result = fetch_research({"job": JOB}, fetch=lambda url: {"url": url, "html": html})
-        self.assertEqual(result["salary_evidence"][0]["currency"], "NGN")
-        self.assertEqual(result["salary_evidence"][0]["period"], "month")
+        self.assertFalse(result["salary_evidence"])
         self.assertEqual(result["company_findings"][0]["source_url"], JOB["url"])
 
     def test_other_vacancy_salary_is_ignored(self):
@@ -198,14 +182,14 @@ class ResearchTests(unittest.TestCase):
         self.assertFalse(result["salary_evidence"])
         self.assertTrue(result["warnings"])
 
-    def test_market_evidence_quote_must_exist_on_live_source(self):
+    def test_salary_sources_are_ignored_even_when_quote_matches(self):
         item = {"kind": "market", "low": 12000, "high": 18000, "currency": "USD", "period": "year", "location": JOB["location"], "source_url": "https://salary.example/report", "role": JOB["title"], "min_years": 1, "max_years": 3, "as_of": date.today().isoformat()}
         quote = f"{item['as_of']} Cybersecurity Analyst in Lagos, Nigeria: USD 12000 to 18000 per year for 1 to 3 years of experience."
         payload = {"job": {}, "salaryEvidence": [item | {"excerpt": quote}]}
         result = fetch_research(payload, fetch=lambda url: {"url": url, "html": "<p>Unrelated source.</p>"})
         self.assertFalse(result["salary_evidence"])
         result = fetch_research(payload, fetch=lambda url: {"url": url, "html": f"<p>{quote}</p>"})
-        self.assertTrue(result["salary_evidence"][0]["verified"])
+        self.assertFalse(result["salary_evidence"])
 
     def test_discovers_exact_posting_employer_site_and_retains_provenance(self):
         url = "https://job-boards.greenhouse.io/example/jobs/123"
@@ -264,7 +248,7 @@ class ResearchTests(unittest.TestCase):
         self.assertFalse(result["salary_evidence"])
         html = "<h1>Cybersecurity Analyst</h1><p>USD 100000 - 150000 per year</p>"
         result = fetch_research({"job": JOB}, fetch=lambda url: {"url": url, "html": html})
-        self.assertEqual(result["salary_evidence"][0]["low"], 100000)
+        self.assertFalse(result["salary_evidence"])
 
 
 if __name__ == "__main__":
