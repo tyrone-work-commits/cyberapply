@@ -3,9 +3,34 @@ from unittest.mock import patch
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from application_agent.background import configure
-from application_agent.background import protect, retry_delay
+from application_agent.background import protect, retry_delay, status
+import json
 
 class BackgroundTests(unittest.TestCase):
+    def test_temporary_windows_status_reader_does_not_stop_the_runner(self):
+        with TemporaryDirectory() as folder:
+            root=Path(folder)
+            (root/'status.json').write_text('{"state":"old"}',encoding='utf-8')
+            replace=Path.replace
+            calls=[]
+            def transient(path,target):
+                calls.append(target)
+                if len(calls)<3:raise PermissionError('temporary Windows reader')
+                return replace(path,target)
+            with patch('application_agent.background.data_dir',return_value=root),patch.object(Path,'replace',transient),patch('application_agent.background.time.sleep'):
+                status('running',last_result='queue_empty')
+            self.assertEqual(json.loads((root/'status.json').read_text())['state'],'running')
+            self.assertFalse((root/'status.tmp').exists())
+
+    def test_persistent_status_access_error_keeps_previous_record(self):
+        with TemporaryDirectory() as folder:
+            root=Path(folder);original='{"state":"old"}'
+            (root/'status.json').write_text(original,encoding='utf-8')
+            with patch('application_agent.background.data_dir',return_value=root),patch.object(Path,'replace',side_effect=PermissionError('blocked')),patch('application_agent.background.time.sleep') as pause:
+                with self.assertRaises(PermissionError):status('running')
+                self.assertLessEqual(pause.call_count,8)
+            self.assertEqual((root/'status.json').read_text(),original)
+
     def test_connection_is_encrypted_and_round_trips_for_current_user(self):
         raw=b'{"token":"test-only-never-valid","site":"https://example.test"}'
         encrypted=protect(raw)

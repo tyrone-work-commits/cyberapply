@@ -31,7 +31,16 @@ def status(state, **extra):
     value = {'state': state, 'at': datetime.now(timezone.utc).isoformat(), 'pid': os.getpid(), **extra}
     temp = folder / 'status.tmp'
     temp.write_text(json.dumps(value), encoding='utf-8')
-    temp.replace(folder / 'status.json')
+    # Windows readers briefly hold the destination without delete sharing.
+    # Preserve atomic status updates while allowing those readers to close.
+    for attempt in range(8):
+        try:
+            temp.replace(folder / 'status.json')
+            break
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(min(0.02 * 2**attempt, 0.25))
 
 
 def startup_link():
