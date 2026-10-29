@@ -95,10 +95,8 @@ def saved_profile_answer(payload,question,field):
     if key=='residenceQuestion':return residence_answer(profile,question)
     if key=='ukIrelandRightToWork':
         values=[profile.get('ukRightToWork'),profile.get('irelandRightToWork')]
-        if any(value is True for value in values):value='Yes'
-        elif all(value is False for value in values):value='No'
-        else:return None,'','Choose current right to work for the UK and Ireland in Edit Profile. No is only established when both are No; residence and visa answers do not establish permission.'
-        proof='Edit Profile — UK current right to work: '+str(values[0])+'; Ireland current right to work: '+str(values[1])+'. Either-country authorization question; no eligibility inferred from residence or visa requirements.'
+        value='Yes' if any(choice is True for choice in values) else 'No'
+        proof='Edit Profile — UK current right to work: '+str(values[0])+'; Ireland current right to work: '+str(values[1])+'. User-selected rule for this either-country question: Yes if either saved Yes is selected; otherwise No, including unanswered choices. Saved profile facts are not changed. No permission inferred from residence or visa requirements.'
         return value,proof,''
     if key and key.endswith(('VisaRequired','RightToWork')):
         value=profile.get(key)

@@ -68,15 +68,17 @@ class ProfileAnswerTests(unittest.TestCase):
   self.assertTrue(all(a['source']=='edit_profile' for a in result['answers']))
   result=plan([field('Are you authorized to work in Ireland?')],PROFILE|{'irelandVisaRequired':False},confirmedAnswers=[{'question':'Are you authorized to work in Ireland?','value':'Yes'}])
   self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['profile_field'],'irelandRightToWork')
- def test_uk_or_ireland_authorization_requires_sufficient_saved_choices(self):
+ def test_uk_or_ireland_authorization_uses_any_saved_yes_else_no(self):
   questions=['Are you authorized to work in the United Kingdom or Ireland for any employer?','Do you have the right to work in Ireland or the UK?']
-  cases=[(False,False,'No'),(False,True,'Yes'),(True,False,'Yes'),(True,None,'Yes'),(None,True,'Yes'),(False,None,None),(None,False,None),(None,None,None)]
+  cases=[(False,False,'No'),(False,True,'Yes'),(True,False,'Yes'),(True,True,'Yes'),(True,None,'Yes'),(None,True,'Yes'),(False,None,'No'),(None,False,'No'),(None,None,'No')]
   for q in questions:
    for uk,ireland,expected in cases:
     with self.subTest(question=q,uk=uk,ireland=ireland):
      result=plan([field(q,'radio',options=['Yes','No'])],PROFILE|{'ukRightToWork':uk,'irelandRightToWork':ireland})
-     if expected:self.assertEqual(result['answers'][0]['value'],expected)
-     else:self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['source'],'edit_profile')
+     self.assertEqual(result['answers'][0]['value'],expected)
+     self.assertEqual(result['answers'][0]['source'],'edit_profile')
+     self.assertFalse(result['unresolved'])
+  self.assertEqual(plan([field(questions[0])],{},confirmedAnswers=[{'question':questions[0],'value':'Yes'}])['answers'][0]['value'],'No')
  def test_ireland_does_not_establish_northern_ireland_or_conditional_work_rights(self):
   p=PROFILE|{'ukRightToWork':False,'irelandRightToWork':True,'irelandVisaRequired':False}
   for q in ['Are you authorized to work in Northern Ireland?','Are you authorized to work in the UK and Ireland?','Are you authorized to work in Ireland or the UK without sponsorship?','Do you need sponsorship in the UK or Ireland?']:
