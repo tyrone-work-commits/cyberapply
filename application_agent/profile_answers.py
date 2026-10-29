@@ -6,11 +6,12 @@ import re
 def profile_field(question):
     text=re.sub(r'\s+',' ',question.casefold().replace('_',' ').replace('zip-code','zip code')).strip(' *:?!')
     visa=bool(re.search(r'\b(?:visa|sponsor\w*)\b',text))
-    rights=bool(re.search(r'right to work|(?:(?:legally )?(?:authori[sz]ed|eligible|permitted|entitled|allowed|able)) to work|work authori[sz]ation',text))
+    rights=bool(re.search(r'right to work|(?:legally able|(?:legally )?(?:authori[sz]ed|eligible|permitted|entitled|allowed)) to work|work authori[sz]ation',text))
     if visa or rights:
         countries=[key for key,pattern in {'uk':r'\b(?:uk|u\.k\.?|united kingdom|great britain)\b','usa':r'\b(?:usa|u\.s\.?a?\.?|united states(?: of america)?)\b|\b(?:in|for|within|the) us\b','canada':r'\bcanada\b'}.items() if re.search(pattern,text)]
         if 'usa' not in countries and re.search(r'\bUS\b',question):countries.append('usa')
         if not countries:return None
+        if visa and not re.search(r'\b(?:need|requir)\w*\b',text):return 'eligibilityReview'
         if len(countries)!=1 or (visa and rights) or re.search(r'\b(?:not|without|citizen|citizenship|permanent resident|why|explain|describe)\b',text):return 'eligibilityReview'
         return countries[0]+('RightToWork' if rights else 'VisaRequired')
     if re.search(r'\b(?:salary|compensation|remuneration|wage|pay expectations?|expected pay|pay rate|desired pay)\b',text):

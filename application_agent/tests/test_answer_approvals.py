@@ -39,7 +39,7 @@ class ApprovalTests(unittest.TestCase):
   result=plan([field('Are you authorized to work in USA?')],applicantProfile={'usaVisaRequired':False})
   self.assertFalse(result['answers']);self.assertIn('Edit Profile',result['unresolved'][0]['reason'])
  def test_ambiguous_combined_or_negative_eligibility_pauses(self):
-  for q in ['Do you have the right to work in UK and Canada?','Can you work in UK without visa sponsorship?']:
+  for q in ['Do you have the right to work in UK and Canada?','Can you work in UK without visa sponsorship?','Do you have a valid work visa for UK?','What is your UK visa expiry date?']:
    self.assertFalse(plan([field(q)],applicantProfile={'ukVisaRequired':False,'ukRightToWork':True})['answers'])
 
 if __name__=='__main__':unittest.main()
