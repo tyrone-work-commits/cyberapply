@@ -9,6 +9,7 @@ import calendar
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from .profile_answers import profile_field, saved_profile_answer
+from .answer_drafts import experience_answer, narrative_draft
 from html import unescape
 import re
 from urllib.parse import urlsplit
@@ -122,7 +123,7 @@ def _confirmed(payload: dict, question: str, field: dict) -> tuple[bool, str | N
     item = matches[0]
     value = item["value"].strip()
     kind = field.get("type", "text")
-    if not value or len(value) > 20_000 or kind in {"hidden", "password", "file"}:
+    if not value or len(value) > 20_000 or kind in {"hidden", "password"} or (kind=="file" and not re.search(r"cover.?letter",question,re.I)):
         return True, None, "The confirmed value is empty or unsupported for this field."
     proof = f"User confirmed question: {item['question']}\nUser confirmed answer: {item['value']}"
     if kind == "checkbox":
@@ -173,13 +174,16 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         user_supplied, confirmed_value, confirmed_proof = _confirmed(payload, question, field)
         profile_key=profile_field(question)
         profile_reason=""
-        if profile_key and kind not in {"checkbox","radio","password","hidden","file"}:
+        if profile_key and kind not in {"password","hidden","file"}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)
             source="edit_profile"
         elif profile_key:
             profile_reason="This personal detail needs a supported field and the matching saved Edit Profile value."
         elif user_supplied:
             value, source, proof = confirmed_value, "user_confirmed", confirmed_proof
+        elif kind not in {"password","hidden","file"} and not _UNSUPPORTED.search(question) and (match:=experience_answer(question,text,kind)):
+            value,proof,generated=match
+            source="cv_and_job" if generated else "cv"
         elif _UNSUPPORTED.search(question) or kind in {"checkbox", "radio", "password", "hidden"}:
             pass
         elif re.search(r"years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?", normalized) and experience["established"]:
@@ -207,6 +211,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         elif re.search(r"\b(?:why|motivat|contribut|add value|interested|good fit)\w*\b", normalized) and not re.search(r"left|leav|previous|last employer", normalized):
             value, source, proof = contribution, "cv_and_job", ", ".join(skills)
         elif re.search(r"\b(?:skills|technologies|tools)\b", normalized) and facts["skills"]:
+            source="cv_and_job"
             value, proof = "My CV lists " + ", ".join(facts["skills"][:12]) + ".", ", ".join(facts["skills"])
         elif re.search(r"\b(?:describe|summarize|outline|tell us)\b.*\b(?:experience|background)\b", normalized) and evidence:
             # Use literal evidence rather than synthesizing new achievements.
@@ -216,7 +221,15 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
                 topic_words = set(re.findall(r"\b[a-z]{3,}\b", topic[1])) - {"the", "and", "this", "role", "your", "field"}
                 selected_evidence = [line for line in evidence if topic_words.intersection(set(re.findall(r"\b[a-z]{3,}\b", line.lower()))) ] if topic_words else evidence
             if selected_evidence:
+                source="cv_and_job"
                 value, proof = "My CV describes: " + " ".join(selected_evidence), "; ".join(selected_evidence)
+        if not value and not profile_key and not user_supplied and kind in {"text","textarea"} and not _UNSUPPORTED.search(question) and not re.search(r"experience (?:with|in|using|as)|have you (?:used|worked with)",question,re.I):
+            draft=narrative_draft(question,text,job,contribution)
+            if draft:value,source,proof=draft,"cv_and_job","CV evidence and selected role; user review required."
+        if value and source=="cv_and_job":
+            unresolved.append({"field_id":field.get("id"),"question":question,"reason":"The agent generated this draft. Review or edit it, then explicitly approve it before it is used.","source":"generated","suggested_value":str(value),"evidence":proof,"required":bool(field.get("required"))})
+            continue
+        if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
             options = field.get("options") or []
             if options:

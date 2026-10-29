@@ -11,13 +11,13 @@ assert.equal((await call('/api/application-agent/claim',{method:'POST',headers:{
 const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});assert.equal(pair.status,200);const bundle=JSON.parse(pair.data.token),headers={Authorization:`Bearer ${bundle.token}`};
 current=(await call('/api/workspace')).data;
 async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});assert.equal(r.status,200,JSON.stringify(r.data));current=r.data;}
-await act({type:'complete_onboarding',fullName:'Profile Test',headline:'',targetRole:'SOC Analyst',zipCode:'00100',location:'Abuja, Nigeria',address:'10 Fixture Street',city:'Abuja',country:'Nigeria',phone:'+2348012345678',expectedSalary:{amount:2000,currency:'USD',period:'month'}});
+await act({type:'complete_onboarding',fullName:'Profile Test',headline:'',targetRole:'SOC Analyst',zipCode:'00100',location:'Abuja, Nigeria',address:'10 Fixture Street',city:'Abuja',country:'Nigeria',phone:'+2348012345678',ukVisaRequired:true,ukRightToWork:false,expectedSalary:{amount:2000,currency:'USD',period:'month'}});
 assert.equal((await call('/api/application-agent/claim',{method:'POST',body:{},headers})).status,409,'old workers cannot claim under the new profile policy');
 await act({type:'add_job',title:'SOC Analyst',company:'Test',location:'Lagos',workMode:'Remote',url:`https://employer.example/jobs/${who}`,description:'Monitor security alerts and investigate incidents for this fixture only.',skills:['SIEM']});
 await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});assert.equal(current.state.applications[0].status,'queued');
-const tasks=await Promise.all([call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:1},headers}),call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:1},headers})]);assert.equal(tasks.filter(x=>x.data.task).length,1,'one worker wins a claim');
+const tasks=await Promise.all([call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers}),call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers})]);assert.equal(tasks.filter(x=>x.data.task).length,1,'one worker wins a claim');
 const task=tasks.find(x=>x.data.task).data.task;
-assert.equal(task.applicantProfile.city,'Abuja');assert.equal(task.applicantProfile.zipCode,'00100');assert.equal(task.applicantProfile.expectedSalary.amount,2000);assert.equal(task.profileAnswersVersion,1);assert.equal(task.applicantProfile.ukVisaRequired,undefined);
+assert.equal(task.applicantProfile.city,'Abuja');assert.equal(task.applicantProfile.zipCode,'00100');assert.equal(task.applicantProfile.expectedSalary.amount,2000);assert.equal(task.profileAnswersVersion,2);assert.equal(task.applicantProfile.ukVisaRequired,true);assert.equal(task.applicantProfile.ukRightToWork,false);assert.equal(task.applicantProfile.usaRightToWork,null);
 assert.equal(task.cv.text,cv);assert.equal(task.cv.sha256,createHash('sha256').update(cv).digest('hex'));
 const query=new URLSearchParams({requestId:task.requestId,claimId:task.claimId});assert.equal((await call('/api/application-agent/cv?'+query,{headers,binary:true})).data.length,Buffer.byteLength(cv));
 const input={requestId:task.requestId,claimId:task.claimId};assert.equal((await call('/api/application-agent/authorize',{method:'POST',headers,body:input})).data.authorized,true);
@@ -30,14 +30,14 @@ const done=await call('/api/application-agent/result',{method:'POST',headers,bod
 current=(await call('/api/workspace')).data;
 await act({type:'add_job',title:'SOC Analyst',company:'Second Test',location:'Lagos',workMode:'Remote',url:`https://employer.example/second/${who}`,description:'Monitor security alerts for this local question fixture only.',skills:['SIEM']});
 await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
-const pausedTask=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:1},headers})).data.task;
+const pausedTask=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers})).data.task;
 await call('/api/application-agent/result',{method:'POST',headers,body:{requestId:pausedTask.requestId,claimId:pausedTask.claimId,status:'needs_attention',message:'Missing answer',report:{unresolved:[{field_id:'eligibility',question:'Are you authorized to work in Nigeria?',reason:'User answer required'}]}}});
 current=(await call('/api/workspace')).data;
 await act({type:'answer_application_questions',applicationId:pausedTask.requestId,answers:[{question:'Are you authorized to work in Nigeria?',value:'Yes'}],confirmation:'CONFIRMED'});
 await act({type:'queue_application_agent',applicationId:pausedTask.requestId});
-const resumed=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:1},headers})).data.task;assert.deepEqual(resumed.confirmedAnswers,[{question:'Are you authorized to work in Nigeria?',value:'Yes'}]);
+const resumed=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers})).data.task;assert.deepEqual(resumed.confirmedAnswers,[{question:'Are you authorized to work in Nigeria?',value:'Yes'}]);
 await call('/api/application-agent/result',{method:'POST',headers,body:{requestId:resumed.requestId,claimId:resumed.claimId,status:'needs_attention',message:'Dry run complete'}});
-const before=(await call('/api/workspace')).data;await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:1},headers});assert.equal((await call('/api/workspace')).data.revision,before.revision,'idle polls create no revisions');
+const before=(await call('/api/workspace')).data;await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers});assert.equal((await call('/api/workspace')).data.revision,before.revision,'idle polls create no revisions');
 await call('/api/application-agent/pair',{method:'DELETE'});assert.equal((await call('/api/application-agent/claim',{method:'POST',headers})).status,401);
 assert.equal((await call('/api/agent/claim',{method:'POST',headers})).status,410);
 console.log('PASS new agent: token scope, queue, concurrent claim, exact CV, authorization, receipt gate, idle polling, revocation, old bridge rejected');

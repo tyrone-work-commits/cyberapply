@@ -46,7 +46,8 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   }else if(application.reason==='materials_changed'||application.reason==='candidate_review_required'){
     label='Update request';description='Review the chosen CV and update this request before queuing the agent.';
   }else if(status==='needs_attention'){
-    label='Needs your input';tone='warning';description='The agent paused this unsent application. Review its questions and preparation report, save any answers you can confirm, then queue it again.';
+    label='Needs your input';tone='warning';if(Array.isArray(application.report?.unresolved)&&application.report.unresolved.some(item=>item&&typeof item==='object'&&(item as Record<string,unknown>).source==='generated')){label='Approval needed';}
+    description='The agent paused this unsent application. Review its questions and preparation report, save any answers you can confirm, then queue it again.';
   }else if(status==='failed'){
     label='Needs review';tone='warning';description='The agent could not finish this form. Review its report before trying again.';
   }

@@ -72,8 +72,10 @@ class PlanningTests(unittest.TestCase):
 
     def test_generated_motivation_is_proposed_contribution_and_cv_grounded(self):
         result = self.plan([field("Why are you interested in this role?", "textarea"), field("Cover letter", "textarea")], {"company_findings": [{"text": "Protect customer systems against phishing threats", "source_url": "https://employer.example/about"}]})
-        self.assertEqual(len(result["answers"]), 2)
-        self.assertIn("I would bring", result["answers"][0]["value"])
+        self.assertFalse(result["answers"])
+        self.assertEqual(len(result["unresolved"]),2)
+        self.assertEqual(result["unresolved"][0]["source"],"generated")
+        self.assertIn("I would bring", result["unresolved"][0]["suggested_value"])
         self.assertIn("Splunk", result["cover_letter"])
         self.assertNotIn("three years", result["cover_letter"])
 

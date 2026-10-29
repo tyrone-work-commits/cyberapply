@@ -83,6 +83,33 @@ def test_missing_profile_contact_stops_before_any_submission():
     assert result['status']=='needs_attention' and not posts
     assert any('Edit Profile' in question['reason'] for question in result['report']['unresolved'])
 
+def test_generated_answer_pauses_until_its_exact_text_is_approved():
+    from application_agent.reasoning import build_plan
+    question='Why are you interested in this role?'
+    html=FORM.replace('{extra}',f'<label>{question}<textarea name="motivation" required></textarea></label>')
+    pending,posts=run(html,planner=build_plan)
+    assert pending['status']=='needs_attention' and not posts
+    draft=next(item for item in pending['report']['unresolved'] if item.get('source')=='generated')
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':question,'value':draft['suggested_value']}]}
+    approved,posts=run(html,planner=build_plan,payload=payload)
+    assert approved['status']=='applied' and draft['suggested_value'].encode() in posts[0]
+
+def test_saved_visa_and_work_rights_fill_native_select_and_radio():
+    from application_agent.reasoning import build_plan
+    html=FORM.replace('{extra}','<label>Do you need a work visa for UK?<select name="visa" required><option>Yes</option><option>No</option></select></label><fieldset><legend>Are you authorized to work in UK?</legend><label>Yes<input type="radio" name="rights" value="yes" required></label><label>No<input type="radio" name="rights" value="no" required></label></fieldset>')
+    result,posts=run(html,payload={**PAYLOAD,'applicantProfile':{'ukVisaRequired':True,'ukRightToWork':False}},planner=build_plan)
+    assert result['status']=='applied' and b'Yes' in posts[0] and b'no' in posts[0]
+    assert any(answer['source']=='edit_profile' and answer['value']=='No' for answer in result['report']['answers'])
+
+def test_generated_cover_letter_is_uploaded_only_after_approval():
+    from application_agent.reasoning import build_plan
+    html=FORM.replace('{extra}','<label>Cover letter<input type="file" name="letter" required></label>')
+    result,posts=run(html,planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    approved='This exact cover letter was reviewed and approved for this job.'
+    result,posts=run(html,payload={**PAYLOAD,'confirmedAnswers':[{'question':'Cover letter','value':approved}]},planner=build_plan)
+    assert result['status']=='applied' and approved.encode() in posts[0]
+
 
 def test_blocks_local_and_unapproved_hosts():
     with pytest.raises(ApplicationAttention):

@@ -272,11 +272,31 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             str(item.get('value',''))==str(answer['value']) or
                             field['type']=='checkbox' and answer['value']=='true' and normalize(item.get('value','')) in {'true','yes','i agree'}
                         ) for item in payload.get('confirmedAnswers',[]) if isinstance(item,dict))
+                def approved_choice(field,answer):
+                    if exact_confirmed(field,answer):return True
+                    if not answer:return False
+                    from .profile_answers import profile_field,saved_profile_answer
+                    from .answer_drafts import experience_answer
+                    key=profile_field(field['label'])
+                    if answer.get('source')=='edit_profile' and key and key.endswith(('VisaRequired','RightToWork')):
+                        expected,_,_=saved_profile_answer(payload,field['label'],field)
+                    elif answer.get('source')=='cv' and not re.search(r'consent|agree|privacy|terms',field['label'],re.I):
+                        known=experience_answer(field['label'],str(cv.get('text','')),field['type'])
+                        expected=known[0] if known and not known[2] else None
+                    else:return False
+                    if field['type']=='checkbox' and expected in {'Yes','No'}:expected='true' if expected=='Yes' else 'false'
+                    return expected is not None and expected==answer.get('value')
                 for field in fields:
                     control = controls[field["id"]]
                     kind, label = field["type"], field["label"].lower()
+                    answer = answers.get(field["id"])
                     if kind == "file":
                         if re.search(r"cover.?letter", label):
+                            if not answer or answer.get('source')!='user_confirmed':
+                                if not any(item.get('field_id')==field['id'] for item in unresolved):unresolved.append({'field_id':field['id'],'question':field['label'],'source':'generated','suggested_value':report['cover_letter'],'reason':'Approve the generated cover letter before upload.'})
+                                continue
+                            report['cover_letter']=str(answer['value'])
+                            report['answers'].append({**answer,'question':field['label']})
                             if not report["cover_letter"]:
                                 unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"No grounded cover letter was prepared."})
                             else:
@@ -291,9 +311,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         continue
                     answer = answers.get(field["id"])
                     if kind == 'checkbox':
-                        if exact_confirmed(field,answer) and answer['value']=='true' and field.get('nativeControl'):
-                            control.set_checked(True)
-                            expected_values[field['id']]=('checked',True)
+                        if approved_choice(field,answer) and answer['value'] in {'true','false'} and field.get('nativeControl'):
+                            control.set_checked(answer['value']=='true')
+                            expected_values[field['id']]=('checked',answer['value']=='true')
                             handled_confirmed.add(field['id'])
                             report['answers'].append({**answer, 'question':field['label']})
                         elif field['required']:
@@ -306,7 +326,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             expected_values[field['id']]=('checked',False)
                         continue
                     if kind == 'radio':
-                        if exact_confirmed(field,answer) and field.get('nativeControl') and field.get('groupQuestion') and field['options'].count(str(answer['value']))==1:
+                        if approved_choice(field,answer) and field.get('nativeControl') and field.get('groupQuestion') and field['options'].count(str(answer['value']))==1:
                             if str(answer['value'])==field.get('optionLabel'):
                                 control.check()
                                 expected_values[field['id']]=('checked',True)
@@ -318,7 +338,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if not field.get('nativeControl'):
                                 raise ApplicationAttention('The employer preselected an optional personal choice. Review it before applying.')
                             control.evaluate("e=>{e.checked=false;e.dispatchEvent(new Event('change',{bubbles:true}));}")
-                        if not exact_confirmed(field,answer) and not field['required'] and field.get('nativeControl'):
+                        if not approved_choice(field,answer) and not field['required'] and field.get('nativeControl'):
                             expected_values[field['id']]=('checked',False)
                         continue
                     if kind == "combobox":

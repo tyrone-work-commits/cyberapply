@@ -46,3 +46,5 @@ test('displaying the journey never changes captured materials or invents interme
  assert.deepEqual(progress.events.map(event=>event.label),['Apply requested','Agent started','Agent requested your input']);assert.equal(progress.steps[2].state,'pending');
  assert.ok(progress.events.every(event=>!/(research|cover letter|filled|uploaded|submitted)/i.test(event.label)));
 });
+
+test('generated drafts are shown as approval needed, not applied',()=>{const progress=applicationProgress(request({status:'needs_attention',report:{unresolved:[{question:'Why this role?',source:'generated',suggested_value:'A draft awaiting review.'}]}}));assert.equal(progress.label,'Approval needed');assert.equal(progress.group,'needs_you');});

@@ -18,6 +18,9 @@ export default function ProfileDetailsFields({value,onChange}:{value:AccountDeta
   <section aria-labelledby="profile-visa-title"><h2 id="profile-visa-title">Visa requirements</h2><p className="subtle">Would you require a work visa or employer visa sponsorship to work in each country? Choose Yes or No for each. Leave unanswered if you are unsure.</p>
    {([{key:'ukVisaRequired',label:'UK'},{key:'usaVisaRequired',label:'USA'},{key:'canadaVisaRequired',label:'Canada'}] as const).map(({key,label})=><fieldset className="profile-visa" key={key}><legend>Do you require a work visa for {label}?</legend><div>{([true,false] as const).map(answer=><label className="check-label" key={String(answer)}><input type="checkbox" checked={value[key]===answer} onChange={e=>onChange({[key]:e.target.checked?answer:null})}/><span>{answer?'Yes':'No'}</span></label>)}<span className="label-hint">{value[key]==null?'Not answered':''}</span></div></fieldset>)}
   </section>
+  <section aria-labelledby="profile-work-rights-title"><h2 id="profile-work-rights-title">Current right to work</h2><p className="subtle">Do you currently have legal permission to work in each country? Answer this separately from whether you need a visa or sponsorship. Leave unanswered if you are unsure.</p>
+   {([{key:'ukRightToWork',label:'UK'},{key:'usaRightToWork',label:'USA'},{key:'canadaRightToWork',label:'Canada'}] as const).map(({key,label})=><fieldset className="profile-visa" key={key}><legend>Do you currently have the right to work in {label}?</legend><div>{([true,false] as const).map(answer=><label className="check-label" key={String(answer)}><input type="checkbox" checked={value[key]===answer} onChange={e=>onChange({[key]:e.target.checked?answer:null})}/><span>{answer?'Yes':'No'}</span></label>)}<span className="label-hint">{value[key]==null?'Not answered':''}</span></div></fieldset>)}
+  </section>
  </div>;
 }
 

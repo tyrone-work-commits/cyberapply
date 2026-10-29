@@ -27,9 +27,9 @@ function saveFileReview(state:State){
 export type SelectedCv = { fileId:string; name:string; type:string; size:number };
 export type NewApplicationAgent = { enabled:boolean; tokenHash:string; issuedAt:string; expiresAt:string; lastSeenAt?:string };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; applicantProfile?: ApplicantProfile; cv?: SelectedCv; employerConsent?:boolean; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string; agentAuthorizedAt?:string; agentVersion?:2; cvSha256?:string; confirmedAnswers?:{question:string;value:string}[]; report?:Record<string,unknown>; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string;evidence?:{url:string;text:string}} };
-export type AccountDetails = { zipCode?:string; location?:string; address?:string; city?:string; country?:string; phone?:string; yearsExperience?:number|null; expectedSalary?:SalaryFacts|null; ukVisaRequired?:boolean|null; usaVisaRequired?:boolean|null; canadaVisaRequired?:boolean|null };
-export type ApplicantProfile = Pick<AccountDetails,'zipCode'|'location'|'address'|'city'|'country'|'phone'|'expectedSalary'>;
-export function applicationProfile(state:State):ApplicantProfile{const p=state.accountProfile;return {zipCode:p?.zipCode||'',location:p?.location||'',address:p?.address||'',city:p?.city||'',country:p?.country||'',phone:p?.phone||'',expectedSalary:p?.expectedSalary?structuredClone(p.expectedSalary):null};}
+export type AccountDetails = { zipCode?:string; location?:string; address?:string; city?:string; country?:string; phone?:string; yearsExperience?:number|null; expectedSalary?:SalaryFacts|null; ukVisaRequired?:boolean|null; usaVisaRequired?:boolean|null; canadaVisaRequired?:boolean|null; ukRightToWork?:boolean|null; usaRightToWork?:boolean|null; canadaRightToWork?:boolean|null };
+export type ApplicantProfile = Pick<AccountDetails,'zipCode'|'location'|'address'|'city'|'country'|'phone'|'expectedSalary'|'ukVisaRequired'|'usaVisaRequired'|'canadaVisaRequired'|'ukRightToWork'|'usaRightToWork'|'canadaRightToWork'>;
+export function applicationProfile(state:State):ApplicantProfile{const p=state.accountProfile;return {zipCode:p?.zipCode||'',location:p?.location||'',address:p?.address||'',city:p?.city||'',country:p?.country||'',phone:p?.phone||'',expectedSalary:p?.expectedSalary?structuredClone(p.expectedSalary):null,ukVisaRequired:p?.ukVisaRequired??null,usaVisaRequired:p?.usaVisaRequired??null,canadaVisaRequired:p?.canadaVisaRequired??null,ukRightToWork:p?.ukRightToWork??null,usaRightToWork:p?.usaRightToWork??null,canadaRightToWork:p?.canadaRightToWork??null};}
 export type AccountProfile = AccountDetails & { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
@@ -44,6 +44,7 @@ const accountDetails = {
   phone:z.string().trim().transform(value=>value.replace(/[\s().-]/g,'')).refine(value=>!value||/^\+[1-9]\d{7,14}$/.test(value),'Use an international phone number, for example +2348012345678.').optional(),
   yearsExperience:z.number().finite().min(0).max(80).nullable().optional(),
   expectedSalary:z.object({amount:z.number().finite().positive().max(1_000_000_000_000),currency:z.enum(['USD','NGN','GBP','EUR','CAD','AUD','GHS','KES','ZAR','AED','INR','SGD']),period:z.enum(['year','month','hour'])}).strict().nullable().optional(),
+  ukRightToWork:z.boolean().nullable().optional(), usaRightToWork:z.boolean().nullable().optional(), canadaRightToWork:z.boolean().nullable().optional(),
   ukVisaRequired:z.boolean().nullable().optional(), usaVisaRequired:z.boolean().nullable().optional(), canadaVisaRequired:z.boolean().nullable().optional(),
 };
 const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional(), totalExperienceYears: z.number().min(0).max(60).optional(), cybersecurityExperienceYears: z.number().min(0).max(60).optional(), currentSalary:z.object({amount:z.number().finite().positive().max(1_000_000_000_000),currency:z.enum(['USD','NGN','GBP','EUR','CAD','AUD','GHS','KES','ZAR','AED','INR','SGD']),period:z.enum(['year','month','hour'])}).strict().optional() }).strict().superRefine((value,ctx)=>{if(value.totalExperienceYears!==undefined&&value.cybersecurityExperienceYears!==undefined&&value.cybersecurityExperienceYears>value.totalExperienceYears)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Cybersecurity experience cannot exceed total experience.'});});
@@ -59,7 +60,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
   z.object({ type: z.literal('refresh_application_materials'), applicationId: id }).strict(),
   z.object({ type: z.literal('queue_application_agent'), applicationId: id }).strict(),
-  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(1000),value:z.string().trim().min(1).max(2000)}).strict()).min(1).max(40),confirmation:z.literal('CONFIRMED') }).strict(),
+  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(1000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(40),confirmation:z.literal('CONFIRMED') }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
@@ -91,7 +92,7 @@ export function record(state: State, action: string, message: string, source: Ac
 }
 export function selectedCv(state:State):Attachment|undefined{return state.attachments.find(file=>file.id===state.selectedCvId);}
 export function cvSnapshot(file:Attachment):SelectedCv{return {fileId:file.id,name:file.name,type:file.type,size:file.size};}
-function invalidateUnsent(state:State){state.applications?.forEach(item=>{if(['queued','needs_action','needs_attention','failed'].includes(item.status)){item.status='needs_action';item.reason='materials_changed';delete item.agentAuthorizedAt;}});}
+function invalidateUnsent(state:State){state.applications?.forEach(item=>{if(['queued','needs_action','needs_attention','failed'].includes(item.status)){item.status='needs_action';item.reason='materials_changed';delete item.agentAuthorizedAt;delete item.confirmedAnswers;}});}
 export function activateCv(state:State,file:Attachment,extracted:{text:string;format:'PDF'|'DOCX'|'TXT';pages?:number;warnings:string[]},at=new Date().toISOString()){
   const facts=extractCandidateFacts(extracted.text);
   state.profile={...state.profile,fullName:facts.fullName||'',email:facts.email||'',skills:facts.skills||[],preferredRoles:facts.preferredRoles||[],githubRepositoryUrl:facts.githubRepositoryUrl||'',linkedInUrl:facts.linkedInUrl||'',portfolioWebsiteUrl:facts.portfolioWebsiteUrl||'',location:facts.location||'',resumeText:extracted.text,reviewed:false};
@@ -218,7 +219,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     request.text=draft.text;
     request.draftVersion=draft.version;
     request.reason=CANDIDATE_FACTS_ENABLED&&!state.profile.reviewed?'candidate_review_required':'connection_required';
-    request.status='needs_action';delete request.agentAuthorizedAt;delete request.claim;delete request.result;
+    request.status='needs_action';delete request.agentAuthorizedAt;delete request.claim;delete request.result;delete request.confirmedAnswers;
     message=CANDIDATE_FACTS_ENABLED?`${cv.name} and current candidate facts attached to the unsent Apply request. No employer has received it.`:`${cv.name} attached to the unsent Apply request. Review its draft before using it. No employer has received it.`;
   } else if (action.type === 'answer_application_questions') {
     const request=state.applications?.find(item=>item.id===action.applicationId);

@@ -40,7 +40,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
    const needsUpdate=['materials_changed','cv_required','candidate_review_required'].includes(application.reason)||!attachedFile;
    const canUpdate=!!chosenCv&&['needs_action','queued','needs_attention','failed'].includes(application.status)&&needsUpdate;
    const canChangeCv=!!chosenCv&&!!attachedFile&&application.cv?.fileId!==chosenCv.id&&['needs_action','needs_attention','failed'].includes(application.status);
-   const answeringQuestions=application.status==='needs_attention'&&Array.isArray(application.report?.unresolved)&&application.report.unresolved.length>0;
+   const answeringQuestions=application.status==='needs_attention'&&Array.isArray(application.report?.unresolved)&&application.report.unresolved.some(item=>!item||typeof item!=='object'||(item as Record<string,unknown>).source!=='edit_profile');
    const confirmation=application.result?.evidence,confirmationUrl=httpsUrl(confirmation?.url);
    return <li className={`panel application-overview-card application-tone-${progress.tone}`} key={application.id}>
     <div className="application-overview-main"><div className="application-employer"><span className="application-company-mark" aria-hidden="true">{(job?.company||'?').slice(0,1).toUpperCase()}</span><div><h3>{job?.title||'Job listing unavailable'}</h3><p>{job?.company||'Employer not available'}{job?.location?` · ${job.location}`:''}</p></div></div><span className={`application-status-badge ${progress.tone}`}>{progress.group==='applied'?<CheckCircle2 size={14}/>:progress.group==='check_outcome'||progress.group==='needs_you'?<TriangleAlert size={14}/>:<Clock3 size={14}/>} {progress.label}</span></div>
@@ -72,20 +72,20 @@ function ApplicationQuestionAnswers({application,busy,onSave}:{application:Appli
  const raw=Array.isArray(application.report?.unresolved)?application.report.unresolved:[];
  const questions=[...new Map(raw.filter(item=>item&&typeof item==='object'&&typeof (item as Record<string,unknown>).question==='string').map(item=>{
   const entry=item as Record<string,unknown>,question=String(entry.question).slice(0,1000);
-  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:'',profile:entry.source==='edit_profile'}] as const;
+  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:'',profile:entry.source==='edit_profile',generated:entry.source==='generated',suggestion:typeof entry.suggested_value==='string'?entry.suggested_value:'',evidence:typeof entry.evidence==='string'?entry.evidence:''}] as const;
  })).values()].filter(item=>item.question.trim()).slice(0,40);
- const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries((application.confirmedAnswers||[]).map(item=>[item.question,item.value])));
+ const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries(questions.filter(item=>!item.profile).map(item=>[item.question,application.confirmedAnswers?.find(answer=>answer.question===item.question)?.value||item.suggestion])));
  const [confirmed,setConfirmed]=useState(false);
  const [saving,setSaving]=useState(false),[saved,setSaved]=useState(false);
  const answers=questions.filter(item=>!item.profile).map(item=>({question:item.question,value:(values[item.question]||'').trim()})).filter(item=>item.value);
  if(!questions.length)return null;
   return <form className="application-question-answers" onSubmit={async event=>{event.preventDefault();if(busy||saving||!confirmed||!answers.length)return;setSaving(true);try{if(await onSave(answers)){setSaved(true);setConfirmed(false);}}finally{setSaving(false);}}}>
-  <h4>Answer this employer’s questions</h4>
+  <h4>{questions.some(item=>item.generated)?'Generated answers need your approval':'Answer this employer’s questions'}</h4>
   <p className="subtle">These answers are saved for this application only. Read each question carefully and enter only facts you can confirm. Leave an answer blank if you are unsure; the agent will keep that question paused.</p>
-  {questions.map((item,index)=>item.profile?<div key={item.question}><strong>{item.question}</strong><p className="subtle">{item.reason}</p><a className="button quiet" href="/onboarding">Update Edit Profile</a></div>:<label key={item.question} htmlFor={`application-answer-${application.id}-${index}`}>{item.question}<textarea id={`application-answer-${application.id}-${index}`} rows={2} maxLength={2000} value={values[item.question]||''} disabled={busy||saving} onChange={event=>{setValues({...values,[item.question]:event.target.value});setConfirmed(false);setSaved(false);}}/>{item.reason&&<span className="label-hint">{item.reason}</span>}</label>)}
+  {questions.map((item,index)=>item.profile?<div key={item.question}><strong>{item.question}</strong><p className="subtle">{item.reason}</p><a className="button quiet" href="/onboarding">Update Edit Profile</a></div>:<label key={item.question} htmlFor={`application-answer-${application.id}-${index}`}>{item.question}{item.generated&&<span className="badge">AGENT DRAFT · REVIEW REQUIRED</span>}<textarea id={`application-answer-${application.id}-${index}`} rows={item.generated?5:2} maxLength={20000} value={values[item.question]||''} disabled={busy||saving} onChange={event=>{setValues({...values,[item.question]:event.target.value});setConfirmed(false);setSaved(false);}}/>{item.reason&&<span className="label-hint">{item.reason}</span>}{item.generated&&item.evidence&&<span className="label-hint">Basis: {item.evidence}</span>}</label>)}
   <p className="subtle">For a checkbox or consent question, enter “Yes” only if you personally agree to its exact wording above for this employer. Enter “No” to decline. The agent will not choose an opt-in for you.</p>
-  <label className="check-label"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)}/><span>I confirm that these answers are accurate. Any “Yes” I entered for a consent or checkbox question is my explicit choice for that exact question in this application.</span></label>
-  <button type="submit" className="button quiet" disabled={busy||saving||!confirmed||!answers.length}><Check size={16}/>{saving?'Saving answers…':'Save my answers'}</button>
+  <label className="check-label"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)}/><span>I have reviewed these exact answers and approve the agent using them. I confirm that they are accurate. Any “Yes” I entered for a consent or checkbox question is my explicit choice for that exact question in this application.</span></label>
+  <button type="submit" className="button quiet" disabled={busy||saving||!confirmed||!answers.length}><Check size={16}/>{saving?'Saving approval…':'Approve and save answers'}</button>
   <p className="subtle" role="status">{saved?'Your answers are saved. Continue with my answers will use these exact responses.':'Update missing details in Edit Profile, or save the other answers above. Then queue the agent again.'}</p>
  </form>;
 }
