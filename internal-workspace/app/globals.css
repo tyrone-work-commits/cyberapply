@@ -105,3 +105,4 @@ a.mobile-brand{color:var(--text)}
 
 .agent-connection-card{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:20px;margin:20px 0}.agent-connection-card strong{font-size:14px}.agent-connection-card .account-section-heading{align-items:flex-start}.agent-connection-card .account-section-heading>svg{color:var(--accent);flex-shrink:0}.agent-reconnect-steps{font-size:12px;line-height:1.9;color:var(--muted);padding-left:20px}.agent-reconnect-steps li{margin:7px 0}
 .application-reset-controls{display:flex;flex-wrap:wrap;gap:.65rem;margin:1rem 0}.application-reset-confirm{margin:1rem 0;padding:1.25rem}.application-reset-confirm p{line-height:1.6;margin:.75rem 0}
+.application-delete-dialog p{margin:12px 0}.application-delete-dialog .form-foot{flex-wrap:wrap;gap:12px}

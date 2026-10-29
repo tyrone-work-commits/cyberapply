@@ -4,7 +4,7 @@ The new agent uses the exact uploaded CV attached to an Apply request. When enab
 
 ## Setup and workflow
 
-1. Upload and choose a CV in CV review. Candidate Facts remains hidden.
+1. Upload and choose a CV in CV review. The old Candidate Facts editor and manual review are retired. Personal details belong in Edit Profile; CV review and the agent read the chosen original CV.
 2. In Settings, read the authorization, enable the CV application agent and copy its one-time private connection string. This contains a user-scoped agent credential and, on this private Site, a Site service-access credential. It stays in memory and must never be committed, logged or shared in chat. The server saves only the agent credential hash; Site service access is a server secret.
 3. From this repository run:
 
@@ -68,6 +68,10 @@ The old `/api/agent/*` routes still return HTTP 410. Old tokens cannot operate t
 Automated tests use fabricated CVs and intercepted/local employer pages. No real application was sent while implementing this replacement. A live employer pilot still needs the user's connection, a running worker and an appropriate supported vacancy. Research details are in `application_agent/RESEARCH.md`.
 
 ## Clearing the application tracker — 29 October 2026
+
+Each application also has **Delete application**, and cleared records have **Permanently delete cleared applications**. These operations require the exact typed confirmation `PERMANENTLY DELETE`, a current workspace revision and the owner's signed-in session. They remove the selected requests and related drafts from current records and every saved workspace revision in one guarded database transaction. A request currently being processed cannot be deleted. No employer withdrawal is attempted. For submitted or uncertain outcomes, a minimal vacancy identifier remains solely to prevent another submission; application answers, reports and snapshots are erased.
+
+The cleanup dialog can also permanently remove old Candidate Facts/manual review data. Historical candidate profiles are emptied, legacy manual review/pay-history extras are scrubbed from retained snapshots, and the current CV-derived profile is rebuilt from the selected original file. Edit Profile, original CV files, CV review scores and the agent connection are preserved. The obsolete editor component is removed and its write API returns 410. It cannot be restored through the app. This does not prevent the current app from extracting facts from the CV the user chooses for matching and applications.
 
 Applications has **Clear all applications** and **Restore cleared applications**. Clearing moves the current request records and saved drafts into a private recoverable archive, empties the tracker and releases unsent vacancies back into Explore. It preserves account profile, CV files, the selected CV, saved jobs, agent connection and earlier workspace revisions. Queued requests lose authorization and are not claimed after the clear. Clearing is rejected if a request is processing; optimistic revision checks also prevent racing a newly claimed request.
 

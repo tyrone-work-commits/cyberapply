@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ArrowRight, Bot, Check, CheckCircle2, Clock3, Download, ExternalLink, Eye, FileText, Search, Settings, ShieldCheck, TriangleAlert, Trash2, Undo2 } from 'lucide-react';
 import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-domain';
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
+import { ApplicationDeleteDialog, type DeleteTarget } from './application-delete-dialog';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -15,13 +16,15 @@ function sourceName(job?: Job) {
 function timestamp(value:string){return new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});}
 const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['applied','Applied'],['check_outcome','Check outcome']];
 
-export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,clearedCount=0}:{
+export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0}:{
  applications:ApplicationRequest[];jobs:Job[];drafts:Draft[];files:Attachment[];selectedCvId?:string;agentEnabled:boolean;lastSeenAt?:string;busy:boolean;
  onRefresh:(id:string)=>Promise<void>;onChooseCv:()=>void;onExplore:()=>void;onQueue:(id:string)=>Promise<void>;onAnswer:(id:string,answers:{question:string;value:string}[])=>Promise<boolean>;
  onClear:()=>Promise<boolean>;onRestore:()=>Promise<void>;clearedCount?:number;
+ onDelete:(target:DeleteTarget,legacy:boolean)=>Promise<boolean>;legacyDeleted?:boolean;
 }){
  const [filter,setFilter]=useState<ProgressGroup|'all'>('all'),[search,setSearch]=useState('');
  const [confirmClear,setConfirmClear]=useState(false);
+ const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);
  const chosenCv=files.find(file=>file.id===selectedCvId);
  const ordered=[...applications].sort((a,b)=>b.at.localeCompare(a.at));
  const counts=Object.fromEntries(filters.map(([key])=>[key,key==='all'?ordered.length:ordered.filter(item=>applicationProgress(item).group===key).length]));
@@ -37,6 +40,8 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
   <div className="application-reset-controls">
    {(applications.length>0||drafts.length>0)&&<button className="button quiet" type="button" disabled={busy||applications.some(item=>item.status==='processing')} onClick={()=>setConfirmClear(true)}><Trash2 size={16}/>Clear all applications</button>}
    {clearedCount>0&&<button className="button quiet" type="button" disabled={busy} onClick={()=>void onRestore()}><Undo2 size={16}/>Restore cleared applications ({clearedCount})</button>}
+   {clearedCount>0&&<button className="button quiet danger" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'cleared',label:`${clearedCount} cleared application records and their saved drafts`})}><Trash2 size={16}/>Permanently delete cleared applications</button>}
+   {!legacyDeleted&&<button className="button quiet" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'candidate_facts',label:'Old Candidate Facts and manual review data; uploaded CV files and CV review scores are kept.'})}><Trash2 size={16}/>Delete old Candidate Facts data</button>}
   </div>
   {confirmClear&&<div className="panel application-reset-confirm" role="group" aria-label="Confirm clearing applications"><h3>Clear your applications list?</h3><p>This clears all {applications.length} application records and {drafts.length} saved drafts, including records hidden by filters. Your CVs, profile, saved jobs and agent connection stay saved. Queued requests will stop. This does not withdraw anything sent to an employer.</p><p>You can restore cleared records here. A previously submitted or uncertain application remains protected against an accidental duplicate.</p><div className="account-actions"><button className="button quiet" type="button" disabled={busy} onClick={()=>setConfirmClear(false)}>Cancel</button><button className="button" type="button" disabled={busy} onClick={()=>void onClear().then(saved=>{if(saved){setConfirmClear(false);setFilter('all');setSearch('');}})}><Trash2 size={16}/>Clear applications</button></div></div>}
   <div className="application-filters" role="group" aria-label="Filter applications by status">{filters.map(([key,label])=><button key={key} type="button" aria-pressed={filter===key} className={filter===key?'application-filter active':'application-filter'} onClick={()=>setFilter(key)}><span>{label}</span><strong>{counts[key]}</strong></button>)}</div>
@@ -63,6 +68,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
      {!attachedFile&&!chosenCv&&progress.group==='needs_you'&&<button type="button" className="button" onClick={onChooseCv}><FileText size={15}/>Choose a CV</button>}
      {progress.group==='check_outcome'&&applyUrl&&<a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer">Check employer website<ExternalLink size={15}/></a>}
      {attachedFile&&<a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer"><Eye size={15}/>View application CV</a>}
+     <button className="button quiet danger" type="button" disabled={busy||application.status==='processing'} onClick={()=>setDeleteTarget({scope:'application',applicationId:application.id,label:`${job?.title||'Application'}${job?.company?` · ${job.company}`:''}`})}><Trash2 size={15}/>Delete application</button>
     </div>
     <details className="application-detail-panel"><summary>Application details and agent report</summary>
      {application.report?<AgentReport value={application.report}/>:<p className="subtle">The agent’s answers, experience calculation, company research and cover letter will appear here after it reports back.</p>}
@@ -72,6 +78,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
     </details>
    </li>;
   })}</ol>:<div className="panel application-overview-empty"><span className="agent-tracker-icon"><FileText size={25}/></span><h3>{ordered.length?'No applications in this view':'Your next application starts in Explore'}</h3><p>{ordered.length?'Try another status or search for a different role or company.':'Swipe Apply on a role. With your CV and agent connected, its progress will appear here.'}</p>{ordered.length?<button className="button quiet" type="button" onClick={()=>{setFilter('all');setSearch('');}}>Show all applications</button>:<button className="button" type="button" onClick={onExplore}>Explore jobs<ArrowRight size={15}/></button>}</div>}
+ {deleteTarget&&<ApplicationDeleteDialog target={deleteTarget} busy={busy} onCancel={()=>setDeleteTarget(null)} onDelete={onDelete}/>}
  </section>;
 }
 

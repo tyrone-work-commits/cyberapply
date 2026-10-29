@@ -1,6 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { actionSchema, emptyState, liveState, retireLocalAgent, DomainError, reduceAction, type State, type Activity, type Attachment } from './cyber-domain';
+import { actionSchema, emptyState, liveState, retireLocalAgent, DomainError, reduceAction, record, type State, type Activity, type Attachment } from './cyber-domain';
+import { deletionPlan, deletionHistoryExpression, type DeletionScope } from './application-deletion';
+import { extractCandidateFacts } from './candidate-facts';
+import { extractResume } from './resume-extraction';
 import { discover, mergeDiscovery } from './job-discovery';
 import { defaultSearch } from './job-catalog';
 import { liveSearchCooldown, type SearchCooldown } from './search-cooldown';
@@ -41,10 +44,38 @@ export async function save(user: Identity, expected: number, state: State, actio
 export async function act(user: Identity, expected: number, input: unknown, source: Activity['source']) {
   const parsed = actionSchema.safeParse(input);
   if (!parsed.success) throw new DomainError(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
+  if(parsed.data.type==='save_profile')throw new DomainError('The old Candidate Facts editor and manual review have been permanently retired. Use Edit Profile for personal details and CV review for your chosen file.',410);
   const current = await load(user);
   if (current.revision !== expected) throw new DomainError('Your workspace changed. Reload before saving.', 409);
   const result = reduceAction(current.state, parsed.data, source);
   return {...await save(user, expected, result.state, parsed.data.type),message:result.message};
+}
+export async function permanentlyDeleteApplications(user:Identity,expected:number,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false){
+ const current=await load(user);
+ if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
+ const legacy=scope==='candidate_facts'||deleteCandidateFacts;
+ let replacement=emptyState().profile;
+ if(legacy&&current.state.selectedCvId){
+  const file=current.state.attachments.find(item=>item.id===current.state.selectedCvId);
+  if(file){const object=await files().get(file.key);if(!object)throw new DomainError('The selected CV is unavailable. No records were deleted.',409);
+   const extracted=await extractResume(new Uint8Array(await object.arrayBuffer()),file.name);
+   replacement={...replacement,...extractCandidateFacts(extracted.text),resumeText:extracted.text,reviewed:false};
+  }
+ }
+ const plan=deletionPlan(current.state,scope,applicationId,deleteCandidateFacts,replacement);
+ const at=new Date().toISOString(),revision=expected+1,token=crypto.randomUUID();
+ record(plan.state,'permanently_delete_application_records',`Permanently deleted ${plan.ids.length} application records and ${plan.draftIds.length} drafts${plan.legacy?' and retired legacy Candidate Facts reviews':''}.`,'interface',at);
+ const payload=JSON.stringify(plan.state);
+ if(payload.length>750000)throw new DomainError('Workspace record limit reached. No records were deleted.',413);
+ const redaction=deletionHistoryExpression(plan.ids,plan.draftIds,plan.legacy);
+ const guard='EXISTS (SELECT 1 FROM cyber_workspaces WHERE owner_id=? AND write_token=?)';
+ const results=await db().batch([
+  db().prepare("UPDATE cyber_workspaces SET payload=?,revision=?,write_token=?,updated_at=? WHERE owner_id=? AND revision=? AND json_extract(payload,'$.__deleting') IS NULL").bind(payload,revision,token,at,user.userId,expected),
+  db().prepare(`WITH redacted AS (SELECT owner_id,revision,${redaction.expression} AS clean FROM cyber_revisions WHERE owner_id=? AND ${guard}) UPDATE cyber_revisions SET payload=(SELECT CASE WHEN json_array_length(clean,'$.applicationArchive.applications')=0 AND json_array_length(clean,'$.applicationArchive.drafts')=0 THEN json_remove(clean,'$.applicationArchive','$.lastDecision') ELSE json_remove(clean,'$.lastDecision') END FROM redacted WHERE redacted.owner_id=cyber_revisions.owner_id AND redacted.revision=cyber_revisions.revision) WHERE owner_id=? AND ${guard}`).bind(...redaction.params,user.userId,user.userId,token,user.userId,user.userId,token),
+  db().prepare(`INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE ${guard}`).bind(user.userId,revision,payload,'permanently_delete_application_records',at,user.userId,token),
+ ]);
+ if(results[0].meta.changes!==1)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
+ return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),message:'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};
 }
 export async function discoverJobs(user:Identity,expected:number,settings:unknown,source:Activity['source']) {
   if(!Number.isSafeInteger(expected)||expected<0)throw new DomainError('A current numeric workspace revision is required.');

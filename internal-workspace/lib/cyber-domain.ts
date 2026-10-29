@@ -33,7 +33,7 @@ export function applicationProfile(state:State):ApplicantProfile{const p=state.a
 export type AccountProfile = AccountDetails & { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type ApplicationArchive = { applications:ApplicationRequest[]; drafts:Draft[]; at:string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -185,6 +185,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const previousDisposition=job.disposition;
     const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
+      if(state.applicationSafetyJobIds?.some(id=>id===job.id||state.jobs.find(item=>item.id===id)?.url===job.url))throw new DomainError('A previous application to this vacancy was submitted or had an uncertain outcome. Deleting its tracker record does not make it safe to submit again. Check with the employer.',409);
       if(state.applicationArchive?.applications.some(item=>['applied','uncertain','processing'].includes(item.status)&&(item.jobId===job.id||item.sourceUrl===job.url)))throw new DomainError('A cleared record shows this vacancy may already have received your application. Restore cleared applications and check its outcome before applying again.',409);
       if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
       if (!safeJobUrl(job.url)) throw new DomainError('Add the original job listing URL before applying.', 409);
