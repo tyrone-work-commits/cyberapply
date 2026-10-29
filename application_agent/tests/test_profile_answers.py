@@ -50,6 +50,26 @@ class ProfileAnswerTests(unittest.TestCase):
    self.assertEqual(result['answers'][0]['value'],'https://www.linkedin.com/in/chosen-candidate');self.assertEqual(result['answers'][0]['source'],'cv')
   for text in [CV,CV+'\nhttps://linkedin.com.evil.example/in/wrong',CV+'\nhttps://linkedin.com/company/employer']:
    result=build_plan({'cv':{'text':text},'confirmedAnswers':[{'question':'LinkedIn','value':'https://linkedin.com/in/old'}]},[field('LinkedIn')]);self.assertFalse(result['answers']);self.assertIn('chosen CV',result['unresolved'][0]['reason'])
+ def test_ireland_work_rights_and_visa_use_separate_saved_choices(self):
+  p=PROFILE|{'irelandRightToWork':True,'irelandVisaRequired':False,'ukRightToWork':False}
+  result=plan([field('Are you authorized to work in Ireland?','select',options=['Yes','No']),field('Do you require a work visa for Ireland?','select',options=['Yes','No'])],p)
+  self.assertEqual([a['value'] for a in result['answers']],['Yes','No'])
+  self.assertTrue(all(a['source']=='edit_profile' for a in result['answers']))
+  result=plan([field('Are you authorized to work in Ireland?')],PROFILE|{'irelandVisaRequired':False},confirmedAnswers=[{'question':'Are you authorized to work in Ireland?','value':'Yes'}])
+  self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['profile_field'],'irelandRightToWork')
+ def test_uk_or_ireland_authorization_requires_sufficient_saved_choices(self):
+  questions=['Are you authorized to work in the United Kingdom or Ireland for any employer?','Do you have the right to work in Ireland or the UK?']
+  cases=[(False,False,'No'),(False,True,'Yes'),(True,False,'Yes'),(True,None,'Yes'),(None,True,'Yes'),(False,None,None),(None,False,None),(None,None,None)]
+  for q in questions:
+   for uk,ireland,expected in cases:
+    with self.subTest(question=q,uk=uk,ireland=ireland):
+     result=plan([field(q,'radio',options=['Yes','No'])],PROFILE|{'ukRightToWork':uk,'irelandRightToWork':ireland})
+     if expected:self.assertEqual(result['answers'][0]['value'],expected)
+     else:self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['source'],'edit_profile')
+ def test_ireland_does_not_establish_northern_ireland_or_conditional_work_rights(self):
+  p=PROFILE|{'ukRightToWork':False,'irelandRightToWork':True,'irelandVisaRequired':False}
+  for q in ['Are you authorized to work in Northern Ireland?','Are you authorized to work in the UK and Ireland?','Are you authorized to work in Ireland or the UK without sponsorship?','Do you need sponsorship in the UK or Ireland?']:
+   with self.subTest(question=q):self.assertFalse(plan([field(q)],p)['answers'])
  def test_every_contact_field_uses_profile_instead_of_conflicting_cv(self):
   labels={'Zip code':'00100','Postal code':'00100','Location':'Abuja, Nigeria','Address':'10 Example Street','Street address':'10 Example Street','City':'Abuja','Country':'Nigeria','Phone number':'+2348012345678','Your current location':'Abuja, Nigeria','Where are you located?':'Abuja, Nigeria','Phone number (with country code)':'+2348012345678'}
   result=plan([field(label) for label in labels])

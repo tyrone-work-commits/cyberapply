@@ -121,6 +121,16 @@ def test_saved_visa_and_work_rights_fill_native_select_and_radio():
     assert result['status']=='applied' and b'Yes' in posts[0] and b'no' in posts[0]
     assert any(answer['source']=='edit_profile' and answer['value']=='No' for answer in result['report']['answers'])
 
+def test_uk_or_ireland_work_rights_fill_from_profile_or_pause_when_missing():
+    from application_agent.reasoning import build_plan
+    html=FORM.replace('{extra}','<fieldset><legend>Are you authorized to work in the United Kingdom or Ireland for any employer?</legend><label>Yes<input type="radio" name="rights" value="yes" required></label><label>No<input type="radio" name="rights" value="no" required></label></fieldset><label>Do you require a work visa for Ireland?<select name="visa" required><option>Yes</option><option>No</option></select></label>')
+    profile={'ukRightToWork':False,'irelandRightToWork':True,'irelandVisaRequired':False}
+    result,posts=run(html,payload={**PAYLOAD,'applicantProfile':profile},planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1 and b'yes' in posts[0] and b'No' in posts[0]
+    result,posts=run(html,payload={**PAYLOAD,'applicantProfile':{'ukRightToWork':False,'irelandVisaRequired':False}},planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    assert any(item.get('profile_field')=='ukIrelandRightToWork' for item in result['report']['unresolved'])
+
 def test_generated_cover_letter_is_uploaded_only_after_approval():
     from application_agent.reasoning import build_plan
     html=FORM.replace('{extra}','<label>Cover letter<input type="file" name="letter" required></label>')

@@ -57,10 +57,16 @@ def profile_field(question):
     visa=bool(re.search(r'\b(?:visa|sponsor\w*)\b',text))
     rights=bool(re.search(r'right to work|(?:legally able|(?:legally )?(?:authori[sz]ed|eligible|permitted|entitled|allowed)) to work|work authori[sz]ation',text))
     if visa or rights:
-        countries=[key for key,pattern in {'uk':r'\b(?:uk|u\.k\.?|united kingdom|great britain)\b','usa':r'\b(?:usa|u\.s\.?a?\.?|united states(?: of america)?)\b|\b(?:in|for|within|the) us\b','canada':r'\bcanada\b'}.items() if re.search(pattern,text)]
+        countries=[key for key,pattern in {'uk':r'\b(?:uk|u\.k\.?|united kingdom|great britain)\b','usa':r'\b(?:usa|u\.s\.?a?\.?|united states(?: of america)?)\b|\b(?:in|for|within|the) us\b','canada':r'\bcanada\b','ireland':r'\b(?:ireland|republic of ireland)\b'}.items() if re.search(pattern,text)]
         if 'usa' not in countries and re.search(r'\bUS\b',question):countries.append('usa')
+        if re.search(r'\bnorthern ireland\b',text):return 'eligibilityReview'
         if not countries:return None
         if visa and not re.search(r'\b(?:need|requir)\w*\b',text):return 'eligibilityReview'
+        if rights and not visa and set(countries)=={'uk','ireland'}:
+            country=r'(?:the )?(?:uk|u\.k\.?|united kingdom|great britain|(?:republic of )?ireland)'
+            pattern=rf'(?:are you (?:legally )?(?:authori[sz]ed|eligible|permitted|entitled|allowed) to work|do you (?:currently )?have (?:the )?right to work) in {country} or {country}(?: for any employer)?'
+            if re.fullmatch(pattern,text):return 'ukIrelandRightToWork'
+            return 'eligibilityReview'
         if len(countries)!=1 or (visa and rights) or re.search(r'\b(?:not|without|citizen|citizenship|permanent resident|why|explain|describe)\b',text):return 'eligibilityReview'
         return countries[0]+('RightToWork' if rights else 'VisaRequired')
     if re.search(r'\b(?:salary|compensation|remuneration|wage|pay expectations?|expected pay|pay rate|desired pay)\b',text):
@@ -86,6 +92,13 @@ def saved_profile_answer(payload,question,field):
     profile=payload.get('applicantProfile')
     profile=profile if isinstance(profile,dict) else {}
     if key=='residenceQuestion':return residence_answer(profile,question)
+    if key=='ukIrelandRightToWork':
+        values=[profile.get('ukRightToWork'),profile.get('irelandRightToWork')]
+        if any(value is True for value in values):value='Yes'
+        elif all(value is False for value in values):value='No'
+        else:return None,'','Choose current right to work for the UK and Ireland in Edit Profile. No is only established when both are No; residence and visa answers do not establish permission.'
+        proof='Edit Profile — UK current right to work: '+str(values[0])+'; Ireland current right to work: '+str(values[1])+'. Either-country authorization question; no eligibility inferred from residence or visa requirements.'
+        return value,proof,''
     if key and key.endswith(('VisaRequired','RightToWork')):
         value=profile.get(key)
         if not isinstance(value,bool):return None,'',f'Choose Yes or No for {key} in Edit Profile. Visa requirement and current right to work are separate facts.'

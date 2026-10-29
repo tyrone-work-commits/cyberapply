@@ -334,7 +334,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                                 report['answers'].append({**answer, 'question':field['label']})
                             handled_confirmed.add(field['id'])
                         elif field['required']:
-                            unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required radio question needs an explicit matching choice.'})
+                            if not any(item.get('field_id')==field['id'] for item in unresolved):
+                                unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required radio question needs an explicit matching choice.'})
                         elif field.get('checked'):
                             if not field.get('nativeControl'):
                                 raise ApplicationAttention('The employer preselected an optional personal choice. Review it before applying.')

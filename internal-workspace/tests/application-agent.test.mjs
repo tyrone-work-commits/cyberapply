@@ -7,7 +7,7 @@ for(const name of ['features','candidate-facts','cover-letter','cyber-domain','a
  const code=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(`.sites-runtime/new-agent-tests/${name}.mjs`,code);
 }
-const {emptyState,reduceAction,retireLocalAgent}=await import('../.sites-runtime/new-agent-tests/cyber-domain.mjs');
+const {emptyState,reduceAction,retireLocalAgent,actionSchema}=await import('../.sites-runtime/new-agent-tests/cyber-domain.mjs');
 const {claimApplication,activeClaim,completeApplication,assertApplicationProfileCurrent}=await import('../.sites-runtime/new-agent-tests/application-agent-state.mjs');
 const at='2026-10-28T11:00:00.000Z';
 function fixture(){const s=emptyState();s.attachments=[{id:'cv',key:'owners/test/cv',name:'cv.txt',type:'text/plain',size:100,createdAt:at,textExtracted:true}];s.selectedCvId='cv';s.profile.resumeText='Test Candidate\ncandidate@example.test\nSOC Analyst 2023 - 2025\nInvestigated security alerts.';s.newApplicationAgent={enabled:true,tokenHash:'hash',issuedAt:at,expiresAt:'2026-11-28T11:00:00.000Z'};s.jobs=[{id:'job',title:'SOC Analyst',company:'Test',location:'Nigeria',workMode:'Remote',url:'https://employer.example/jobs/1',description:'Review security alerts and investigate incidents.',skills:[],sample:false,saved:false,disposition:'open',createdAt:at}];return s;}
@@ -21,3 +21,16 @@ test('deleted selected file prevents claim access and does not report Applied',(
 test('claim snapshots current Edit Profile and stale profile blocks authorization without losing results',()=>{const s=apply(fixture());s.accountProfile={fullName:'Profile Person',headline:'',targetRole:'SOC Analyst',completedAt:at,location:'Abuja',zipCode:'00100',phone:'+2348012345678',expectedSalary:{amount:2000,currency:'USD',period:'month'}};const request=claimApplication(s,at);assert.equal(request.applicantProfile.fullName,'Profile Person');s.accountProfile.fullName='Changed Name';assert.throws(()=>assertApplicationProfileCurrent(s,request),/Edit Profile changed/);s.accountProfile.fullName='Profile Person';assert.equal(request.applicantProfile.location,'Abuja');assert.equal(request.applicantProfile.expectedSalary.amount,2000);assertApplicationProfileCurrent(s,request);s.accountProfile.expectedSalary.amount=3000;assert.equal(request.applicantProfile.expectedSalary.amount,2000);assert.throws(()=>assertApplicationProfileCurrent(s,request),/Edit Profile changed/);completeApplication(s,{requestId:request.id,claimId:request.claim.id,status:'needs_attention',message:'Profile changed; no submission'},at);assert.equal(request.status,'needs_attention');});
 
 test('right-to-work and visa answers are separate nullable profile facts and claim edits revoke authorization',()=>{let s=fixture();s=reduceAction(s,{type:'complete_onboarding',fullName:'QA',headline:'',targetRole:'SOC Analyst',ukVisaRequired:true,ukRightToWork:false,usaVisaRequired:false,usaRightToWork:true,canadaRightToWork:null},'interface',at).state;s=apply(s);const request=claimApplication(s,at);assert.equal(request.applicantProfile.ukVisaRequired,true);assert.equal(request.applicantProfile.ukRightToWork,false);assert.equal(request.applicantProfile.canadaRightToWork,null);s.accountProfile.ukRightToWork=true;assert.throws(()=>assertApplicationProfileCurrent(s,request),/Edit Profile changed/);});
+
+test('Ireland choices persist independently, default to unknown, and revoke stale claim authorization',()=>{
+ let s=fixture();let request=claimApplication(apply(s),at);
+ assert.equal(request.applicantProfile.irelandVisaRequired,null);assert.equal(request.applicantProfile.irelandRightToWork,null);
+ s=reduceAction(s,{type:'complete_onboarding',fullName:'QA',headline:'',targetRole:'SOC Analyst',ukRightToWork:false,irelandVisaRequired:false,irelandRightToWork:true},'interface',at).state;
+ assert.equal(s.accountProfile.irelandVisaRequired,false);assert.equal(s.accountProfile.irelandRightToWork,true);assert.equal(s.accountProfile.ukRightToWork,false);
+ s=apply(s);request=claimApplication(s,at);
+ assert.equal(request.applicantProfile.irelandVisaRequired,false);assert.equal(request.applicantProfile.irelandRightToWork,true);
+ s.accountProfile.irelandRightToWork=false;assert.equal(request.applicantProfile.irelandRightToWork,true);assert.throws(()=>assertApplicationProfileCurrent(s,request),/Edit Profile changed/);
+ s=reduceAction(fixture(),{type:'complete_onboarding',fullName:'QA',headline:'',targetRole:'SOC Analyst',irelandVisaRequired:null,irelandRightToWork:null},'interface',at).state;
+ assert.equal(s.accountProfile.irelandVisaRequired,null);assert.equal(s.accountProfile.irelandRightToWork,null);
+ assert.throws(()=>actionSchema.parse({type:'complete_onboarding',fullName:'QA',headline:'',targetRole:'SOC Analyst',irelandRightToWork:'Yes'}));
+});
