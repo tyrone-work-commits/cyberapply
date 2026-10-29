@@ -104,7 +104,8 @@ export async function deleteAccount(user:Identity,expected:number){
   }
   try{
     await db().batch([
-      db().prepare('DELETE FROM cyber_revisions WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_agent_presence WHERE owner_id=?').bind(user.userId),
+    db().prepare('DELETE FROM cyber_revisions WHERE owner_id=?').bind(user.userId),
       db().prepare("DELETE FROM cyber_workspaces WHERE owner_id=? AND json_extract(payload,'$.__deleting')=1").bind(user.userId),
     ]);
   }catch{

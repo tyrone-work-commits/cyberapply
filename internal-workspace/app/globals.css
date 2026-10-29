@@ -102,3 +102,5 @@ a.mobile-brand{color:var(--text)}
 @media(max-width:650px){.agent-tracker-identity>div{flex:1 1 calc(100% - 57px)}.agent-tracker-cv>span{flex:1 1 calc(100% - 30px)}}
 
 .account-profile-details section{border-top:1px solid var(--line);padding-top:22px;margin-top:24px}.account-profile-details h2{font-size:17px;margin-bottom:10px}.account-profile-details .subtle{font-size:11px;line-height:1.8}.account-profile-details .form-pair>*{min-width:0}.profile-visa{border:0;padding:0;margin:20px 0}.profile-visa legend{font-size:12px;font-weight:600;margin-bottom:9px}.profile-visa>div{display:flex;gap:20px;align-items:center}.profile-visa .check-label{margin:0}.profile-visa .check-label input{accent-color:var(--accent)}
+
+.agent-connection-card{border:1px solid var(--line);border-radius:12px;background:var(--bg);padding:20px;margin:20px 0}.agent-connection-card strong{font-size:14px}.agent-connection-card .account-section-heading{align-items:flex-start}.agent-connection-card .account-section-heading>svg{color:var(--accent);flex-shrink:0}.agent-reconnect-steps{font-size:12px;line-height:1.9;color:var(--muted);padding-left:20px}.agent-reconnect-steps li{margin:7px 0}

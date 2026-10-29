@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
 import { identity, load, save, files, response, failure, type Identity } from './cyber-store';
 import { activeClaim, claimApplication, completeApplication, assertApplicationProfileCurrent } from './application-agent-state';
+import { runnerPresence, type PresenceRow } from './agent-presence';
 import { extractResume } from './resume-extraction';
 
 const digest=async(value:BufferSource)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',value)),x=>x.toString(16).padStart(2,'0')).join('');
@@ -13,6 +14,7 @@ async function json(request:Request){
   try{return JSON.parse(raw);}catch{throw new DomainError('Invalid JSON.');}
 }
 function sameOrigin(request:Request){const origin=request.headers.get('origin');if(origin&&origin!==new URL(request.url).origin)throw new DomainError('Cross-origin writes are not allowed.',403);}
+function presenceDb(){if(!env.DB)throw new DomainError('Background status storage is unavailable.',503);return env.DB;}
 async function worker(request:Request){
   const token=request.headers.get('authorization')?.replace(/^Bearer /,'')||'';
   const match=/^ca2\.([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/.exec(token);
@@ -44,7 +46,7 @@ const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','u
 
 export async function pair(request:Request){try{
   const user=await identity(request),current=await load(user),config=current.state.newApplicationAgent;
-  if(request.method==='GET')return response({revision:current.revision,connected:!!config?.enabled&&Date.parse(config.expiresAt)>Date.now(),enabled:config?.enabled||false,expiresAt:config?.expiresAt,lastSeenAt:config?.lastSeenAt});
+  if(request.method==='GET'){const presence=config?.enabled?await presenceDb().prepare('SELECT token_hash,state,seen_at FROM cyber_agent_presence WHERE owner_id=?').bind(user.userId).first<PresenceRow>():null;return response({revision:current.revision,connected:!!config?.enabled&&Date.parse(config.expiresAt)>Date.now(),enabled:config?.enabled||false,expiresAt:config?.expiresAt,lastSeenAt:config?.lastSeenAt,...runnerPresence(config,presence)});}
   sameOrigin(request);
   if(request.method==='DELETE'){
     delete current.state.newApplicationAgent;
@@ -103,4 +105,12 @@ export async function result(request:Request){try{
     try{await save(user,current.revision,current.state,'application_agent_result');return response({recorded:true});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
   }
   throw new DomainError('Outcome was not saved. Check the employer; do not resubmit.',409);
+}catch(error){return failure(error);}}
+
+export async function heartbeat(request:Request){try{
+ const user=await worker(request),body=z.object({state:z.enum(['checking','running','working','reconnect_required','waiting_for_connection','needs_review','stopped'])}).strict().parse(await json(request));
+ const current=await load(user);stillConnected(current.state,user);
+ const at=new Date().toISOString();
+ await presenceDb().prepare('INSERT INTO cyber_agent_presence (owner_id,token_hash,state,seen_at) VALUES (?,?,?,?) ON CONFLICT(owner_id) DO UPDATE SET token_hash=excluded.token_hash,state=excluded.state,seen_at=excluded.seen_at').bind(user.userId,user.agentHash,body.state,at).run();
+ return response({received:true,at});
 }catch(error){return failure(error);}}

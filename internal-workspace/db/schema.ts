@@ -15,3 +15,10 @@ export const revisions = sqliteTable('cyber_revisions', {
   action: text('action').notNull(),
   createdAt: text('created_at').notNull(),
 }, (table) => [primaryKey({columns: [table.ownerId, table.revision]})]);
+
+export const agentPresence=sqliteTable('cyber_agent_presence',{
+  ownerId:text('owner_id').primaryKey(),
+  tokenHash:text('token_hash').notNull(),
+  state:text('state').notNull(),
+  seenAt:text('seen_at').notNull(),
+});

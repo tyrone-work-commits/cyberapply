@@ -46,6 +46,8 @@ def install_startup():
         return "'" + str(value).replace("'", "''") + "'"
     script = "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(" + quote(startup_link()) + ");$s.TargetPath=" + quote(pythonw) + ";$s.Arguments='-m application_agent.background run';$s.WorkingDirectory=" + quote(ROOT) + ";$s.WindowStyle=7;$s.Description='CyberApply authorized CV application browser runner';$s.Save()"
     subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script], check=True, creationflags=subprocess.CREATE_NO_WINDOW, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    from .setup_launcher import register_setup_launcher
+    register_setup_launcher()
     return pythonw
 
 
@@ -80,13 +82,18 @@ def run():
         ctypes.windll.kernel32.CloseHandle(mutex)
         return
     failures=0
+    from . import presence
+    status('checking')
+    active_connection=[None]
+    presence_stop=presence.start(data_dir(),SITE,get_connection=lambda:active_connection[0])
     try:
         while not (data_dir() / 'stop').exists():
             try:
                 raw=protect((data_dir() / 'connection.dat').read_bytes(), decrypt=True).decode('utf-8')
                 token, service=parse_connection(raw, SITE)
+                active_connection[0]=raw
                 status('checking')
-                worked=run_once(SITE, token, submit=True, browser_channel='chrome', site_access_token=service)
+                worked=run_once(SITE, token, submit=True, browser_channel='chrome', site_access_token=service,on_state=lambda state:status(state))
                 failures=0
                 status('running', last_check=datetime.now(timezone.utc).isoformat(), last_result='processed_request' if worked else 'queue_empty')
                 delay=5
@@ -114,6 +121,11 @@ def run():
                 time.sleep(1)
         status('stopped')
     finally:
+        presence.stop(presence_stop)
+        if (data_dir()/'stop').exists():
+            try:
+                if active_connection[0] is not None:presence.publish(data_dir(),SITE,'stopped',connection=active_connection[0])
+            except Exception:pass
         ctypes.windll.kernel32.CloseHandle(mutex)
 
 
@@ -122,7 +134,7 @@ def setup_window():
     from tkinter import messagebox
     window=tk.Tk()
     window.title('CyberApply — automatic background agent')
-    window.geometry('570x300')
+    window.geometry('590x350')
     window.resizable(False,False)
     tk.Label(window,text='Connect your background application agent',font=('Segoe UI',13,'bold')).pack(pady=(20,10))
     tk.Label(window,text='Copy the private connection string from CyberApply Settings,\nthen paste it here. It stays encrypted under your Windows account.\n\nThis enables processing of your authorized Apply requests\nwhile this computer is awake and you are signed in.',font=('Segoe UI',10),justify='left').pack(padx=20)
@@ -136,8 +148,19 @@ def setup_window():
             messagebox.showerror('Setup needs attention','Could not complete setup. Check the connection string and try again. No credential was printed or logged.')
             return
         value.set('')
-        messagebox.showinfo('CyberApply','Automatic startup is installed and the background agent has started. You can close this window.')
+        messagebox.showinfo('CyberApply','Automatic startup is enabled and the agent is starting. Check Account Settings for its live connection status. You can close this window.')
         window.destroy()
+    local_status=tk.Label(window,text='',font=('Segoe UI',10),wraplength=540)
+    local_status.pack(padx=20,pady=(0,12))
+    def refresh_local():
+        try:
+            saved=json.loads((data_dir()/'status.json').read_text(encoding='utf-8'))
+            state=str(saved.get('state','not_configured')).replace('_',' ')
+            at=saved.get('at','')
+            local_status.config(text=f'Background agent: {state}'+(f' · Last update {at[:19].replace("T"," ")} UTC' if at else ''))
+        except (OSError,ValueError):local_status.config(text='Background agent: not configured')
+        window.after(2000,refresh_local)
+    refresh_local()
     tk.Button(window,text='Enable automatic background applications',command=submit).pack()
     entry.focus_set()
     window.mainloop()
@@ -145,10 +168,13 @@ def setup_window():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['setup','run','status','stop','uninstall','clear-sessions'])
+    parser.add_argument('action',choices=['setup','run','status','stop','uninstall','clear-sessions','register-setup'])
     args=parser.parse_args()
     if args.action=='setup':
         setup_window()
+    elif args.action=='register-setup':
+        from .setup_launcher import register_setup_launcher
+        print('Registered setup link:',register_setup_launcher())
     elif args.action=='run':
         run()
     elif args.action=='status':
@@ -164,6 +190,8 @@ def main():
         data_dir().mkdir(parents=True,exist_ok=True)
         (data_dir()/'stop').touch()
         if args.action=='uninstall':
+            from .setup_launcher import unregister_setup_launcher
+            unregister_setup_launcher()
             startup_link().unlink(missing_ok=True)
             (data_dir()/'connection.dat').unlink(missing_ok=True)
         print('Background agent stopping.' if args.action=='stop' else 'Startup and local credential removed. Disconnect in CyberApply Settings to revoke the server credential.')

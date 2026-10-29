@@ -38,13 +38,13 @@ def parse_connection(raw, site):
     return token, service_token
 
 
-def call_site(site, token, path, data=None, binary=False, site_access_token=None):
+def call_site(site, token, path, data=None, binary=False, site_access_token=None, timeout=40):
     from urllib.request import build_opener
     req = Request(site + path, data=json.dumps(data).encode() if data is not None else None,
                   headers={"Authorization":"Bearer " + token, "Content-Type":"application/json", "Accept":"application/octet-stream" if binary else "application/json",
                            **({'OAI-Sites-Authorization':'Bearer '+site_access_token} if site_access_token else {})},
                   method="POST" if data is not None else "GET")
-    with build_opener(NoRedirect()).open(req, timeout=40) as response:
+    with build_opener(NoRedirect()).open(req, timeout=timeout) as response:
         limit = 15_000_001 if binary else 2_000_000
         raw = response.read(limit)
         if len(raw) >= limit:
@@ -52,10 +52,11 @@ def call_site(site, token, path, data=None, binary=False, site_access_token=None
         return raw if binary else json.loads(raw)
 
 
-def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None):
+def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None):
     task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":2}, site_access_token=site_access_token)["task"]
     if not task:
         return False
+    if on_state:on_state('working')
     query = urlencode({"requestId":task["requestId"], "claimId":task["claimId"]})
     try:
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)

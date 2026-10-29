@@ -10,6 +10,15 @@ const form=new FormData();form.set('revision',String(current.revision));form.set
 assert.equal((await call('/api/application-agent/claim',{method:'POST',headers:{Authorization:'Bearer ca1.old'}})).status,401);
 const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});assert.equal(pair.status,200);const bundle=JSON.parse(pair.data.token),headers={Authorization:`Bearer ${bundle.token}`};
 current=(await call('/api/workspace')).data;
+assert.equal((await call('/api/application-agent/pair')).data.runnerState,'not_reporting','a valid token is not proof of background activity');
+const beforeHeartbeat=current.revision;
+assert.equal((await call('/api/application-agent/heartbeat',{method:'POST',body:{state:'running'},headers})).status,200);
+assert.equal((await call('/api/application-agent/pair')).data.runnerState,'running','fresh authenticated check-in shows running');
+assert.equal((await call('/api/workspace')).data.revision,beforeHeartbeat,'presence does not churn application history or revisions');
+const otherHeaders={'oai-authenticated-user-id':'other-'+who,'oai-authenticated-user-email':'other@example.test'};
+assert.equal((await call('/api/application-agent/pair',{headers:otherHeaders})).data.runnerState,'disconnected','presence is private to the current account');
+assert.equal((await call('/api/application-agent/heartbeat',{method:'POST',body:{state:'stopped'},headers})).status,200);
+assert.equal((await call('/api/application-agent/pair')).data.runnerState,'stopped');
 async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});assert.equal(r.status,200,JSON.stringify(r.data));current=r.data;}
 await act({type:'complete_onboarding',fullName:'Profile Test',headline:'',targetRole:'SOC Analyst',zipCode:'00100',location:'Abuja, Nigeria',address:'10 Fixture Street',city:'Abuja',country:'Nigeria',phone:'+2348012345678',ukVisaRequired:true,ukRightToWork:false,expectedSalary:{amount:2000,currency:'USD',period:'month'}});
 assert.equal((await call('/api/application-agent/claim',{method:'POST',body:{},headers})).status,409,'old workers cannot claim under the new profile policy');
@@ -39,5 +48,6 @@ const resumed=(await call('/api/application-agent/claim',{method:'POST',body:{pr
 await call('/api/application-agent/result',{method:'POST',headers,body:{requestId:resumed.requestId,claimId:resumed.claimId,status:'needs_attention',message:'Dry run complete'}});
 const before=(await call('/api/workspace')).data;await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers});assert.equal((await call('/api/workspace')).data.revision,before.revision,'idle polls create no revisions');
 await call('/api/application-agent/pair',{method:'DELETE'});assert.equal((await call('/api/application-agent/claim',{method:'POST',headers})).status,401);
+assert.equal((await call('/api/application-agent/heartbeat',{method:'POST',headers})).status,401,'revoked credentials cannot report presence');
 assert.equal((await call('/api/agent/claim',{method:'POST',headers})).status,410);
 console.log('PASS new agent: token scope, queue, concurrent claim, exact CV, authorization, receipt gate, idle polling, revocation, old bridge rejected');
