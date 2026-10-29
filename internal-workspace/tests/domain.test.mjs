@@ -15,6 +15,41 @@ const listing={type:'add_job',title:'QA SOC Analyst',company:'QA Company',locati
 const ready=()=>act(act(emptyState(),listing),{type:'save_profile',profile});
 const apply=s=>act(s,{type:'decide_job',jobId:s.jobs[0].id,decision:'apply'});
 
+test('clear applications is reversible, removes drafts and keeps profile, CVs and agent connection',()=>{
+ const before=apply(ready());before.accountProfile={fullName:'QA',headline:'',targetRole:'SOC',completedAt:at,phone:'+2348012345678'};
+ before.attachments=[{id:'cv',key:'private',name:'qa.txt',type:'text/plain',size:100,createdAt:at,textExtracted:true}];before.selectedCvId='cv';
+ before.newApplicationAgent={enabled:true,tokenHash:'hash',issuedAt:at,expiresAt:'2027-01-01T00:00:00Z'};
+ before.applications[0].status='queued';before.applications[0].agentAuthorizedAt=at;
+ const cleared=act(before,{type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'});
+ assert.equal(cleared.applications.length,0);assert.equal(cleared.drafts.length,0);assert.equal(cleared.jobs[0].disposition,'open');assert.equal(cleared.lastDecision,undefined);
+ for(const key of ['profile','accountProfile','attachments','selectedCvId','newApplicationAgent'])assert.deepEqual(cleared[key],before[key]);
+ assert.equal(cleared.applicationArchive.applications[0].status,'needs_action');assert.equal(cleared.applicationArchive.applications[0].agentAuthorizedAt,undefined);
+ const restored=act(cleared,{type:'restore_applications'});
+ assert.equal(restored.applications.length,1);assert.equal(restored.drafts.length,1);assert.equal(restored.applications[0].status,'needs_action');assert.equal(restored.applications[0].agentAuthorizedAt,undefined);assert.equal(restored.applicationArchive,undefined);
+ assert.equal(before.applications.length,1,'original state stays immutable');
+});
+test('an active claim prevents clearing, and confirmation is required',()=>{
+ const before=apply(ready());before.applications[0].status='processing';
+ assert.throws(()=>act(before,{type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'}),/in progress/);
+ assert.equal(actionSchema.safeParse({type:'clear_applications'}).success,false);
+ assert.equal(before.applications.length,1);
+});
+test('cleared possible submissions remain protected from duplicates by job and source URL',()=>{
+ for(const status of ['applied','uncertain']){
+  const before=apply(ready());before.applications[0].status=status;before.applications[0].result={at,message:'Check employer',receipt:'receipt'};
+  const cleared=act(before,{type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'});
+  assert.equal(cleared.jobs[0].disposition,'apply_requested');assert.throws(()=>apply(cleared),/may already have received/);
+  cleared.jobs[0].id='reimported-job';assert.throws(()=>apply(cleared),/may already have received/);
+ }
+});
+test('fresh requests after clear do not inherit old question approvals, and restore does not replace them',()=>{
+ const before=apply(ready());before.applications[0].confirmedAnswers=[{question:'Old question',value:'Old answer'}];
+ const cleared=act(before,{type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'});
+ const fresh=apply(cleared);assert.notEqual(fresh.applications[0].id,before.applications[0].id);assert.equal(fresh.applications[0].confirmedAnswers,undefined);
+ const restored=act(fresh,{type:'restore_applications'});assert.equal(restored.applications.length,1);assert.equal(restored.applications[0].id,fresh.applications[0].id);
+ assert.equal(restored.applicationArchive.applications.length,1,'conflicting old record stays recoverable, not overwritten');
+});
+
 test('account profile details save and edit without replacing CV facts or existing applications',()=>{
  const before=apply(ready());
  const details={zipCode:'SW1A 1AA',location:'London, UK',address:'10 Example Street',city:'London',country:'United Kingdom',phone:'+44 7700 900123',yearsExperience:3.5,expectedSalary:{amount:4500,currency:'GBP',period:'month'},ukVisaRequired:true,usaVisaRequired:false,canadaVisaRequired:null};

@@ -31,8 +31,9 @@ export type AccountDetails = { zipCode?:string; location?:string; address?:strin
 export type ApplicantProfile = Pick<AccountDetails,'zipCode'|'location'|'address'|'city'|'country'|'phone'|'expectedSalary'|'ukVisaRequired'|'usaVisaRequired'|'canadaVisaRequired'|'ukRightToWork'|'usaRightToWork'|'canadaRightToWork'>;
 export function applicationProfile(state:State):ApplicantProfile{const p=state.accountProfile;return {zipCode:p?.zipCode||'',location:p?.location||'',address:p?.address||'',city:p?.city||'',country:p?.country||'',phone:p?.phone||'',expectedSalary:p?.expectedSalary?structuredClone(p.expectedSalary):null,ukVisaRequired:p?.ukVisaRequired??null,usaVisaRequired:p?.usaVisaRequired??null,canadaVisaRequired:p?.canadaVisaRequired??null,ukRightToWork:p?.ukRightToWork??null,usaRightToWork:p?.usaRightToWork??null,canadaRightToWork:p?.canadaRightToWork??null};}
 export type AccountProfile = AccountDetails & { fullName: string; headline: string; targetRole: string; completedAt: string };
+export type ApplicationArchive = { applications:ApplicationRequest[]; drafts:Draft[]; at:string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
-export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
+export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
 const short = z.string().trim().max(200);
@@ -52,6 +53,8 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
   z.object({ type: z.literal('complete_tutorial') }).strict(),
+  z.object({ type:z.literal('clear_applications'), confirmation:z.literal('CLEAR_APPLICATIONS') }).strict(),
+  z.object({ type:z.literal('restore_applications') }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), employerConsent:z.boolean().optional(), operationId:z.string().uuid().optional() }).strict(),
@@ -120,6 +123,37 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if (action.type === 'complete_tutorial') {
     state.tutorialCompletedAt ||= at;
     message = 'Tutorial saved. You can replay it from Settings.';
+  } else if (action.type === 'clear_applications') {
+    if(state.applications?.some(item=>item.status==='processing'))throw new DomainError('Wait for the application in progress to finish or pause before clearing the list.',409);
+    const applications=state.applications||[],drafts=state.drafts;
+    if(!applications.length&&!drafts.length)return {state,message:'Your applications list is already empty.'};
+    const archived=state.applicationArchive||{applications:[],drafts:[],at};
+    const known=new Set(archived.applications.map(item=>item.id)),knownDrafts=new Set(archived.drafts.map(item=>item.id));
+    for(const item of applications){
+      const copy=structuredClone(item);delete copy.agentAuthorizedAt;
+      if(copy.status==='queued'){copy.status='needs_action';delete copy.claim;}
+      if(!known.has(copy.id))archived.applications.push(copy);
+      const job=state.jobs.find(job=>job.id===item.jobId);
+      if(job&&job.disposition==='apply_requested'&&!['applied','uncertain'].includes(item.status)){job.disposition='open';delete job.previousDisposition;delete job.decidedAt;}
+    }
+    for(const draft of drafts)if(!knownDrafts.has(draft.id))archived.drafts.push(structuredClone(draft));
+    archived.at=at;state.applicationArchive=archived;state.applications=[];state.drafts=[];delete state.lastDecision;
+    message=`Cleared ${applications.length} applications and ${drafts.length} drafts. Restore cleared applications can recover them; no employer application was withdrawn.`;
+  } else if (action.type === 'restore_applications') {
+    const archived=state.applicationArchive;
+    if(!archived)throw new DomainError('There are no cleared applications to restore.',409);
+    if(state.applications?.some(item=>item.status==='processing'))throw new DomainError('Wait for the application in progress before restoring cleared records.',409);
+    const jobs=new Set(state.jobs.map(job=>job.id)),activeJobs=new Set(state.applications?.map(item=>item.jobId)||[]);
+    const restored=archived.applications.filter(item=>jobs.has(item.jobId)&&!activeJobs.has(item.jobId));
+    for(const item of restored){delete item.agentAuthorizedAt;if(item.status==='queued'){item.status='needs_action';delete item.claim;}const job=state.jobs.find(job=>job.id===item.jobId)!;job.disposition='apply_requested';}
+    state.applications=[...(state.applications||[]),...restored];
+    const activeDrafts=new Set(state.drafts.map(item=>item.jobId));
+    state.drafts.push(...archived.drafts.filter(item=>jobs.has(item.jobId)&&!activeDrafts.has(item.jobId)));
+    archived.applications=archived.applications.filter(item=>!restored.some(saved=>saved.id===item.id));
+    archived.drafts=archived.drafts.filter(item=>!state.drafts.some(saved=>saved.id===item.id));
+    if(!archived.applications.length&&!archived.drafts.length)delete state.applicationArchive;
+    delete state.lastDecision;
+    message=`Restored ${restored.length} application records. Nothing was queued or sent.`;
   } else if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...state.profile, ...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
@@ -151,6 +185,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const previousDisposition=job.disposition;
     const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
+      if(state.applicationArchive?.applications.some(item=>['applied','uncertain','processing'].includes(item.status)&&(item.jobId===job.id||item.sourceUrl===job.url)))throw new DomainError('A cleared record shows this vacancy may already have received your application. Restore cleared applications and check its outcome before applying again.',409);
       if (job.source?.availability === 'closed') throw new DomainError('This vacancy is no longer listed on its employer board. Choose another role.', 409);
       if (!safeJobUrl(job.url)) throw new DomainError('Add the original job listing URL before applying.', 409);
       const existing = state.applications?.find(item => item.jobId === job.id);

@@ -67,6 +67,12 @@ The old `/api/agent/*` routes still return HTTP 410. Old tokens cannot operate t
 
 Automated tests use fabricated CVs and intercepted/local employer pages. No real application was sent while implementing this replacement. A live employer pilot still needs the user's connection, a running worker and an appropriate supported vacancy. Research details are in `application_agent/RESEARCH.md`.
 
+## Clearing the application tracker — 29 October 2026
+
+Applications has **Clear all applications** and **Restore cleared applications**. Clearing moves the current request records and saved drafts into a private recoverable archive, empties the tracker and releases unsent vacancies back into Explore. It preserves account profile, CV files, the selected CV, saved jobs, agent connection and earlier workspace revisions. Queued requests lose authorization and are not claimed after the clear. Clearing is rejected if a request is processing; optimistic revision checks also prevent racing a newly claimed request.
+
+Restoring never queues or submits applications and does not replace a newer request for the same vacancy. Previously Applied or uncertain records remain protected against a duplicate Apply by job ID or original URL, even when hidden from the tracker. Use Restore to review those outcomes. Clearing the list does not withdraw an employer application or permanently erase its records. New requests for known unsent jobs receive fresh IDs and do not inherit earlier question approvals.
+
 ## Generated-answer approval and country eligibility — 29 October 2026
 
 Edit Profile now keeps separate nullable Yes/No facts for UK/USA/Canada visa requirements and current right to work. These are never derived from each other or from the applicant’s location. Simple matching questions use the saved choice, including native select/radio controls. Missing choices, combined countries, negative wording and conditional eligibility pause for review. Other countries still require explicit user-provided answers.
