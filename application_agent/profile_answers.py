@@ -33,7 +33,7 @@ def saved_profile_answer(payload,question,field):
         if key=='phone' and not re.fullmatch(r'\+[1-9]\d{7,14}',value):
             return None,'','Save an international phone number in Edit Profile.'
         return value,f'Edit Profile — {key}: {value}',''
-    if re.search(r'\b(?:current|previous|last|past|earned|earning|minimum|lowest|history)\b',question,re.I):
+    if re.search(r'\b(?:current|present|previous|last|past|earned|earning|minimum|lowest|history)\b',question,re.I):
         return None,'','Edit Profile stores expected salary, not current/past salary or a minimum. Supply the matching fact; the agent will not invent it.'
     salary=profile.get('expectedSalary')
     try:
@@ -53,6 +53,8 @@ def saved_profile_answer(payload,question,field):
     if '₦' in question:currencies.add('NGN')
     if re.search(r'canadian dollars?|C\$',question,re.I):currencies.add('CAD')
     if re.search(r'australian dollars?|A\$',question,re.I):currencies.add('AUD')
+    for code,pattern in {'NGN':r'\bnaira\b','EUR':r'\beuros?\b','JPY':r'\byen\b','ZAR':r'\brand\b','INR':r'\b(?:indian )?rupees?\b','AED':r'\bdirhams?\b','GHS':r'\bcedis?\b','KES':r'\b(?:kenyan )?shillings?\b','CHF':r'\bswiss francs?\b','NZD':r'\bnew zealand dollars?\b','SGD':r'\bsingapore dollars?\b'}.items():
+        if re.search(pattern,question,re.I):currencies.add(code)
     if currencies and currencies!={'USD'}:
         return None,'','This salary field requests another or ambiguous currency. No exchange rate is assumed; your saved expectation is USD.'
     numeric=field.get('type')=='number' or field.get('numeric') is True

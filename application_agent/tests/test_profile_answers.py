@@ -31,7 +31,7 @@ class ProfileAnswerTests(unittest.TestCase):
   result=plan([field('Expected salary')],PROFILE|{'expectedSalary':None})
   self.assertFalse(result['answers']);self.assertIn('research and guesses are disabled',result['unresolved'][0]['reason'])
  def test_salary_does_not_invent_current_history_hours_or_exchange_rates(self):
-  for label,kind in [('Current salary in USD per year','number'),('Minimum salary USD per year','number'),('Expected annual salary in GBP','number'),('Expected hourly salary USD','number'),('Expected salary','number'),('Annual salary $','number'),('Expected annual salary in Canadian dollars','text')]:
+  for label,kind in [('Current salary in USD per year','number'),('Present compensation in USD per year','text'),('Minimum salary USD per year','number'),('Expected annual salary in GBP','number'),('Expected annual salary in naira','text'),('Expected hourly salary USD','number'),('Expected salary','number'),('Annual salary $','number'),('Expected annual salary in Canadian dollars','text')]:
    with self.subTest(label=label):self.assertFalse(plan([field(label,kind)])['answers'])
  def test_select_country_matches_only_offered_option(self):
   self.assertEqual(plan([field('Country','select',options=['Nigeria','United Kingdom'])])['answers'][0]['value'],'Nigeria')
