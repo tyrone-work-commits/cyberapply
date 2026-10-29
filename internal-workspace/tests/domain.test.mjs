@@ -15,6 +15,24 @@ const listing={type:'add_job',title:'QA SOC Analyst',company:'QA Company',locati
 const ready=()=>act(act(emptyState(),listing),{type:'save_profile',profile});
 const apply=s=>act(s,{type:'decide_job',jobId:s.jobs[0].id,decision:'apply'});
 
+test('account profile details save and edit without replacing CV facts or existing applications',()=>{
+ const before=apply(ready());
+ const details={zipCode:'SW1A 1AA',location:'London, UK',address:'10 Example Street',city:'London',country:'United Kingdom',phone:'+44 7700 900123',yearsExperience:3.5,expectedSalary:{amount:4500,currency:'GBP',period:'month'},ukVisaRequired:true,usaVisaRequired:false,canadaVisaRequired:null};
+ const saved=act(before,{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Analyst',targetRole:'SOC Analyst',...details});
+ assert.deepEqual(saved.accountProfile,{...details,phone:'+447700900123',fullName:'QA Reviewer',headline:'Analyst',targetRole:'SOC Analyst',completedAt:at});
+ assert.deepEqual(saved.profile,before.profile);assert.deepEqual(saved.applications,before.applications);
+ const edited=act(saved,{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Updated',targetRole:'SOC Analyst'});
+ assert.equal(edited.accountProfile.phone,'+447700900123');assert.equal(edited.accountProfile.usaVisaRequired,false);
+ const cleared=act(edited,{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Updated',targetRole:'SOC Analyst',phone:'',yearsExperience:0,expectedSalary:null,ukVisaRequired:null});
+ assert.equal(cleared.accountProfile.phone,'');assert.equal(cleared.accountProfile.yearsExperience,0);assert.equal(cleared.accountProfile.expectedSalary,null);assert.equal(cleared.accountProfile.ukVisaRequired,null);
+});
+test('account details validate international phones, experience, salary and explicit visa choices',()=>{
+ const base={type:'complete_onboarding',fullName:'QA',headline:'',targetRole:'SOC Analyst'};
+ for(const patch of [{phone:'08012345678'},{phone:'+0123456789'},{phone:'+1234567890123456'},{yearsExperience:-1},{yearsExperience:81},{expectedSalary:{amount:0,currency:'USD',period:'year'}},{expectedSalary:{amount:1,currency:'INVALID',period:'year'}},{ukVisaRequired:'yes'}])assert.equal(actionSchema.safeParse({...base,...patch}).success,false);
+ for(const phone of ['+2348012345678','+447700900123','+1 (202) 555-0123',''])assert.equal(actionSchema.safeParse({...base,phone}).success,true);
+ assert.equal(act(emptyState(),base).accountProfile.ukVisaRequired,undefined);
+});
+
 test('candidate links and location save without losing values on an older profile update',()=>{
  const links={githubRepositoryUrl:'https://github.com/example/security-tool',linkedInUrl:'https://www.linkedin.com/in/qa-candidate',portfolioWebsiteUrl:'https://portfolio.example.test',location:'Lagos, Nigeria'};
  let state=act(emptyState(),{type:'save_profile',profile:{...profile,...links,reviewed:false}});

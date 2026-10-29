@@ -27,7 +27,8 @@ function saveFileReview(state:State){
 export type SelectedCv = { fileId:string; name:string; type:string; size:number };
 export type NewApplicationAgent = { enabled:boolean; tokenHash:string; issuedAt:string; expiresAt:string; lastSeenAt?:string };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; cv?: SelectedCv; employerConsent?:boolean; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string; agentAuthorizedAt?:string; agentVersion?:2; cvSha256?:string; confirmedAnswers?:{question:string;value:string}[]; report?:Record<string,unknown>; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string;evidence?:{url:string;text:string}} };
-export type AccountProfile = { fullName: string; headline: string; targetRole: string; completedAt: string };
+export type AccountDetails = { zipCode?:string; location?:string; address?:string; city?:string; country?:string; phone?:string; yearsExperience?:number|null; expectedSalary?:SalaryFacts|null; ukVisaRequired?:boolean|null; usaVisaRequired?:boolean|null; canadaVisaRequired?:boolean|null };
+export type AccountProfile = AccountDetails & { fullName: string; headline: string; targetRole: string; completedAt: string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
@@ -36,10 +37,17 @@ const short = z.string().trim().max(200);
 const skills = z.array(z.string().trim().min(1).max(100)).max(80);
 const id = z.string().min(1).max(300);
 const candidateLink = z.string().trim().max(2000).refine(value => { try { return !value || Boolean(safeJobUrl(value)); } catch { return false; } }, 'Use a public https:// link.').optional();
+const accountDetails = {
+  zipCode:z.string().trim().max(30).optional(), location:short.optional(), address:z.string().trim().max(500).optional(), city:short.optional(), country:short.optional(),
+  phone:z.string().trim().transform(value=>value.replace(/[\s().-]/g,'')).refine(value=>!value||/^\+[1-9]\d{7,14}$/.test(value),'Use an international phone number, for example +2348012345678.').optional(),
+  yearsExperience:z.number().finite().min(0).max(80).nullable().optional(),
+  expectedSalary:z.object({amount:z.number().finite().positive().max(1_000_000_000_000),currency:z.enum(['USD','NGN','GBP','EUR','CAD','AUD','GHS','KES','ZAR','AED','INR','SGD']),period:z.enum(['year','month','hour'])}).strict().nullable().optional(),
+  ukVisaRequired:z.boolean().nullable().optional(), usaVisaRequired:z.boolean().nullable().optional(), canadaVisaRequired:z.boolean().nullable().optional(),
+};
 const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional(), totalExperienceYears: z.number().min(0).max(60).optional(), cybersecurityExperienceYears: z.number().min(0).max(60).optional(), currentSalary:z.object({amount:z.number().finite().positive().max(1_000_000_000_000),currency:z.enum(['USD','NGN','GBP','EUR','CAD','AUD','GHS','KES','ZAR','AED','INR','SGD']),period:z.enum(['year','month','hour'])}).strict().optional() }).strict().superRefine((value,ctx)=>{if(value.totalExperienceYears!==undefined&&value.cybersecurityExperienceYears!==undefined&&value.cybersecurityExperienceYears>value.totalExperienceYears)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Cybersecurity experience cannot exceed total experience.'});});
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
-  z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1) }).strict(),
+  z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
   z.object({ type: z.literal('complete_tutorial') }).strict(),
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
@@ -103,7 +111,8 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   if(operationId){const previous=state.decisionOperations?.find(item=>item.id===operationId);if(previous){if(previous.signature!==signature)throw new DomainError('This choice identifier was already used for another action.',409);return {state,message:'This choice was already saved. No duplicate action was created.'};}}
   let message = '';
   if (action.type === 'complete_onboarding') {
-    state.accountProfile = {fullName:action.fullName,headline:action.headline,targetRole:action.targetRole,completedAt:at};
+    const {type:_,...details}=action;
+    state.accountProfile = {...state.accountProfile,...details,completedAt:at};
     message = 'Your account profile is saved. Open your workspace to review your CV and explore jobs.';
   } else if (action.type === 'complete_tutorial') {
     state.tutorialCompletedAt ||= at;

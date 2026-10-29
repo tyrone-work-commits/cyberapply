@@ -100,3 +100,5 @@ a.mobile-brand{color:var(--text)}
 @media(max-width:600px){.inbox-intro{flex-wrap:wrap}.inbox-intro>button{width:100%}.inbox-item-foot{align-items:flex-start;flex-direction:column}.inbox-item-foot .button{width:100%}}
 .profile-grid:has(> .insights:only-child){grid-template-columns:minmax(0,1fr);max-width:900px}
 @media(max-width:650px){.agent-tracker-identity>div{flex:1 1 calc(100% - 57px)}.agent-tracker-cv>span{flex:1 1 calc(100% - 30px)}}
+
+.account-profile-details section{border-top:1px solid var(--line);padding-top:22px;margin-top:24px}.account-profile-details h2{font-size:17px;margin-bottom:10px}.account-profile-details .subtle{font-size:11px;line-height:1.8}.account-profile-details .form-pair>*{min-width:0}.profile-visa{border:0;padding:0;margin:20px 0}.profile-visa legend{font-size:12px;font-weight:600;margin-bottom:9px}.profile-visa>div{display:flex;gap:20px;align-items:center}.profile-visa .check-label{margin:0}.profile-visa .check-label input{accent-color:var(--accent)}
