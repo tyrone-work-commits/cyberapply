@@ -19,7 +19,7 @@ assert.equal((await call('/api/applications/delete',{method:'POST',headers:{...a
 assert.equal((await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'application',applicationId:a.id,confirmation:'PERMANENTLY DELETE'},headers:{}})).status,401);
 const otherHeaders={'oai-authenticated-user-id':'other-'+owner,'oai-authenticated-user-email':'other@example.test'};const other=(await call('/api/workspace',{headers:otherHeaders})).data;
 assert.equal((await call('/api/applications/delete',{method:'POST',headers:otherHeaders,body:{revision:other.revision,scope:'application',applicationId:a.id,confirmation:'PERMANENTLY DELETE'}})).status,404);
-const task=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:2},headers:worker})).data.task;assert.ok(task);current=(await call('/api/workspace')).data;
+const task=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:3},headers:worker})).data.task;assert.ok(task);current=(await call('/api/workspace')).data;
 assert.equal((await remove('application',{applicationId:task.requestId})).status,409);
 assert.equal((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional fixture paused without contacting an employer.'}})).status,200);
 current=(await call('/api/workspace')).data;

@@ -8,7 +8,7 @@ from __future__ import annotations
 import calendar
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .profile_answers import profile_field, saved_profile_answer
+from .profile_answers import profile_field, saved_profile_answer, place_key
 from .answer_drafts import experience_answer, narrative_draft
 from html import unescape
 import re
@@ -91,10 +91,10 @@ def _facts(text: str) -> dict:
         first = lines[0]
         if re.fullmatch(r"[^\W\d_]+(?:[ '\-][^\W\d_]+){1,4}", first, re.U) and not re.search(r"resume|curriculum|vitae|engineer|analyst|developer|security|experience|skills", first, re.I):
             name = first
-    urls = re.findall(r"(?:https?://|www\.)[^\s<>]+|(?:github\.com|linkedin\.com)/[^\s<>]+", text, re.I)
+    urls = re.findall(r"(?:https?://|www\.)[^\s<>|]+|(?:github\.com|linkedin\.com)/[^\s<>|]+", text, re.I)
     urls = [url.rstrip(".,;)") if url.startswith("http") else "https://" + url.rstrip(".,;)") for url in urls]
     github = next((url for url in urls if (urlsplit(url).hostname or "").lower() in {"github.com", "www.github.com"}), "")
-    linkedin = next((url for url in urls if (urlsplit(url).hostname or "").lower() in {"linkedin.com", "www.linkedin.com"}), "")
+    linkedin = next((url for url in urls if ((urlsplit(url).hostname or '').lower()=='linkedin.com' or (urlsplit(url).hostname or '').lower().endswith('.linkedin.com')) and re.match(r'^/(?:in|pub)/',urlsplit(url).path,re.I)), '')
     portfolio = next((url for url in urls if url not in {github, linkedin}), "")
     skills = [skill for skill in _SKILLS if re.search(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", text, re.I)]
     return {"name": name, "email": email.group(0) if email else "", "github": github, "linkedin": linkedin, "portfolio": portfolio, "skills": skills}
@@ -173,12 +173,16 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         kind, value, source, proof = field.get("type", "text"), None, "cv", ""
         user_supplied, confirmed_value, confirmed_proof = _confirmed(payload, question, field)
         profile_key=profile_field(question)
+        linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         if profile_key and kind not in {"password","hidden","file"}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)
             source="edit_profile"
         elif profile_key:
             profile_reason="This personal detail needs a supported field and the matching saved Edit Profile value."
+        elif linkedin_field:
+            value=facts['linkedin'] if kind not in {'password','hidden','file'} else None
+            source='cv';proof='LinkedIn profile URL extracted from the exact chosen CV.'
         elif user_supplied:
             value, source, proof = confirmed_value, "user_confirmed", confirmed_proof
         elif kind not in {"password","hidden","file"} and not _UNSUPPORTED.search(question) and (match:=experience_answer(question,text,kind)):
@@ -188,18 +192,10 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             pass
         elif re.search(r"years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?", normalized) and experience["established"]:
             value, proof = str(experience["years"]), "; ".join(experience["evidence"])
-        elif normalized in {"full name", "name", "your name", "legal name", "first and last name"}:
-            value = facts["name"]
-        elif normalized in {"first name", "given name"} and facts["name"]:
-            value = facts["name"].split()[0]
-        elif normalized in {"last name", "surname", "family name"} and len(facts["name"].split()) > 1:
-            value = " ".join(facts["name"].split()[1:])
         elif re.fullmatch(r"(?:your )?(?:email|e-mail)(?: address)?", normalized):
             value = facts["email"]
         elif re.fullmatch(r"(?:your )?github(?: repository| profile| link| url)?", normalized):
             value = facts["github"]
-        elif re.fullmatch(r"(?:your )?linkedin(?: profile| link| url)?", normalized):
-            value = facts["linkedin"]
         elif re.fullmatch(r"(?:your )?(?:portfolio|personal)(?: website| link| url)?", normalized):
             value = facts["portfolio"]
         elif re.fullmatch(r"(?:cover|covering|motivation) letter", normalized):
@@ -223,7 +219,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             if selected_evidence:
                 source="cv_and_job"
                 value, proof = "My CV describes: " + " ".join(selected_evidence), "; ".join(selected_evidence)
-        if not value and not profile_key and not user_supplied and kind in {"text","textarea"} and not _UNSUPPORTED.search(question) and not re.search(r"experience (?:with|in|using|as)|have you (?:used|worked with)",question,re.I):
+        if not value and not profile_key and not linkedin_field and not user_supplied and kind in {"text","textarea"} and not _UNSUPPORTED.search(question) and not re.search(r"experience (?:with|in|using|as)|have you (?:used|worked with)",question,re.I):
             draft=narrative_draft(question,text,job,contribution)
             if draft:value,source,proof=draft,"cv_and_job","CV evidence and selected role; user review required."
         if value and source=="cv_and_job":
@@ -233,7 +229,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         if value:
             options = field.get("options") or []
             if options:
-                match = next((str(option) for option in options if str(option).casefold().strip() == str(value).casefold().strip()), None)
+                match = next((str(option) for option in options if str(option).casefold().strip() == str(value).casefold().strip() or profile_key=='country' and place_key(option)==place_key(value)), None)
                 value = match
             if value is not None:
                 answers.append({"field_id": field.get("id"), "value": str(value), "source": source, "evidence": proof or str(value)})
@@ -242,6 +238,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             reason = "A personal, eligibility, consent or screening answer must be supplied by the user." if _UNSUPPORTED.search(question) or kind in {"checkbox", "radio"} else "The CV and verified research do not establish a reliable answer."
             if profile_key:
                 reason = profile_reason or "The saved Edit Profile value does not match an offered option. Update the profile or complete this field yourself."
+            if linkedin_field:reason='No supported personal LinkedIn profile URL was found in the chosen CV. Upload a CV containing the correct LinkedIn link; no saved answer or generated replacement is used.'
             if kind == "file":
                 reason = "The browser runner must upload the selected CV or a separately generated cover-letter file."
             if user_supplied and confirmed_value is None and not profile_key:

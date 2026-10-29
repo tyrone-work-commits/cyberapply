@@ -53,7 +53,7 @@ def call_site(site, token, path, data=None, binary=False, site_access_token=None
 
 
 def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None):
-    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":2}, site_access_token=site_access_token)["task"]
+    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":3}, site_access_token=site_access_token)["task"]
     if not task:
         return False
     if on_state:on_state('working')

@@ -2,6 +2,55 @@
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 
+_COUNTRY_ALIASES={
+ 'uk':{'uk','u k','united kingdom','gb','gbr'},
+ 'ireland':{'ireland','republic of ireland','ie','irl'},
+ 'usa':{'usa','us','u s','u s a','united states','united states of america'},
+ 'canada':{'canada','ca','can'},'nigeria':{'nigeria','ng','nga'},
+ 'germany':{'germany','deutschland'},'australia':{'australia'},'france':{'france'},'netherlands':{'netherlands','the netherlands'},
+ 'india':{'india'},'south africa':{'south africa'},'new zealand':{'new zealand'},'singapore':{'singapore'},
+}
+def place_key(value):
+    text=re.sub(r'[^\w\s-]',' ',str(value).casefold())
+    text=re.sub(r'\s+',' ',text).strip()
+    text=re.sub(r'^the\s+','',text)
+    return next((country for country,aliases in _COUNTRY_ALIASES.items() if text in aliases),text)
+
+def location_question(question):
+    text=re.sub(r'\s+',' ',question.casefold()).strip(' *:?!')
+    match=re.fullmatch(r'(?:are you (?:currently )?(?:located|based|living|resident)|do you (?:currently )?(?:live|reside)) in (.+)',text)
+    if not match:return None
+    target=match[1]
+    if re.search(r'\b(?:not|outside|within|distance|willing|relocat|commut|authori|visa|sponsor|eligible|work|why|explain|describe)\w*\b',target):return []
+    parts=[part.strip() for part in re.split(r'\s+or\s+|\s*,\s*|\s*/\s*',target) if part.strip()]
+    if ' and ' in target or not parts or any(len(part)>80 for part in parts):return []
+    return parts
+
+def residence_answer(profile,question):
+    targets=location_question(question)
+    if not targets:return None,'','This residence question is conditional or ambiguous. Review it yourself.'
+    if any(target.strip().casefold() in {'ca','ie','ng'} for target in targets):return None,'','The place abbreviation is ambiguous in this residence question. Review the full place name.'
+    country=profile.get('country','');city=profile.get('city','');location=profile.get('location','')
+    saved={place_key(value) for value in [country,city,*re.split(r'[,;]',location)] if isinstance(value,str) and value.strip()}
+    uk_parts={'england','scotland','wales','northern ireland'}
+    if saved.intersection(uk_parts):saved.add('uk')
+    explicit_location=[value for value in re.split(r'[,;]',location) if len(value.strip())>3 or value.strip().casefold() in {'uk','us','usa'}]
+    country_evidence={place_key(value) for value in [country,*explicit_location] if isinstance(value,str) and place_key(value) in _COUNTRY_ALIASES}
+    if len(country_evidence)>1:return None,'','Country and location disagree in Edit Profile. Correct them before answering this question.'
+    if not saved:return None,'','Add your country, city or location in Edit Profile before answering residence questions.'
+    keys=[place_key(target) for target in targets]
+    if all(key in _COUNTRY_ALIASES for key in keys):
+        if country and place_key(country) in uk_parts:country_evidence.add('uk')
+        if not country_evidence:return None,'','Add an explicit country in Edit Profile. A city alone does not establish country residence.'
+        value='Yes' if country_evidence.intersection(keys) else 'No'
+    elif any(key in saved for key in keys):value='Yes'
+    elif any(key in uk_parts for key in keys):return None,'','Your profile does not establish which part of the United Kingdom matches this question.'
+    elif len(keys)==1 and city and not re.search(r'[()]|\b(?:area|region|state|province|county|district|borough|metro|metropolitan|britain|europe|america|emea|apac)\b',targets[0]):
+        if place_key(country) in keys:return None,'','Confirm this location in Edit Profile.'
+        value='No'
+    else:return None,'','The saved location cannot establish this geographic area. Review the question yourself.'
+    return value,f'Edit Profile residence comparison — country: {country}; city: {city}; location: {location}. Matched against the question, without inferring work permission.',''
+
 
 def profile_field(question):
     text=re.sub(r'\s+',' ',question.casefold().replace('_',' ').replace('zip-code','zip code')).strip(' *:?!')
@@ -16,13 +65,15 @@ def profile_field(question):
         return countries[0]+('RightToWork' if rights else 'VisaRequired')
     if re.search(r'\b(?:salary|compensation|remuneration|wage|pay expectations?|expected pay|pay rate|desired pay)\b',text):
         return 'expectedSalary'
+    if location_question(question) is not None:return 'residenceQuestion'
     if text in {'where are you located','where do you live','where do you reside'}:return 'location'
     if re.search(r'\b(?:employer|company|reference|referee|emergency|nationality|citizenship|birth|relocat|willing)\b',text):return None
     text=re.sub(r'^(?:what is |please (?:provide|enter) )', '', text).strip()
-    text=re.sub(r'^(?:your |applicant.s |candidate.s |current |home |residential |contact |primary |permanent |mailing )+', '',text)
+    text=re.sub(r"^(?:your |applicant(?:'s)? |candidate(?:'s)? |current |home |residential |contact |primary |permanent |mailing )+", '',text)
+    if text in {'name','full name','legal name','first and last name','first name','last name','given name','family name','surname','preferred first name','preferred name','first name(s)','given name(s)','firstname','lastname','fullname'} or re.fullmatch(r'(?:legal |preferred )?(?:first|last|given|family|full) name(?: \(legal\))?',text):return 'fullName'
     if re.fullmatch(r'(?:zip|zip code|zipcode|postal|postal code|postcode|post code)(?: / postal code)?',text):return 'zipCode'
     if re.fullmatch(r'(?:street |mailing |residential |home |full )?address(?: line 1| 1)?',text):return 'address'
-    if text in {'city','town','city / town','city or town'}:return 'city'
+    if text in {'city','town','city / town','city/town','city or town','location (city)','location(city)','city / location','city/location'}:return 'city'
     if text in {'country','country of residence','country of residency','country where you reside'}:return 'country'
     if text in {'location','where are you located','where do you live','where do you reside','city and country','city, country'}:return 'location'
     if re.fullmatch(r'(?:phone|telephone|mobile|cell|cellphone)(?: phone)?(?: number| no\.?)?(?: \((?:including|with) (?:country|international) code\))?',text):return 'phone'
@@ -34,6 +85,7 @@ def saved_profile_answer(payload,question,field):
     key=profile_field(question)
     profile=payload.get('applicantProfile')
     profile=profile if isinstance(profile,dict) else {}
+    if key=='residenceQuestion':return residence_answer(profile,question)
     if key and key.endswith(('VisaRequired','RightToWork')):
         value=profile.get(key)
         if not isinstance(value,bool):return None,'',f'Choose Yes or No for {key} in Edit Profile. Visa requirement and current right to work are separate facts.'

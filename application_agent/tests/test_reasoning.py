@@ -56,13 +56,13 @@ class PlanningTests(unittest.TestCase):
         result = cybersecurity_experience("Experience\nSecurity Analyst | Jan 2027 - Dec 2029", date(2026, 10, 28))
         self.assertFalse(result["established"])
 
-    def test_identity_comes_from_cv(self):
+    def test_email_and_github_come_from_cv_but_name_requires_account_profile(self):
         result = self.plan([field("Full name"), field("Email address"), field("GitHub repository")])
         values = {answer["field_id"]: answer["value"] for answer in result["answers"]}
-        self.assertEqual(values["Full name"], "TYRONE EKHATOR")
+        self.assertNotIn('Full name',values)
         self.assertEqual(values["Email address"], "tyrone@example.test")
         self.assertEqual(values["GitHub repository"], "https://github.com/tyrone/example")
-        self.assertFalse(result["unresolved"])
+        self.assertEqual(result['unresolved'][0]['field_id'],'Full name')
 
     def test_missing_eligibility_and_consent_remain_unanswered(self):
         fields = [field("Are you authorized to work in the UK?"), field("I agree to privacy terms", "checkbox"), field("Current salary in USD per year", "number"), field("Gender", "select", options=["Male", "Female", "Prefer not to say"])]

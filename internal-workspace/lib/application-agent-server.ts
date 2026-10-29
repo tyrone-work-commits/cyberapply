@@ -71,7 +71,7 @@ export async function pair(request:Request){try{
 }catch(error){return failure(error);}}
 
 export async function claim(request:Request){try{
-  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==2)throw new DomainError('Update the browser runner: contact and salary answers must use Edit Profile.',409);
+  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==3)throw new DomainError('Update the browser runner: names, residence and eligibility must use the current Edit Profile policy.',409);
   for(let attempt=0;attempt<3;attempt++){
     const current=await load(user);stillConnected(current.state,user);const before=JSON.stringify(current.state),item=claimApplication(current.state);
     if(!item&&JSON.stringify(current.state)===before)return response({task:null});
@@ -83,7 +83,7 @@ export async function claim(request:Request){try{
         const object=await files().get(file.key);if(!object)throw new Error('missing');
         const bytes=new Uint8Array(await object.arrayBuffer()),extracted=await extractResume(bytes,file.name);
         item.cvSha256=await digest(bytes);
-        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:2,applicantProfile:item.applicantProfile,job:{title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
+        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:3,applicantProfile:item.applicantProfile,job:{title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
       }catch{item.status='needs_attention';item.result={at:new Date().toISOString(),message:'The chosen CV could not be read. Select a readable CV and update the request.'};}
     }
     try{await save(user,current.revision,current.state,'application_agent_claim');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}

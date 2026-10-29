@@ -52,11 +52,12 @@ def validate_public_url(url, allowed_hosts=None, resolver=socket.getaddrinfo):
 
 INSPECT = """() => {
   const visible = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.disabled;
+  const labelText = label => {const copy=label.cloneNode(true);copy.querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox],script,style').forEach(e=>e.remove());return (copy.textContent||'').replace(/\\s+/g,' ').trim();};
   return [...document.querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox]')]
     .filter(visible).filter(e => !['hidden','submit','button','reset'].includes(e.type))
     .slice(0,101).map((e,i) => {
       const id='cyberapply-'+i; e.setAttribute('data-cyberapply-field',id);
-      const labels=[...(e.labels||[])].map(l=>l.innerText).join(' ');
+      const labels=[...(e.labels||[])].map(labelText).join(' ');
       const labelled=(e.getAttribute('aria-labelledby')||'').split(/\\s+/).map(x=>document.getElementById(x)?.innerText||'').join(' ');
       const optionLabel=(labels||e.getAttribute('aria-label')||labelled||e.placeholder||e.name||e.id||'Unlabelled field').trim().slice(0,1000);
       const type=e.tagName==='SELECT'?'select':e.tagName==='TEXTAREA'?'textarea':e.getAttribute('role')||e.type||'text';
@@ -68,7 +69,7 @@ INSPECT = """() => {
       return {id,label,type,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
         nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
         required:e.required||e.getAttribute('aria-required')==='true',
-        options:e.options?[...e.options].map(o=>o.text):peers.map(x=>[...(x.labels||[])].map(l=>l.innerText).join(' ').trim()),
+        options:e.options?[...e.options].map(o=>o.text):peers.map(x=>[...(x.labels||[])].map(labelText).join(' ').trim()),
         value:e.value||'',checked:e.checked||e.getAttribute('aria-checked')==='true'};
     });
 }"""
@@ -278,7 +279,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     from .profile_answers import profile_field,saved_profile_answer
                     from .answer_drafts import experience_answer
                     key=profile_field(field['label'])
-                    if answer.get('source')=='edit_profile' and key and key.endswith(('VisaRequired','RightToWork')):
+                    if answer.get('source')=='edit_profile' and key and (key.endswith(('VisaRequired','RightToWork')) or key=='residenceQuestion'):
                         expected,_,_=saved_profile_answer(payload,field['label'],field)
                     elif answer.get('source')=='cv' and not re.search(r'consent|agree|privacy|terms',field['label'],re.I):
                         known=experience_answer(field['label'],str(cv.get('text','')),field['type'])

@@ -83,6 +83,26 @@ def test_missing_profile_contact_stops_before_any_submission():
     assert result['status']=='needs_attention' and not posts
     assert any('Edit Profile' in question['reason'] for question in result['report']['unresolved'])
 
+def test_account_full_name_city_country_and_cv_linkedin_reach_real_controls():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'applicantProfile':{'fullName':'Account Full Name','city':'Abuja','country':'NG','location':'Abuja, Nigeria'},
+      'cv':{**PAYLOAD['cv'],'text':'Different CV Name\nalex@example.com\nhttps://www.linkedin.com/in/from-chosen-cv'},
+      'confirmedAnswers':[{'question':'Please provide LinkedIn profile','value':'https://linkedin.com/in/stale'}]}
+    html=FORM.replace('{extra}','<label>First name<input name="first" required></label><label>Last name<input name="last" required></label><label>Location (City)<input name="city" required></label><label>Country<select name="country" required><option>United Kingdom</option><option>Nigeria</option></select></label><label>Please provide LinkedIn profile<input name="linkedin" required></label>')
+    result,posts=run(html,payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    body=posts[0]
+    assert body.count(b'Account Full Name')==2 and b'Abuja' in body and b'Nigeria' in body and b'https://www.linkedin.com/in/from-chosen-cv' in body
+    assert b'https://linkedin.com/in/stale' not in body and b'Different CV Name' not in body
+
+def test_residence_and_work_rights_are_independent_native_radio_answers():
+    from application_agent.reasoning import build_plan
+    html=FORM.replace('{extra}','<fieldset><legend>Are you located in the United Kingdom or Ireland?</legend><label>Yes<input type="radio" name="residence" value="yes" required></label><label>No<input type="radio" name="residence" value="no" required></label></fieldset><fieldset><legend>Are you authorized to work in the United States?</legend><label>Yes<input type="radio" name="rights" value="yes" required></label><label>No<input type="radio" name="rights" value="no" required></label></fieldset>')
+    result,posts=run(html,payload={**PAYLOAD,'applicantProfile':{'country':'USA','city':'Dallas','location':'Dallas, USA','usaRightToWork':True}},planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert any(a['question'].startswith('Are you located') and a['value']=='No' for a in result['report']['answers'])
+    assert any(a['question'].startswith('Are you authorized') and a['value']=='Yes' for a in result['report']['answers'])
+
 def test_generated_answer_pauses_until_its_exact_text_is_approved():
     from application_agent.reasoning import build_plan
     question='Why are you interested in this role?'
