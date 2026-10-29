@@ -95,12 +95,13 @@ def test_account_full_name_city_country_and_cv_linkedin_reach_real_controls():
     assert body.count(b'Account Full Name')==2 and b'Abuja' in body and b'Nigeria' in body and b'https://www.linkedin.com/in/from-chosen-cv' in body
     assert b'https://linkedin.com/in/stale' not in body and b'Different CV Name' not in body
 
-def test_residence_and_work_rights_are_independent_native_radio_answers():
+@pytest.mark.parametrize('country,city,expected',[('USA','Dallas','No'),('UK','London','Yes'),('Ireland','Dublin','Yes')])
+def test_residence_and_work_rights_are_independent_native_radio_answers(country,city,expected):
     from application_agent.reasoning import build_plan
     html=FORM.replace('{extra}','<fieldset><legend>Are you located in the United Kingdom or Ireland?</legend><label>Yes<input type="radio" name="residence" value="yes" required></label><label>No<input type="radio" name="residence" value="no" required></label></fieldset><fieldset><legend>Are you authorized to work in the United States?</legend><label>Yes<input type="radio" name="rights" value="yes" required></label><label>No<input type="radio" name="rights" value="no" required></label></fieldset>')
-    result,posts=run(html,payload={**PAYLOAD,'applicantProfile':{'country':'USA','city':'Dallas','location':'Dallas, USA','usaRightToWork':True}},planner=build_plan)
+    result,posts=run(html,payload={**PAYLOAD,'applicantProfile':{'country':country,'city':city,'location':f'{city}, {country}','usaRightToWork':True}},planner=build_plan)
     assert result['status']=='applied' and len(posts)==1
-    assert any(a['question'].startswith('Are you located') and a['value']=='No' for a in result['report']['answers'])
+    assert any(a['question'].startswith('Are you located') and a['value']==expected for a in result['report']['answers'])
     assert any(a['question'].startswith('Are you authorized') and a['value']=='Yes' for a in result['report']['answers'])
 
 def test_generated_answer_pauses_until_its_exact_text_is_approved():

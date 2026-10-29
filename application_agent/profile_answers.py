@@ -20,7 +20,7 @@ def location_question(question):
     text=re.sub(r'\s+',' ',question.casefold()).strip(' *:?!')
     match=re.fullmatch(r'(?:are you (?:currently )?(?:located|based|living|resident)|do you (?:currently )?(?:live|reside)) in (.+)',text)
     if not match:return None
-    target=match[1]
+    target=re.sub(r'^either\s+','',match[1])
     if re.search(r'\b(?:not|outside|within|distance|willing|relocat|commut|authori|visa|sponsor|eligible|work|why|explain|describe)\w*\b',target):return []
     parts=[part.strip() for part in re.split(r'\s+or\s+|\s*,\s*|\s*/\s*',target) if part.strip()]
     if ' and ' in target or not parts or any(len(part)>80 for part in parts):return []
@@ -35,7 +35,8 @@ def residence_answer(profile,question):
     uk_parts={'england','scotland','wales','northern ireland'}
     if saved.intersection(uk_parts):saved.add('uk')
     explicit_location=[value for value in re.split(r'[,;]',location) if len(value.strip())>3 or value.strip().casefold() in {'uk','us','usa'}]
-    country_evidence={place_key(value) for value in [country,*explicit_location] if isinstance(value,str) and place_key(value) in _COUNTRY_ALIASES}
+    country_evidence={('uk' if place_key(value) in uk_parts else place_key(value)) for value in explicit_location if place_key(value) in _COUNTRY_ALIASES or place_key(value) in uk_parts}
+    if isinstance(country,str) and country.strip():country_evidence.add('uk' if place_key(country) in uk_parts else place_key(country))
     if len(country_evidence)>1:return None,'','Country and location disagree in Edit Profile. Correct them before answering this question.'
     if not saved:return None,'','Add your country, city or location in Edit Profile before answering residence questions.'
     keys=[place_key(target) for target in targets]
@@ -49,7 +50,7 @@ def residence_answer(profile,question):
         if place_key(country) in keys:return None,'','Confirm this location in Edit Profile.'
         value='No'
     else:return None,'','The saved location cannot establish this geographic area. Review the question yourself.'
-    return value,f'Edit Profile residence comparison — country: {country}; city: {city}; location: {location}. Matched against the question, without inferring work permission.',''
+    return value,f'Edit Profile residence comparison — country: {country}; city: {city}; location: {location}. Alternatives: {" OR ".join(targets)}. Yes if any listed place matches; No if the established location matches none. No work permission inferred.',''
 
 
 def profile_field(question):

@@ -36,6 +36,17 @@ class ProfileAnswerTests(unittest.TestCase):
   california=PROFILE|{'country':'USA','city':'Los Angeles','location':'Los Angeles, CA'}
   self.assertEqual(plan([field('Are you located in Canada?')],california)['answers'][0]['value'],'No')
   self.assertFalse(plan([field('Are you located in CA?')],california)['answers'])
+ def test_either_country_residence_uses_or_for_each_saved_country(self):
+  cases=[('UK','London','London, UK','Yes'),('Ireland','Dublin','Dublin, Ireland','Yes'),('USA','Dallas','Dallas, USA','No'),('Ghana','Accra','Accra, Ghana','No'),('England','London','England','Yes'),('','Belfast','Northern Ireland','Yes')]
+  for country,city,location,expected in cases:
+   for question in ['Are you located in the UK or Ireland?','Are you located in either the UK or Ireland?','Are you currently based in Ireland or the United Kingdom?']:
+    with self.subTest(country=country,question=question):
+     result=plan([field(question,'select',options=['Yes','No'])],PROFILE|{'country':country,'city':city,'location':location})
+     self.assertEqual(result['answers'][0]['value'],expected)
+     self.assertEqual(result['answers'][0]['source'],'edit_profile')
+     self.assertIn('OR',result['answers'][0]['evidence'])
+  for p in [{},{'city':'Dublin'},{'country':'Ireland','location':'Dallas, USA'}]:
+   self.assertFalse(plan([field('Are you located in either the UK or Ireland?')],p)['answers'])
  def test_country_specific_work_authorization_uses_its_own_saved_choice(self):
   p=PROFILE|{'ukRightToWork':False,'usaRightToWork':True,'canadaRightToWork':False}
   labels={'Are you authorized to work in the United Kingdom?':'No','Are you authorized to work in the United States?':'Yes','Do you have the right to work in Canada?':'No'}
