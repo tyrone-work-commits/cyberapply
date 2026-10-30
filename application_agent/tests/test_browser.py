@@ -45,7 +45,9 @@ def browser_factory(html, posts, success=True):
                                 body=html(route.request) if callable(html) else 'Your application has been submitted' if success else 'Unexpected reply'
                             else:
                                 body=html(route.request) if callable(html) else html
-                            route.fulfill(status=200,content_type='text/html',body=body)
+                            if isinstance(body,dict):
+                                route.fulfill(status=body.get('status',200),content_type=body.get('content_type','text/html'),body=body['body'])
+                            else:route.fulfill(status=200,content_type='text/html',body=body)
                         def abort(self): route.abort()
                     guard(Route())
                 self.context.route(pattern,dispatch)

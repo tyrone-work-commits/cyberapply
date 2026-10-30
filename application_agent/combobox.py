@@ -59,6 +59,10 @@ def has_unreviewed_selection(control):
 
 def _popup(frame, control, timeout):
     refs = (control.get_attribute('aria-controls') or control.get_attribute('aria-owns') or '').split()
+    deadline=time.monotonic()+timeout/1000
+    while not refs and time.monotonic()<deadline:
+        frame.wait_for_timeout(50)
+        refs=(control.get_attribute('aria-controls') or control.get_attribute('aria-owns') or '').split()
     if len(refs) != 1 or not re.fullmatch(r'[\w.:-]{1,200}', refs[0]):
         raise DropdownAttention('This dropdown does not identify one supported option list. Complete it yourself.')
     popup = frame.locator(f'[role="listbox"][id="{refs[0]}"]')

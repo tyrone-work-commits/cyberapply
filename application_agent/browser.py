@@ -28,6 +28,24 @@ def automatic_application_hosts(job):
     return set().union(*(group for group in APPLICATION_HOST_GROUPS if origins.intersection(group)))
 
 
+def static_asset_hosts(job):
+    origins={(urlsplit(str(job.get(key) or '')).hostname or '').lower().rstrip('.') for key in ('url','applyUrl')}
+    return {'job-boards.cdn.greenhouse.io'} if origins.intersection(set().union(*APPLICATION_HOST_GROUPS[:2])) else set()
+
+
+def allowed_static_asset(url,method,resource_type,asset_hosts):
+    try:
+        parsed=urlsplit(url)
+        port=parsed.port
+    except ValueError:return False
+    extension={'script':'js','stylesheet':'css'}.get(resource_type)
+    static_path=(extension and re.fullmatch(r'/assets/[A-Za-z0-9_.-]{1,200}\.'+extension,parsed.path)) or (
+        resource_type in {'fetch','xhr'} and re.fullmatch(r'/locales/en/(?:job_post|common)\.[A-Za-z0-9_-]{20,80}\.json',parsed.path))
+    return bool(static_path and method=='GET' and parsed.scheme=='https' and parsed.hostname in asset_hosts
+                and not parsed.username and not parsed.password and port in (None,443)
+                and not parsed.query and not parsed.fragment)
+
+
 class ApplicationAttention(Exception):
     pass
 
@@ -123,23 +141,25 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         url = job.get("applyUrl") or job.get("url") or ""
         original_host = validate_public_url(url, resolver=resolver)
         automatic=automatic_application_hosts(job)
-        requested_hosts = {original_host, *automatic, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        asset_candidates=static_asset_hosts(job)
+        requested_hosts = {original_host, *automatic, *asset_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
+        assets=set()
         pins = []
         for host in [original_host,*sorted(requested_hosts-{original_host})]:
             try:
                 validate_public_url("https://" + host, resolver=resolver)
                 addresses = resolver(host,443,type=socket.SOCK_STREAM)
             except ApplicationAttention:
-                if host in automatic and host!=original_host:
+                if host in automatic|asset_candidates and host!=original_host:
                     continue  # An unavailable optional alias must not stop the selected board.
                 raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
-            hosts.add(host)
+            (assets if host in asset_candidates else hosts).add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
-        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic))}
+        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets)}
         report["research"] = research_fn(payload)
         if playwright_factory is None:
             from playwright.sync_api import sync_playwright
@@ -160,6 +180,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 nonlocal submitted
                 req = route.request
                 try:
+                    if (urlsplit(req.url).hostname or '').lower() in assets:
+                        validate_public_url(req.url,assets,resolver)
+                        if not allowed_static_asset(req.url,req.method,req.resource_type,assets):
+                            raise ApplicationAttention('The provider asset host cannot receive application data.')
+                        route.continue_()
+                        return
                     # Supported provider aliases are resolved and pinned before launch.
                     # Unrelated assets are blocked without making optional telemetry
                     # a reason to stop an otherwise readable application form.
@@ -176,7 +202,17 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     route.continue_()
                 except ApplicationAttention:
                     if req.method not in ('GET','HEAD','OPTIONS') or req.resource_type in ('document','xhr','fetch'):
-                        blocked.append(req.url.split('?')[0])
+                        # An aborted optional read must not hide an otherwise
+                        # usable form. Missing essential data will still fail
+                        # field inspection/selection. Navigation, writes and
+                        # misuse of the static CDN remain hard blockers.
+                        if (submit and req.method not in ('GET','HEAD','OPTIONS')) or req.resource_type=='document' or (urlsplit(req.url).hostname or '').lower() in assets:
+                            blocked.append(req.url.split('?')[0])
+                        # Explain the boundary without retaining URL paths, query
+                        # strings, request bodies or applicant data in diagnostics.
+                        diagnostic={'host':(urlsplit(req.url).hostname or ''),'method':req.method,'resource_type':req.resource_type}
+                        destinations=report.setdefault('blocked_destinations',[])
+                        if diagnostic not in destinations and len(destinations)<20:destinations.append(diagnostic)
                     route.abort()
 
             context.route("**/*", guard)
