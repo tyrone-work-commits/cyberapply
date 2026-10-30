@@ -81,6 +81,7 @@ def profile_field(question):
     if re.fullmatch(r'(?:zip|zip code|zipcode|postal|postal code|postcode|post code)(?: / postal code)?',text):return 'zipCode'
     if re.fullmatch(r'(?:street |mailing |residential |home |full )?address(?: line 1| 1)?',text):return 'address'
     if text in {'city','town','city / town','city/town','city or town','location (city)','location(city)','city / location','city/location'}:return 'city'
+    if text in {'state','province','state / province','state/province','state or province','region (state)'}:return 'state'
     if text in {'country','country of residence','country of residency','country where you reside'}:return 'country'
     if text in {'location','where are you located','where do you live','where do you reside','city and country','city, country'}:return 'location'
     if re.fullmatch(r'(?:phone|telephone|mobile|cell|cellphone)(?: phone)?(?: number| no\.?)?(?: \((?:including|with) (?:country|international) code\))?',text):return 'phone'

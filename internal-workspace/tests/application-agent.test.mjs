@@ -34,3 +34,5 @@ test('Ireland choices persist independently, default to unknown, and revoke stal
  assert.equal(s.accountProfile.irelandVisaRequired,null);assert.equal(s.accountProfile.irelandRightToWork,null);
  assert.throws(()=>actionSchema.parse({type:'complete_onboarding',fullName:'QA',headline:'',targetRole:'SOC Analyst',irelandRightToWork:'Yes'}));
 });
+
+test('state is included in fresh claims and edits revoke stale authorization',()=>{const s=apply(fixture());s.accountProfile={fullName:'QA',headline:'',targetRole:'SOC Analyst',completedAt:at,state:'Texas',city:'Dallas',country:'USA'};const request=claimApplication(s,at);assert.equal(request.applicantProfile.state,'Texas');s.accountProfile.state='California';assert.throws(()=>assertApplicationProfileCurrent(s,request),/Edit Profile changed/);});

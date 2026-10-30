@@ -119,3 +119,11 @@ class ProfileAnswerTests(unittest.TestCase):
   self.assertFalse(visited);self.assertFalse(result['salary_evidence'])
 
 if __name__=='__main__':unittest.main()
+
+
+def test_state_comes_from_current_profile_and_never_from_the_cv():
+    from application_agent.profile_answers import saved_profile_answer,profile_field
+    for question in ['State','Province','State / province']:
+        assert profile_field(question)=='state'
+        assert saved_profile_answer({'applicantProfile':{'state':'Texas'},'cv':{'text':'California'}},question,{'type':'text'})[0]=='Texas'
+        assert saved_profile_answer({'cv':{'text':'Texas'}},question,{'type':'text'})[0] is None

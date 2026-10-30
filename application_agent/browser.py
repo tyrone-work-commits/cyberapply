@@ -13,6 +13,7 @@ import socket
 from urllib.parse import urlsplit, parse_qsl
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
+from .uploads import GreenhouseUploads, UploadRejected, UPLOAD_HOST
 
 # Exact provider domains only: never trust lookalike suffixes or private DNS.
 # These aliases are part of one supported application service, so the user
@@ -194,25 +195,28 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         automatic=automatic_application_hosts(job)
         asset_candidates=static_asset_hosts(job)
         read_candidates={CITY_LOOKUP_HOST} if original_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
-        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        upload_candidates={UPLOAD_HOST} if original_host in APPLICATION_HOST_GROUPS[0] else set()
+        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
         assets=set()
         reads=set()
+        upload_hosts=set()
         pins = []
         for host in [original_host,*sorted(requested_hosts-{original_host})]:
             try:
                 validate_public_url("https://" + host, resolver=resolver)
                 addresses = resolver(host,443,type=socket.SOCK_STREAM)
             except ApplicationAttention:
-                if host in automatic|asset_candidates|read_candidates and host!=original_host:
+                if host in automatic|asset_candidates|read_candidates|upload_candidates and host!=original_host:
                     continue  # An unavailable optional alias must not stop the selected board.
                 raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
-            (reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
+            (upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
-        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets),'form_read_hosts':sorted(reads)}
+        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets),'form_read_hosts':sorted(reads),'attachment_upload_hosts':sorted(upload_hosts)}
+        uploads=GreenhouseUploads(bool(upload_hosts),report)
         report["research"] = research_fn(payload)
         if playwright_factory is None:
             from playwright.sync_api import sync_playwright
@@ -237,6 +241,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     report['city_lookup']={'status':status,**({'result_count':count} if count is not None else {})}
                 except Exception:pass
             context.on('response',observe_city_lookup)
+            context.on('response',uploads.observe_ticket)
+            context.on('response',uploads.observe_upload)
             # Job forms need HTTP, not arbitrary peer/socket transports that bypass
             # request routing. Apply this before any page or iframe script executes.
             restrict_transports(context)
@@ -252,6 +258,17 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     route.abort()
                     return
                 try:
+                    if (urlsplit(req.url).hostname or '').lower() in upload_hosts:
+                        validate_public_url(req.url,upload_hosts,resolver)
+                        if not submit:
+                            route.abort()
+                            return
+                        try:
+                            if req.method=='OPTIONS':uploads.permit_preflight(req,before_submit or (lambda:False))
+                            else:uploads.permit(req,before_submit or (lambda:False))
+                        except UploadRejected as error:raise ApplicationAttention(str(error)) from None
+                        route.continue_()
+                        return
                     if (urlsplit(req.url).hostname or '').lower() in reads:
                         validate_public_url(req.url,reads,resolver)
                         if not allowed_city_lookup(req.url,req.method,req.resource_type,original_host,payload.get('applicantProfile') or {}):
@@ -345,6 +362,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     context.close()
                     context=browser.new_context(accept_downloads=False,service_workers='block',storage_state=restored)
                     context.on('response',observe_city_lookup)
+                    context.on('response',uploads.observe_ticket)
+                    context.on('response',uploads.observe_upload)
                     restrict_transports(context)
                     context.route('**/*',guard)
                     blocked.clear()
@@ -445,10 +464,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if not report["cover_letter"]:
                                 unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"No grounded cover letter was prepared."})
                             else:
+                                uploads.arm('cover_letter','cover-letter.txt','text/plain',report['cover_letter'].encode())
                                 control.set_input_files({"name":"cover-letter.txt","mimeType":"text/plain","buffer":report["cover_letter"].encode()})
                                 expected_values[field['id']]=('file',{'name':'cover-letter.txt','size':len(report['cover_letter'].encode())})
                         elif re.search(r"resume|résumé|\bcv\b", label):
                             name = str(cv.get("name") or "CV.pdf").replace('\\','/').split('/')[-1]
+                            uploads.arm('resume',name,cv.get('type') or 'application/octet-stream',cv_bytes)
                             control.set_input_files({"name":name,"mimeType":cv.get("type") or "application/octet-stream","buffer":cv_bytes})
                             expected_values[field['id']]=('file',{'name':name,'size':len(cv_bytes)})
                         elif field["required"]:
@@ -547,6 +568,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     elif field["required"] and not any(item.get('field_id')==field['id'] for item in unresolved):
                         unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV or saved Edit Profile does not establish an answer."})
                 # De-duplicate and ignore planner file omissions once the exact CV was uploaded.
+                if submit:
+                    try:uploads.settle(page,timeout)
+                    except UploadRejected as error:raise ApplicationAttention(str(error)) from None
+                if blocked:
+                    raise ApplicationAttention('An employer request was blocked during preparation. Submit was not clicked; review the destination details in the report.')
                 def verify_expected():
                     for field_id,(kind,expected) in expected_values.items():
                         control=controls[field_id]
