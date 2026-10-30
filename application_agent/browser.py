@@ -10,6 +10,7 @@ import ipaddress
 import re
 import socket
 from urllib.parse import urlsplit
+from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
 
 # Exact provider domains only: never trust lookalike suffixes or private DNS.
 # These aliases are part of one supported application service, so the user
@@ -51,15 +52,17 @@ def validate_public_url(url, allowed_hosts=None, resolver=socket.getaddrinfo):
 
 
 INSPECT = """() => {
-  const visible = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.disabled;
+  const visible = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.disabled && !e.closest('[aria-hidden="true"],[inert]');
   const labelText = label => {const copy=label.cloneNode(true);copy.querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox],script,style').forEach(e=>e.remove());return (copy.textContent||'').replace(/\\s+/g,' ').trim();};
   return [...document.querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox]')]
-    .filter(visible).filter(e => !['hidden','submit','button','reset'].includes(e.type))
+    .filter(visible).filter(e => !['hidden','submit','button','reset'].includes(e.type)||(e.type==='button'&&e.getAttribute('role')==='combobox'))
+    .filter(e => !e.parentElement?.closest('[role=combobox]'))
     .slice(0,101).map((e,i) => {
       const id='cyberapply-'+i; e.setAttribute('data-cyberapply-field',id);
       const labels=[...(e.labels||[])].map(labelText).join(' ');
       const labelled=(e.getAttribute('aria-labelledby')||'').split(/\\s+/).map(x=>document.getElementById(x)?.innerText||'').join(' ');
-      const optionLabel=(labels||e.getAttribute('aria-label')||labelled||e.placeholder||e.name||e.id||'Unlabelled field').trim().slice(0,1000);
+      let optionLabel=(labels||e.getAttribute('aria-label')||labelled||e.placeholder||e.name||e.id||'Unlabelled field').trim().slice(0,1000);
+      if(e.type==='file'&&/^attach(?: file)?$/i.test(optionLabel)&&/^(?:resume|cv|cover[_-]?letter)$/i.test(e.name||e.id||'')) optionLabel=e.name||e.id;
       const type=e.tagName==='SELECT'?'select':e.tagName==='TEXTAREA'?'textarea':e.getAttribute('role')||e.type||'text';
       const groupParent=e.closest('fieldset,[role=radiogroup]');
       const groupQuestion=(groupParent?.querySelector(':scope > legend')?.innerText||groupParent?.getAttribute('aria-label')||
@@ -250,7 +253,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             page.wait_for_timeout(500)
                             continue
                     raise ApplicationAttention("No supported application form was found, or it has too many fields to inspect reliably.")
-                signature = tuple((f["id"], f["label"], f["type"]) for f in fields)
+                signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
                 if signature in seen_steps:
                     raise ApplicationAttention("The employer form did not advance. Review its validation messages.")
                 seen_steps.add(signature)
@@ -264,7 +267,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 def exact_confirmed(field, answer):
                     normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
                     same_question=[f for f in fields if f['type']==field['type'] and normalize(f['label'])==normalize(field['label'])]
-                    if field['type']=='checkbox' and len(same_question)!=1:
+                    if field['type'] in {'checkbox','combobox'} and len(same_question)!=1:
                         return False
                     if field['type']=='radio' and len({f.get('group') for f in same_question})!=1:
                         return False
@@ -344,8 +347,28 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             expected_values[field['id']]=('checked',False)
                         continue
                     if kind == "combobox":
-                        if field["required"]:
-                            unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This choice needs explicit user review; consent and personal answers are never assumed."})
+                        from .profile_answers import profile_field, saved_profile_answer
+                        from .answer_drafts import experience_answer
+                        normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
+                        unique=sum(f['type']=='combobox' and normalize(f['label'])==normalize(field['label']) for f in fields)==1
+                        permitted=bool(unique and exact_confirmed(field,answer))
+                        if unique and answer and answer.get('source')=='edit_profile' and profile_field(field['label']):
+                            expected,_,_=saved_profile_answer(payload,field['label'],field)
+                            permitted=expected is not None and expected==answer.get('value')
+                        elif unique and answer and answer.get('source')=='cv':
+                            known=experience_answer(field['label'],str(cv.get('text','')),'select')
+                            permitted=bool(known and not known[2] and known[0]==answer.get('value'))
+                        try:
+                            if answer and permitted:
+                                selected=select_combobox(frames[int(field['id'].split(':',1)[0])],control,field,str(answer['value']),payload.get('applicantProfile') or {},timeout)
+                                expected_values[field['id']]=('combobox',selected)
+                                handled_confirmed.add(field['id'])
+                                report['answers'].append({**answer,'question':field['label'],'selected_option':selected})
+                            elif field['required'] or has_unreviewed_selection(control):
+                                if not any(item.get('field_id')==field['id'] for item in unresolved):
+                                    unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This dropdown needs a unique, fact-backed or explicitly confirmed answer. No option was assumed.'})
+                        except DropdownAttention as error:
+                            unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error)})
                         continue
                     if answer:
                         value = str(answer["value"])
@@ -366,17 +389,17 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 def verify_expected():
                     for field_id,(kind,expected) in expected_values.items():
                         control=controls[field_id]
-                        actual=(control.is_checked() if kind=='checked' else
+                        actual=(selected_display(control,expected) if kind=='combobox' else control.is_checked() if kind=='checked' else
                             control.evaluate("e=>e.files?.[0]?{name:e.files[0].name,size:e.files[0].size}:null") if kind=='file' else
                             control.evaluate("e=>e.selectedOptions[0]?.text||''") if kind=='select' else control.input_value())
-                        if actual!=expected:
+                        if (kind=='combobox' and actual is not True) or (kind!='combobox' and actual!=expected):
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
                 if report["unresolved"]:
                     return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "The form needs answers or choices missing from the CV or saved Edit Profile. Review the saved agent report.", report)
                 page.wait_for_timeout(300)
                 refreshed = [(fidx, f) for fidx, frame in enumerate(frames) for f in frame.evaluate(INSPECT)]
-                refreshed_signature = tuple((f'{idx}:{f["id"]}', f['label'], f['type']) for idx, f in refreshed)
+                refreshed_signature = tuple((f'{idx}:{f["id"]}', f['label'], f['type'], f['required']) for idx, f in refreshed)
                 if refreshed_signature != signature:
                     continue  # A selection revealed new questions; inspect them before any click.
                 verify_expected()

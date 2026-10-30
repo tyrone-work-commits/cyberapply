@@ -14,7 +14,7 @@ def experience_answer(question,text,kind):
         lines=[line.strip(' -*•') for line in text.splitlines() if re.search(pattern,line,re.I) and not re.search(r'\b(?:no experience|never used|do not know|learning|wish to learn|interested in learning)\b',line,re.I)]
         if not lines:return None
         proof.append(lines[0][:500])
-    if kind in {'select','radio','checkbox'}:return 'Yes','; '.join(proof),False
+    if kind in {'select','radio','checkbox','combobox'}:return 'Yes','; '.join(proof),False
     return 'Yes. My CV includes: '+' '.join(dict.fromkeys(proof)),'; '.join(proof),True
 
 def narrative_draft(question,text,job,contribution):
