@@ -89,7 +89,7 @@ def profile_field(question):
 
 def saved_profile_answer(payload,question,field):
     """Return value/evidence/reason. Never reinterpret expectation as salary history."""
-    key=profile_field(question)
+    key='phone' if field.get('phoneCountry') is True else profile_field(question)
     profile=payload.get('applicantProfile')
     profile=profile if isinstance(profile,dict) else {}
     if key=='residenceQuestion':return residence_answer(profile,question)

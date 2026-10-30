@@ -43,7 +43,7 @@ _DISPLAY = """e => {
 }"""
 
 
-def selected_display(control, label):
+def selected_display(control, label, frame=None):
     # A typed query alone is not a committed selection: require a separate
     # rendered display for input widgets, or the button/div's own display.
     if control.get_attribute('aria-expanded') != 'false' or control.get_attribute('aria-invalid') == 'true':
@@ -51,7 +51,29 @@ def selected_display(control, label):
     texts = control.evaluate(_DISPLAY)
     if control.evaluate("e=>e.tagName==='INPUT'") and control.input_value():
         texts = texts[1:]
-    return any(_text(text) == _text(label) for text in texts)
+    if any(_text(text) == _text(label) for text in texts):return True
+    # Greenhouse's phone-country widget renders only the calling code after
+    # selection. A code alone is ambiguous (US and Canada both use +1).
+    # Reopen its explicitly linked list and require the exact selected option.
+    match=re.search(r'\s(\+\d[\d -]*)$',label)
+    if (frame is None or control.get_attribute('id')!='country' or not match
+            or not control.evaluate("e=>e.tagName==='INPUT'&&e.value===''")
+            or not any(_text(text).replace(' ','')==match[1].replace(' ','') for text in texts)):
+        return False
+    valid=False
+    try:
+        control.click(timeout=750)
+        popup=_popup(frame,control,750)
+        _,choices=_options(popup)
+        selected=popup.locator('[role="option"][aria-selected="true"]')
+        valid=(sum(_text(text)==_text(label) for _,text in choices)==1 and selected.count()==1
+               and selected.is_visible() and selected.is_enabled()
+               and selected.get_attribute('aria-disabled')!='true' and _text(selected.inner_text())==_text(label))
+    except Exception:valid=False
+    finally:
+        try:control.press('Escape',timeout=750)
+        except Exception:pass
+    return bool(valid and control.get_attribute('aria-expanded')=='false' and control.get_attribute('aria-invalid')!='true')
 
 
 def has_unreviewed_selection(control):
@@ -94,6 +116,19 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
     already grounded in saved facts or an exact user confirmation.
     """
     timeout = min(timeout, 3000)
+    def matching(choices):
+        if not field.get('phoneCountry'):
+            return [(index,label) for index,label in choices if option_matches(field['label'],value,label,profile)]
+        candidates=[]
+        for index,label in choices:
+            code=re.search(r'\+(\d{1,4})$',label)
+            if code and value.startswith('+'+code[1]):candidates.append((index,label,code[1]))
+        if not candidates:return []
+        longest=max(len(code) for _,_,code in candidates)
+        candidates=[(index,label) for index,label,code in candidates if len(code)==longest]
+        if len(candidates)>1:
+            candidates=[(index,label) for index,label in candidates if option_matches('Country',profile.get('country',''),label,profile)]
+        return candidates
     if control.get_attribute('aria-multiselectable') == 'true' or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
         raise DropdownAttention('This dropdown is not a supported single-choice control.')
     try:
@@ -111,14 +146,14 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
             control.fill(query,timeout=timeout)
             popup=_popup(frame,control,timeout)
         options, choices = _options(popup)
-        matches = [(index, label) for index, label in choices if option_matches(field['label'], value, label, profile)]
-        if not matches and editable:
+        matches = matching(choices)
+        if not matches and editable and not field.get('phoneCountry'):
             control.fill(query, timeout=timeout)
             deadline = time.monotonic() + timeout / 1000
             while True:
                 popup = _popup(frame, control, timeout)
                 options, choices = _options(popup)
-                matches = [(index, label) for index, label in choices if option_matches(field['label'], value, label, profile)]
+                matches = matching(choices)
                 if matches or time.monotonic() >= deadline:
                     break
                 frame.wait_for_timeout(100)
@@ -127,7 +162,7 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
         frame.wait_for_timeout(150)
         popup = _popup(frame, control, timeout)
         options, choices = _options(popup)
-        matches = [(index, label) for index, label in choices if option_matches(field['label'], value, label, profile)]
+        matches = matching(choices)
         if len(matches) != 1 or popup.get_attribute('aria-busy') == 'true' or control.get_attribute('aria-busy') == 'true':
             raise DropdownAttention('The dropdown is still loading or its matching choices changed. Review this choice.',transient=True)
         index, label = matches[0]
@@ -137,11 +172,11 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
         item.click(timeout=timeout)
         # React-style controls may commit their display asynchronously.
         deadline=time.monotonic()+min(timeout,750)/1000
-        while not selected_display(control,label) and time.monotonic()<deadline:
+        while not selected_display(control,label,frame) and time.monotonic()<deadline:
             frame.wait_for_timeout(50)
         if control.get_attribute('aria-expanded') == 'true':
             control.press('Escape', timeout=timeout)
-        if not selected_display(control, label):
+        if not selected_display(control, label,frame):
             raise DropdownAttention('The dropdown did not confirm the selected answer. Review this choice.',transient=True)
         return label
     except DropdownAttention:

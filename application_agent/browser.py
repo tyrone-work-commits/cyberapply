@@ -6,10 +6,11 @@ questions and uncertain outcomes are returned to the user rather than guessed.
 from __future__ import annotations
 
 import hashlib
+import json
 import ipaddress
 import re
 import socket
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, parse_qsl
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 
@@ -45,6 +46,44 @@ def allowed_static_asset(url,method,resource_type,asset_hosts):
     return bool(static_path and method=='GET' and parsed.scheme=='https' and parsed.hostname in asset_hosts
                 and not parsed.username and not parsed.password and port in (None,443)
                 and not parsed.query and not parsed.fragment)
+
+
+def optional_tracking_request(url,method,resource_type,application_host):
+    """This observed Greenhouse analytics call is always aborted, never allowed.
+
+    Do not treat an optional denied tracker as an application destination.
+    Navigations, lookalikes and any other path keep the normal hard stop.
+    """
+    try:
+        parsed=urlsplit(url)
+        return (application_host in APPLICATION_HOST_GROUPS[0]
+                and parsed.scheme=='https' and parsed.hostname=='c.spl.greenhouse.io'
+                and parsed.port in (None,443) and not parsed.username and not parsed.password
+                and parsed.path=='/com.snowplowanalytics.snowplow/tp2'
+                and not parsed.query and not parsed.fragment
+                and method=='POST' and resource_type in {'fetch','xhr'})
+    except ValueError:return False
+
+
+CITY_LOOKUP_HOST='api-geocode-earth-proxy.greenhouse.io'
+
+
+def allowed_city_lookup(url,method,resource_type,application_host,profile):
+    """Read only the observed locality search, for the owner's exact saved city."""
+    try:
+        parsed=urlsplit(url)
+        pairs=parse_qsl(parsed.query,keep_blank_values=True,strict_parsing=True)
+        params=dict(pairs)
+        city=profile.get('city','')
+        return bool(application_host in APPLICATION_HOST_GROUPS[0] and method=='GET' and resource_type in {'fetch','xhr'}
+            and parsed.scheme=='https' and parsed.hostname==CITY_LOOKUP_HOST and parsed.port in (None,443)
+            and not parsed.username and not parsed.password and not parsed.fragment and parsed.path=='/v1/autocomplete'
+            and len(pairs)==len(params)==4 and set(params)=={'api_key','layers','lang','text'}
+            and re.fullmatch(r'[A-Za-z0-9_-]{8,128}',params['api_key']) and params['layers']=='locality'
+            and re.fullmatch(r'[a-z]{2}(?:-[A-Z]{2})?',params['lang'])
+            and isinstance(city,str) and 1<len(city.strip())<=120 and not re.search(r'[\r\n\x00-\x1f]',city)
+            and params['text'].strip().casefold()==city.strip().casefold())
+    except (ValueError,TypeError):return False
 
 
 class ApplicationAttention(Exception):
@@ -83,12 +122,14 @@ INSPECT = """() => {
       let optionLabel=(labels||e.getAttribute('aria-label')||labelled||e.placeholder||e.name||e.id||'Unlabelled field').trim().slice(0,1000);
       if(e.type==='file'&&/^attach(?: file)?$/i.test(optionLabel)&&/^(?:resume|cv|cover[_-]?letter)$/i.test(e.name||e.id||'')) optionLabel=e.name||e.id;
       const type=e.tagName==='SELECT'?'select':e.tagName==='TEXTAREA'?'textarea':e.getAttribute('role')||e.type||'text';
+      const phoneGroup=e.closest('fieldset.phone-input');
+      const phoneCountry=type==='combobox'&&e.id==='country'&&phoneGroup&&phoneGroup.querySelectorAll('input[type=tel]').length===1&&/^phone\\s*\\*?$/i.test((phoneGroup.querySelector('legend')?.textContent||'').trim());
       const groupParent=e.closest('fieldset,[role=radiogroup]');
       const groupQuestion=(groupParent?.querySelector(':scope > legend')?.innerText||groupParent?.getAttribute('aria-label')||
         (groupParent?.getAttribute('aria-labelledby')||'').split(/\\s+/).map(x=>document.getElementById(x)?.innerText||'').join(' ')).trim();
       const peers=type==='radio'&&e.name?[...document.querySelectorAll('input[type=radio]')].filter(x=>visible(x)&&x.name===e.name&&x.form===e.form):[];
       const label=type==='radio'&&groupQuestion?groupQuestion:optionLabel;
-      return {id,label,type,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
+      return {id,label,type,phoneCountry:!!phoneCountry,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
         nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
         required:e.required||e.getAttribute('aria-required')==='true',
         options:e.options?[...e.options].map(o=>o.text):peers.map(x=>[...(x.labels||[])].map(labelText).join(' ').trim()),
@@ -152,24 +193,26 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         original_host = validate_public_url(url, resolver=resolver)
         automatic=automatic_application_hosts(job)
         asset_candidates=static_asset_hosts(job)
-        requested_hosts = {original_host, *automatic, *asset_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        read_candidates={CITY_LOOKUP_HOST} if original_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
+        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
         assets=set()
+        reads=set()
         pins = []
         for host in [original_host,*sorted(requested_hosts-{original_host})]:
             try:
                 validate_public_url("https://" + host, resolver=resolver)
                 addresses = resolver(host,443,type=socket.SOCK_STREAM)
             except ApplicationAttention:
-                if host in automatic|asset_candidates and host!=original_host:
+                if host in automatic|asset_candidates|read_candidates and host!=original_host:
                     continue  # An unavailable optional alias must not stop the selected board.
                 raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
-            (assets if host in asset_candidates else hosts).add(host)
+            (reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
-        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets)}
+        report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets),'form_read_hosts':sorted(reads)}
         report["research"] = research_fn(payload)
         if playwright_factory is None:
             from playwright.sync_api import sync_playwright
@@ -181,6 +224,19 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             session_active=bool(saved_session)
             report['login_session']={'reused':session_active,'saved':False}
             context = browser.new_context(accept_downloads=False, service_workers="block",**({'storage_state':saved_session} if saved_session else {}))
+            def observe_city_lookup(response):
+                request=response.request
+                if not allowed_city_lookup(request.url,request.method,request.resource_type,original_host,payload.get('applicantProfile') or {}):return
+                try:
+                    status='unavailable';count=None
+                    if response.status==200:
+                        raw=response.body()
+                        data=json.loads(raw) if len(raw)<=200000 else {}
+                        features=data.get('features') if isinstance(data,dict) else None
+                        if isinstance(features,list):count=len(features);status='no_results' if not features else 'results_returned'
+                    report['city_lookup']={'status':status,**({'result_count':count} if count is not None else {})}
+                except Exception:pass
+            context.on('response',observe_city_lookup)
             # Job forms need HTTP, not arbitrary peer/socket transports that bypass
             # request routing. Apply this before any page or iframe script executes.
             restrict_transports(context)
@@ -189,7 +245,19 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             def guard(route):
                 nonlocal submitted
                 req = route.request
+                if optional_tracking_request(req.url,req.method,req.resource_type,original_host):
+                    diagnostics=report.setdefault('suppressed_background_requests',[])
+                    entry={'host':'c.spl.greenhouse.io','method':req.method,'resource_type':req.resource_type,'reason':'Optional analytics blocked; not an application destination.'}
+                    if entry not in diagnostics and len(diagnostics)<20:diagnostics.append(entry)
+                    route.abort()
+                    return
                 try:
+                    if (urlsplit(req.url).hostname or '').lower() in reads:
+                        validate_public_url(req.url,reads,resolver)
+                        if not allowed_city_lookup(req.url,req.method,req.resource_type,original_host,payload.get('applicantProfile') or {}):
+                            raise ApplicationAttention('The city lookup cannot receive other application data.')
+                        route.continue_()
+                        return
                     if (urlsplit(req.url).hostname or '').lower() in assets:
                         validate_public_url(req.url,assets,resolver)
                         if not allowed_static_asset(req.url,req.method,req.resource_type,assets):
@@ -276,6 +344,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     report['login_session']['saved']=True
                     context.close()
                     context=browser.new_context(accept_downloads=False,service_workers='block',storage_state=restored)
+                    context.on('response',observe_city_lookup)
                     restrict_transports(context)
                     context.route('**/*',guard)
                     blocked.clear()
@@ -448,6 +517,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                                     unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This dropdown needs a unique, fact-backed or explicitly confirmed answer. No option was assumed.'})
                         except RecoveryStopped as error:
                             report['unresolved']=[{'field_id':field['id'],'question':field['label'],'reason':dropdown_issue[0]+' '+str(error),'source':'agent_recovery'}]
+                            if profile_field(field['label'])=='city' and report.get('city_lookup',{}).get('status')=='no_results':
+                                message="The employer's city search found no match for the saved City. Enter your full city name in Edit Profile, then continue. No location was guessed."
+                                report['unresolved'][0].update(reason=message,source='edit_profile')
+                                raise ApplicationAttention(message) from None
                             raise
                         except DropdownAttention as error:
                             unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error),'source':'agent_recovery'})
@@ -462,9 +535,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         elif kind in ("text", "email", "tel", "url", "number", "textarea", "search", "date"):
                             def fill_saved():
                                 control.fill(value,timeout=min(timeout,3000))
-                                if control.input_value()!=value:raise TransientFormError('The field did not retain the saved answer.')
+                                from .profile_answers import profile_field
+                                from .phone import matches_phone
+                                if not (matches_phone(control,value) if profile_field(field['label'])=='phone' else control.input_value()==value):raise TransientFormError('The field did not retain the saved answer.')
                             recovery.run('fill_saved_answer',lambda:same_question(fill_saved),field['id'])
-                            expected_values[field['id']]=('value',value)
+                            from .profile_answers import profile_field
+                            expected_values[field['id']]=('phone' if profile_field(field['label'])=='phone' else 'value',value)
                         else:
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This control is not supported."})
                         report["answers"].append({**answer, "question":field["label"]})
@@ -474,10 +550,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 def verify_expected():
                     for field_id,(kind,expected) in expected_values.items():
                         control=controls[field_id]
-                        actual=(selected_display(control,expected) if kind=='combobox' else control.is_checked() if kind=='checked' else
+                        from .phone import matches_phone
+                        actual=(matches_phone(control,expected) if kind=='phone' else selected_display(control,expected,frames[int(field_id.split(':',1)[0])]) if kind=='combobox' else control.is_checked() if kind=='checked' else
                             control.evaluate("e=>e.files?.[0]?{name:e.files[0].name,size:e.files[0].size}:null") if kind=='file' else
                             control.evaluate("e=>e.selectedOptions[0]?.text||''") if kind=='select' else control.input_value())
-                        if (kind=='combobox' and actual is not True) or (kind!='combobox' and actual!=expected):
+                        if (kind in {'combobox','phone'} and actual is not True) or (kind not in {'combobox','phone'} and actual!=expected):
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
                 if report["unresolved"]:
