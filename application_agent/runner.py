@@ -77,9 +77,10 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         report=result['report']
         result['report']={"experience":report.get('experience',{}),"unresolved":report.get('unresolved',[])[:30],
                           "cover_letter":str(report.get('cover_letter',''))[:12000],"answers":report.get('answers',[])[:10],
+                          "recovery":report.get('recovery',{}),
                           "research":{"note":"Report abbreviated to fit the saved record; no additional answers were invented."}}
         if len(json.dumps(result['report'])) > 55000:
-            result['report']={"note":"Detailed report exceeded the saved record limit.","experience":report.get('experience',{})}
+            result['report']={"note":"Detailed report exceeded the saved record limit.","experience":report.get('experience',{}),"recovery":report.get('recovery',{})}
     call_site(site, token, "/api/application-agent/result", {"requestId":task["requestId"],"claimId":task["claimId"],**result}, site_access_token=site_access_token)
     print("Application agent:", result["status"], "—", result["message"])
     return True

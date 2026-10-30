@@ -11,6 +11,7 @@ import re
 import socket
 from urllib.parse import urlsplit
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
+from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 
 # Exact provider domains only: never trust lookalike suffixes or private DNS.
 # These aliases are part of one supported application service, so the user
@@ -97,6 +98,12 @@ INSPECT = """() => {
 
 SUCCESS = re.compile(r"(?:your application (?:has been |was )?(?:successfully )?(?:submitted|received)|thank you for applying|application (?:successfully submitted|received successfully)|we(?:'|’)ve received your application)", re.I)
 
+CONTROL_IDENTITY = """e => {
+ const text=n=>{const c=n.cloneNode(true);c.querySelectorAll('input,textarea,select,[role=combobox],script,style').forEach(x=>x.remove());return (c.textContent||'').replace(/\\s+/g,' ').trim();};
+ return JSON.stringify([e.tagName,e.type,e.id,e.name,e.getAttribute('role'),e.getAttribute('aria-label'),
+ [...(e.labels||[])].map(text),(e.getAttribute('aria-labelledby')||'').split(/\\s+/).map(id=>document.getElementById(id)?.textContent||'')]);
+}"""
+
 
 def _result(status, message, report=None, **kwargs):
     return {"status": status, "message": message, **({"report": report} if report else {}), **kwargs}
@@ -132,7 +139,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         if session_active and context and session_store:
             try:session_store.save(job,hosts,context.storage_state(),refresh=True)
             except Exception:pass
-        return _result(*args,**kwargs)
+        result=_result(*args,**kwargs)
+        repaired=sum(event.get('outcome')=='recovered' for event in report.get('recovery',{}).get('events',[]))
+        if repaired:result['message']+=f' Automatically recovered from {repaired} temporary form problem(s).'
+        return result
     try:
         cv = payload.get("cv") or {}
         if not cv_bytes or len(cv_bytes) > 15_000_000 or hashlib.sha256(cv_bytes).hexdigest() != cv.get("sha256"):
@@ -218,7 +228,14 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             context.route("**/*", guard)
             page = context.new_page()
             page.set_default_timeout(timeout)
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 2)
+            recovery=FormRecovery(report,
+                can_retry=lambda:not submitted and not blocked and (not submit or before_submit is not None and before_submit() is True),
+                wait=page.wait_for_timeout)
+            def open_initial_page():
+                response=page.goto(url, wait_until="domcontentloaded", timeout=timeout * 2)
+                if response and response.status in {502,503,504}:
+                    raise TransientFormError('The employer page is temporarily unavailable.')
+            recovery.run('open_employer_page',open_initial_page)
             page.wait_for_timeout(700)
             seen_steps = set()
             login_attempted=False
@@ -267,10 +284,24 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     page.goto(url,wait_until='domcontentloaded',timeout=timeout*2)
                     page.wait_for_timeout(500)
                     continue
-                for fidx, frame in enumerate(frames):
+                for frame in frames:
                     if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
                         raise ApplicationAttention("The employer requires a verification challenge. Please complete it yourself.")
-                    for field in frame.evaluate(INSPECT):
+                def read_forms():
+                    # An embedded application can appear after the shell page.
+                    # Rediscover frames only before any controls are filled.
+                    frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','')]
+                    for frame in frames:
+                        validate_public_url(frame.url,hosts,resolver)
+                        if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                            raise ApplicationAttention('The employer requires a verification challenge. Please complete it yourself.')
+                    found=[(idx,frame,frame.evaluate(INSPECT)) for idx,frame in enumerate(frames)]
+                    if not any(items for _,_,items in found) and not page.get_by_role('link',name=re.compile(r'^apply(?: now| for (?:this )?(?:job|role|position))?$',re.I)).count():
+                        page.wait_for_timeout(300)
+                        raise TransientFormError('The employer form is still loading.')
+                    return found
+                for fidx,frame,items in recovery.run('read_form',read_forms):
+                    for field in items:
                         local_id = field["id"]
                         field["id"] = f"{fidx}:{local_id}"
                         if field.get('group'):
@@ -330,6 +361,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     control = controls[field["id"]]
                     kind, label = field["type"], field["label"].lower()
                     answer = answers.get(field["id"])
+                    identity=control.evaluate(CONTROL_IDENTITY)
+                    def same_question(operation):
+                        if control.evaluate(CONTROL_IDENTITY)!=identity:
+                            raise ApplicationAttention('The employer changed this question during preparation. The old answer was not replayed; inspect the changed form before continuing.')
+                        return operation()
                     if kind == "file":
                         if re.search(r"cover.?letter", label):
                             if not answer or answer.get('source')!='user_confirmed':
@@ -396,25 +432,38 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             permitted=bool(known and not known[2] and known[0]==answer.get('value'))
                         try:
                             if answer and permitted:
-                                selected=select_combobox(frames[int(field['id'].split(':',1)[0])],control,field,str(answer['value']),payload.get('applicantProfile') or {},timeout)
+                                dropdown_issue=['']
+                                def choose_dropdown():
+                                    try:return select_combobox(frames[int(field['id'].split(':',1)[0])],control,field,str(answer['value']),payload.get('applicantProfile') or {},timeout)
+                                    except DropdownAttention as error:
+                                        dropdown_issue[0]=str(error)
+                                        if error.transient:raise TransientFormError(str(error)) from None
+                                        raise
+                                selected=recovery.run('select_labelled_dropdown',lambda:same_question(choose_dropdown),field['id'])
                                 expected_values[field['id']]=('combobox',selected)
                                 handled_confirmed.add(field['id'])
                                 report['answers'].append({**answer,'question':field['label'],'selected_option':selected})
                             elif field['required'] or has_unreviewed_selection(control):
                                 if not any(item.get('field_id')==field['id'] for item in unresolved):
                                     unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This dropdown needs a unique, fact-backed or explicitly confirmed answer. No option was assumed.'})
+                        except RecoveryStopped as error:
+                            report['unresolved']=[{'field_id':field['id'],'question':field['label'],'reason':dropdown_issue[0]+' '+str(error),'source':'agent_recovery'}]
+                            raise
                         except DropdownAttention as error:
-                            unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error)})
+                            unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error),'source':'agent_recovery'})
                         continue
                     if answer:
                         value = str(answer["value"])
                         if kind == "select":
                             if value not in field["options"]:
                                 raise ApplicationAttention("A suggested answer does not match the employer's available choices.")
-                            control.select_option(label=value)
+                            recovery.run('select_native_option',lambda:same_question(lambda:control.select_option(label=value,timeout=min(timeout,3000))),field['id'])
                             expected_values[field['id']]=('select',value)
                         elif kind in ("text", "email", "tel", "url", "number", "textarea", "search", "date"):
-                            control.fill(value)
+                            def fill_saved():
+                                control.fill(value,timeout=min(timeout,3000))
+                                if control.input_value()!=value:raise TransientFormError('The field did not retain the saved answer.')
+                            recovery.run('fill_saved_answer',lambda:same_question(fill_saved),field['id'])
                             expected_values[field['id']]=('value',value)
                         else:
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This control is not supported."})
@@ -432,7 +481,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
                 if report["unresolved"]:
-                    return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "The form needs answers or choices missing from the CV or saved Edit Profile. Review the saved agent report.", report)
+                    technical=any(item.get('source')=='agent_recovery' for item in report['unresolved'])
+                    return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "Automatic form repairs could not confirm an employer control. Saved details are preserved; review the technical reason in the report." if technical else "The form needs answers or choices missing from the CV or saved Edit Profile. Review the saved agent report.", report)
                 page.wait_for_timeout(300)
                 refreshed = [(fidx, f) for fidx, frame in enumerate(frames) for f in frame.evaluate(INSPECT)]
                 refreshed_signature = tuple((f'{idx}:{f["id"]}', f['label'], f['type'], f['required']) for idx, f in refreshed)
@@ -492,7 +542,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     return finish("applied", "The employer displayed an application confirmation.", report, receipt=text, evidence={"url":page.url,"text":text})
                 return finish("uncertain", "Submit was clicked, but no explicit employer confirmation was found. Check the employer or inbox before retrying.", report)
             raise ApplicationAttention("This application exceeded the six-step limit. Please review it yourself.")
-    except ApplicationAttention as exc:
+    except (ApplicationAttention,RecoveryStopped) as exc:
         return finish("uncertain" if submitted else "needs_attention", str(exc), report)
     except Exception:
         return finish("uncertain" if submitted else "failed", "The browser stopped after a possible submission; check the employer before retrying." if submitted else "The browser could not finish this form. No submission was attempted.", report)
