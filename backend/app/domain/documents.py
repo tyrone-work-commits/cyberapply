@@ -258,7 +258,7 @@ def document_response(document: Document) -> dict:
 
 
 def resume_response(resume: Resume, *, include_text: bool = True) -> dict:
-    result = {key: getattr(resume, key) for key in ("id", "document_id", "title", "profile_data", "reviewed", "is_main", "version", "created_at", "updated_at")}
+    result = {key: getattr(resume, key) for key in ("id", "document_id", "title", "profile_data", "reviewed", "is_main", "version", "target_role", "created_at", "updated_at")}
     result["extraction_status"] = "extracted" if resume.extracted_text else "manual_review_required"
     result["warnings"] = [] if resume.extracted_text else ["No readable text is available. Image-only PDFs require OCR or manually entered profile data."]
     if not resume.reviewed:
@@ -384,14 +384,13 @@ def delete_document(document_id: str, db: Session = Depends(get_db), user: User 
     if any(document.id in (ids or []) for ids in attachments):
         fail(409, "document_in_use", "The document is attached to a mail draft or sent message.")
     key = document.storage_key
-    db.delete(document)
-    db.commit()
     try:
         Storage().delete(key)
     except Exception:
-        # Record removal immediately revokes authenticated retrieval. A storage
-        # outage may leave a private orphan, but must not resurrect access.
-        return {"deleted": True, "storage_cleanup_pending": True}
+        # Retain the key durably so retries and account erasure can find it.
+        fail(503, "storage_unavailable", "File storage is unavailable. The document is retained; try deleting it again.")
+    db.delete(document)
+    db.commit()
     return {"deleted": True, "storage_cleanup_pending": False}
 
 

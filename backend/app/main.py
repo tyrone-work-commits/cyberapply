@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
                     return JSONResponse(status_code=413, content={"detail": {"code": "request_too_large",
                                                                              "message": "Request exceeds upload limit"}})
             request._body = bytes(content)
-        if request.url.path.startswith("/api/v1/auth/") and request.method == "POST":
+        if (request.url.path.startswith("/api/v1/auth/") and request.method in {"POST", "PUT", "DELETE"}) or (request.url.path == "/api/v1/account" and request.method == "DELETE") or (request.url.path == "/api/v1/account/export" and request.method == "POST"):
             # Single-process local limiter. Production reverse proxy must enforce a shared limit.
             now = time.monotonic()
             identity = request.client.host if request.client else "unknown"
@@ -88,8 +88,20 @@ def create_app() -> FastAPI:
         except Exception:
             return JSONResponse(status_code=503, content={"status": "not_ready"})
 
-    from app.domain import applications, auth, automation, documents, inbox, jobs, profiles, support
-    for module in [auth, profiles, documents, jobs, applications, automation, inbox, support]:
+    from app.domain import (
+        account,
+        applications,
+        auth,
+        automation,
+        documents,
+        inbox,
+        jobs,
+        mfa,
+        product,
+        profiles,
+        support,
+    )
+    for module in [auth, profiles, documents, jobs, applications, automation, inbox, support, product, mfa, account]:
         app.include_router(module.router, prefix="/api/v1")
     return app
 

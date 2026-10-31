@@ -43,6 +43,7 @@ export interface Job {
   required_certifications?: string[];
   attributes?: { workplace_type?: string; country?: string; salary_interval?: string; mandatory_eligibility?: Record<string, unknown>; skills_basis?: string };
   match?: MatchReport;
+  submission?: { kind: 'demo' | 'automatic' | 'manual'; automatic: boolean; label: string; reason: string; url?: string | null };
 }
 
 interface ResumeChoice { id: string; title: string; reviewed: boolean; is_main: boolean; version: number }
@@ -142,18 +143,18 @@ export function JobDetail({ job, onClose, onChanged }: { job: Job; onClose: () =
         <CompanyMark company={job.company} large />
         <div className="role-heading-copy"><span className="company-name">{job.company}</span><h2>{job.title}</h2><div className="role-meta"><span><Icon name="map-pin" size={15} />{job.location || 'Location not listed'}</span><span><Icon name="globe" size={15} />{job.remote ? 'Remote' : label(job.attributes?.workplace_type)}</span></div></div>
       </header>
-      <div className="role-badges"><Badge tone="info">{salaryLabel(job)}</Badge><Badge>{label(job.employment_type)}</Badge>{job.level && job.level !== 'unspecified' ? <Badge>{label(job.level)}</Badge> : null}{job.is_demo ? <Badge tone="warning">Demo role · simulated application</Badge> : null}</div>
+      <div className="role-badges">{job.submission && <Badge tone={job.submission.automatic?"success":"warning"}>{job.submission.label}</Badge>}<Badge tone="info">{salaryLabel(job)}</Badge><Badge>{label(job.employment_type)}</Badge>{job.level && job.level !== 'unspecified' ? <Badge>{label(job.level)}</Badge> : null}{job.is_demo ? <Badge tone="warning">Demo role · simulated application</Badge> : null}</div>
       <div className="detail-columns">
         <div className="role-content">
-          <div className="detail-tabs" role="tablist" aria-label="Job information"><button type="button" role="tab" aria-selected={tab === 'overview'} aria-controls="role-overview" onClick={() => setTab('overview')} className={tab === 'overview' ? 'selected' : ''}>Overview</button><button type="button" role="tab" aria-selected={tab === 'fit'} aria-controls="role-fit" onClick={() => setTab('fit')} className={tab === 'fit' ? 'selected' : ''}><Icon name="shield-check" size={16} /> Your fit report {report ? <span>{report.score}</span> : null}</button></div>
-          {tab === 'overview' ? <section id="role-overview" role="tabpanel" className="overview-panel">
+          <div className="detail-tabs" role="group" aria-label="Job information"><button type="button" aria-pressed={tab === 'overview'} aria-controls="role-overview" onClick={() => setTab('overview')} className={tab === 'overview' ? 'selected' : ''}>Overview</button><button type="button" aria-pressed={tab === 'fit'} aria-controls="role-fit" onClick={() => setTab('fit')} className={tab === 'fit' ? 'selected' : ''}><Icon name="shield-check" size={16} /> Your fit report {report ? <span>{report.score}</span> : null}</button></div>
+          {tab === 'overview' ? <section id="role-overview"  className="overview-panel">
             <h3>About this opportunity</h3>
             <p className="description">{!job.description ? 'A description has not been provided. Check the original job listing for details.' : expanded || job.description.length < 1800 ? job.description : `${job.description.slice(0, 1800).trim()}…`}</p>
             {job.description?.length >= 1800 ? <button type="button" className="text-button" onClick={() => setExpanded(!expanded)}>{expanded ? 'Show less' : 'Read full description'} <Icon name="chevron-down" size={15} /></button> : null}
             {!!job.required_skills?.length ? <div className="detail-section"><h3>{job.attributes?.skills_basis === 'job_description_mentions' ? 'Skills mentioned in the listing' : 'Listed skills'}</h3><div className="skill-list">{job.required_skills.map(skill => <span className="skill-pill" key={skill}>{skill}</span>)}</div></div> : null}
             {!!job.required_certifications?.length ? <div className="detail-section"><h3>Required certifications</h3><div className="skill-list">{job.required_certifications.map(skill => <span className="skill-pill" key={skill}>{skill}</span>)}</div></div> : null}
             {link ? <a className="original-link" href={link} target="_blank" rel="noopener noreferrer">View the original listing <Icon name="external-link" size={15} /></a> : null}
-          </section> : <section id="role-fit" role="tabpanel" className="fit-panel">
+          </section> : <section id="role-fit"  className="fit-panel">
             {!report && fit.loading ? <div className="fit-loading"><Spinner /><span>Comparing your profile with this role…</span></div> : !report ? <EmptyState title="Fit report unavailable" description={fit.error || 'Please try loading this report again.'} icon="shield" action={<Button variant="secondary" onClick={fit.reload}>Try again</Button>} /> : <>
               <div className="fit-summary"><div className="fit-ring" style={{ '--fit-progress': `${Math.max(0, Math.min(100, report.score))}%` } as CSSProperties}><div><strong>{report.score}</strong><span>of 100</span></div></div><div><span className="mini-label">YOUR FIT ESTIMATE</span><h3>{report.score >= 80 ? 'A promising match' : report.score >= 60 ? 'Worth a closer look' : 'A few gaps to review'}</h3><p>Skills, preferred roles and job requirements, compared with your profile.</p></div></div>
               <p className="fit-note">A heuristic estimate, not an ATS score or hiring probability.</p>
@@ -175,7 +176,7 @@ export function JobDetail({ job, onClose, onChanged }: { job: Job; onClose: () =
             {selected && !selected.reviewed ? <div className="setup-note"><p>Confirm the facts in this résumé before preparing applications.</p><button type="button" className="text-button" onClick={() => { onClose(); navigate('profile:resume'); }}>Review résumé <Icon name="arrow-right" size={14} /></button></div> : null}
             {job.active === false || expired ? <ErrorNotice error="This job is no longer accepting applications." /> : null}
             {profile.error ? <ErrorNotice error={profile.error} /> : null}
-            {job.connector_key === 'unsupported' ? <div className="submission-note"><Icon name="help" size={16} /><p>Preparation is available here. Submit this role on the employer’s website.</p></div> : job.is_demo ? <div className="submission-note"><Icon name="shield" size={16} /><p>Demo role. Employer submission is simulated.</p></div> : null}
+            {job.submission && !job.submission.automatic ? <div className="submission-note"><Icon name="help" size={16} /><p>{job.submission.reason} Prepare a draft here, then complete the application on the employer’s website.</p></div> : job.is_demo ? <div className="submission-note"><Icon name="shield" size={16} /><p>Demo role. Employer submission is simulated.</p></div> : null}
             <ErrorNotice error={error} />
             <Button fullWidth loading={pending === 'queue'} disabled={!!pending || !selected?.reviewed || !profile.data?.confirmed || profile.loading || job.active === false || expired} onClick={queueApplication}>Prepare for review <Icon name="arrow-right" size={17} /></Button>
             <p className="review-promise"><Icon name="shield-check" size={14} />You review the draft before it moves forward.</p>
@@ -189,60 +190,60 @@ export function JobDetail({ job, onClose, onChanged }: { job: Job; onClose: () =
       .detail-shell { color: #262537; }
       .role-heading { display: flex; gap: 18px; align-items: center; padding: 4px 0 18px; }
       .role-heading-copy { min-width: 0; }
-      .company-name { font-size: 13px; color: #74717d; font-weight: 600; }
+      .company-name { font-size:0.8125rem; color: #74717d; font-weight: 600; }
       .role-heading h2 { margin: 5px 0 10px; font-size: clamp(23px, 3vw, 31px); letter-spacing: -.045em; line-height: 1.15; font-weight: 700; }
-      .role-meta { display: flex; flex-wrap: wrap; gap: 12px; color: #777481; font-size: 12px; }
+      .role-meta { display: flex; flex-wrap: wrap; gap: 12px; color: #777481; font-size:0.75rem; }
       .role-meta span, .original-link, .text-button { display: inline-flex; align-items: center; gap: 6px; }
       .role-badges { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 28px; }
       .detail-columns { display: grid; grid-template-columns: minmax(0, 1fr) 285px; gap: 26px; align-items: start; }
       .detail-tabs { display: flex; border-bottom: 1px solid #e9e7ed; gap: 22px; margin-bottom: 26px; }
-      .detail-tabs button { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: #86818d; padding: 0 0 15px; font: inherit; font-size: 13px; font-weight: 600; border-bottom: 2px solid transparent; cursor: pointer; }
+      .detail-tabs button { display: flex; align-items: center; gap: 6px; border: 0; background: transparent; color: #86818d; padding: 0 0 15px; font: inherit; font-size:0.8125rem; font-weight: 600; border-bottom: 2px solid transparent; cursor: pointer; }
       .detail-tabs button.selected { color: #6153ba; border-color: #6153ba; }
-      .detail-tabs button span { background: #eeeafa; padding: 2px 6px; border-radius: 6px; font-size: 11px; }
-      h3 { font-size: 15px; font-weight: 650; margin: 0 0 12px; letter-spacing: -.02em; }
-      .description { white-space: pre-wrap; line-height: 1.8; font-size: 13px; color: #6c6876; margin: 0 0 14px; overflow-wrap: anywhere; }
+      .detail-tabs button span { background: #eeeafa; padding: 2px 6px; border-radius: 6px; font-size:0.6875rem; }
+      h3 { font-size:0.9375rem; font-weight: 650; margin: 0 0 12px; letter-spacing: -.02em; }
+      .description { white-space: pre-wrap; line-height: 1.8; font-size:0.8125rem; color: #6c6876; margin: 0 0 14px; overflow-wrap: anywhere; }
       .detail-section { margin-top: 28px; }
       .skill-list { display: flex; flex-wrap: wrap; gap: 7px; }
-      .skill-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; line-height: 1.4; padding: 6px 10px; background: #f3f1f6; border-radius: 7px; color: #696275; }
+      .skill-pill { display: inline-flex; align-items: center; gap: 5px; font-size:0.6875rem; line-height: 1.4; padding: 6px 10px; background: #f3f1f6; border-radius: 7px; color: #696275; }
       .skill-pill.matched { background: #edf6ef; color: #437758; }
       .skill-pill.gap { background: #fcf3e6; color: #a17a37; }
-      .original-link { font-size: 12px; font-weight: 650; color: #6555b8; margin-top: 28px; text-decoration: none; }
-      .text-button { border: 0; background: none; color: #6555b8; cursor: pointer; font: inherit; font-size: 12px; font-weight: 650; padding: 0; }
+      .original-link { font-size:0.75rem; font-weight: 650; color: #6555b8; margin-top: 28px; text-decoration: none; }
+      .text-button { border: 0; background: none; color: #6555b8; cursor: pointer; font: inherit; font-size:0.75rem; font-weight: 650; padding: 0; }
       .application-panel { border: 1px solid #e9e5ef; border-radius: 19px; background: #fbfafc; padding: 22px; }
-      .application-eyebrow { display: flex; gap: 7px; align-items: center; color: #8576b8; font-size: 9px; letter-spacing: .12em; font-weight: 700; margin-bottom: 15px; }
-      .application-panel h3 { font-size: 21px; line-height: 1.25; letter-spacing: -.045em; margin-bottom: 10px; }
-      .panel-intro, .queued-panel p { color: #827b8c; font-size: 12px; line-height: 1.7; margin: 0 0 21px; }
-      .resume-loading { display: flex; gap: 9px; align-items: center; font-size: 12px; color: #777; padding: 15px 0; }
+      .application-eyebrow { display: flex; gap: 7px; align-items: center; color: #8576b8; font-size:0.5625rem; letter-spacing: .12em; font-weight: 700; margin-bottom: 15px; }
+      .application-panel h3 { font-size:1.3125rem; line-height: 1.25; letter-spacing: -.045em; margin-bottom: 10px; }
+      .panel-intro, .queued-panel p { color: #827b8c; font-size:0.75rem; line-height: 1.7; margin: 0 0 21px; }
+      .resume-loading { display: flex; gap: 9px; align-items: center; font-size:0.75rem; color: #777; padding: 15px 0; }
       .setup-note { border: 1px solid #ece5d5; background: #fffbf2; padding: 13px; border-radius: 10px; margin: 12px 0; color: #977548; }
-      .setup-note p { font-size: 11px; line-height: 1.65; margin: 4px 0 9px; }
+      .setup-note p { font-size:0.6875rem; line-height: 1.65; margin: 4px 0 9px; }
       .submission-note { display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; color: #8c829f; }
-      .submission-note p { font-size: 10px; line-height: 1.65; margin: 0; }
+      .submission-note p { font-size:0.625rem; line-height: 1.65; margin: 0; }
       .submission-note :global(svg) { flex-shrink: 0; margin-top: 1px; }
-      .review-promise { display: flex; align-items: flex-start; gap: 5px; font-size: 9px; color: #9b93a7; line-height: 1.6; margin: 12px 0 0; }
+      .review-promise { display: flex; align-items: flex-start; gap: 5px; font-size:0.5625rem; color: #9b93a7; line-height: 1.6; margin: 12px 0 0; }
       .review-promise :global(svg) { flex-shrink: 0; }
       .secondary-actions { display: grid; grid-template-columns: 1.2fr .8fr; gap: 8px; margin-top: 21px; padding-top: 18px; border-top: 1px solid #eae6ef; }
       .fit-summary { display: flex; align-items: center; gap: 20px; }
-      .fit-summary h3 { font-size: 21px; margin: 7px 0 9px; letter-spacing: -.04em; }
-      .fit-summary p { font-size: 12px; line-height: 1.7; color: #8a8295; margin: 0; }
-      .mini-label { font-size: 9px; letter-spacing: .11em; color: #9b90ad; font-weight: 700; }
+      .fit-summary h3 { font-size:1.3125rem; margin: 7px 0 9px; letter-spacing: -.04em; }
+      .fit-summary p { font-size:0.75rem; line-height: 1.7; color: #8a8295; margin: 0; }
+      .mini-label { font-size:0.5625rem; letter-spacing: .11em; color: #9b90ad; font-weight: 700; }
       .fit-ring { display: flex; justify-content: center; align-items: center; width: 116px; height: 116px; border-radius: 50%; background: conic-gradient(#7861c3 var(--fit-progress), #eeebf5 0); flex-shrink: 0; }
       .fit-ring > div { border-radius: 50%; width: 100px; height: 100px; background: white; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-      .fit-ring strong { font-size: 36px; font-weight: 650; letter-spacing: -.06em; color: #6451ae; line-height: 1.1; }
-      .fit-ring span { font-size: 10px; color: #a397b4; margin-top: 4px; }
-      .fit-note { color: #a299ad; font-size: 10px; line-height: 1.6; margin: 16px 0 0; }
+      .fit-ring strong { font-size:2.25rem; font-weight: 650; letter-spacing: -.06em; color: #6451ae; line-height: 1.1; }
+      .fit-ring span { font-size:0.625rem; color: #a397b4; margin-top: 4px; }
+      .fit-note { color: #a299ad; font-size:0.625rem; line-height: 1.6; margin: 16px 0 0; }
       .section-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
       .section-title h3 { margin-bottom: 0; }
-      .muted-small { font-size: 11px; color: #9990a3; line-height: 1.7; margin: 0 0 12px; }
-      .fit-warning { display: flex; align-items: flex-start; gap: 10px; background: #fffbf4; border: 1px solid #f1e8d9; border-radius: 12px; padding: 15px; margin-top: 22px; color: #a38a5f; font-size: 12px; }
+      .muted-small { font-size:0.6875rem; color: #9990a3; line-height: 1.7; margin: 0 0 12px; }
+      .fit-warning { display: flex; align-items: flex-start; gap: 10px; background: #fffbf4; border: 1px solid #f1e8d9; border-radius: 12px; padding: 15px; margin-top: 22px; color: #a38a5f; font-size:0.75rem; }
       .fit-warning :global(svg) { flex-shrink: 0; }
-      .fit-warning strong { font-size: 12px; }
-      .fit-warning p, .fit-warning ul { font-size: 11px; line-height: 1.8; margin: 5px 0 0; padding-left: 0; }
+      .fit-warning strong { font-size:0.75rem; }
+      .fit-warning p, .fit-warning ul { font-size:0.6875rem; line-height: 1.8; margin: 5px 0 0; padding-left: 0; }
       .fit-warning li { margin-left: 14px; }
-      .check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0edf3; font-size: 11px; line-height: 1.65; color: #8a7f96; }
+      .check-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0edf3; font-size:0.6875rem; line-height: 1.65; color: #8a7f96; }
       .fit-reasons { border-top: 1px solid #ede8f1; padding-top: 17px; margin-top: 23px; color: #93859f; }
-      .fit-reasons summary { display: flex; justify-content: space-between; cursor: pointer; font-size: 11px; font-weight: 600; list-style: none; }
-      .fit-reasons ul { font-size: 11px; line-height: 1.85; padding-left: 18px; }
-      .fit-loading { display: flex; gap: 12px; align-items: center; padding: 35px 0; color: #8c809d; font-size: 12px; }
+      .fit-reasons summary { display: flex; justify-content: space-between; cursor: pointer; font-size:0.6875rem; font-weight: 600; list-style: none; }
+      .fit-reasons ul { font-size:0.6875rem; line-height: 1.85; padding-left: 18px; }
+      .fit-loading { display: flex; gap: 12px; align-items: center; padding: 35px 0; color: #8c809d; font-size:0.75rem; }
       .queued-panel { text-align: center; padding-top: 5px; }
       .queued-icon { width: 48px; height: 48px; background: #e8f4e9; color: #558767; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 19px; }
       .detail-shell { color: var(--text, #302e42); }
@@ -262,8 +263,8 @@ export function JobDetail({ job, onClose, onChanged }: { job: Job; onClose: () =
       .skill-pill.gap, .setup-note, .fit-warning { background: var(--warning-soft); color: var(--warning); border-color: var(--warning-soft); }
       .detail-tabs { border-color: var(--border); }
       .resume-loading, .fit-loading { color: var(--muted); }
-      .fit-note, .review-promise, .submission-note p { font-size: 11px; }
-      @media(max-width: 700px) { .detail-columns { grid-template-columns: 1fr; gap: 26px; } .role-heading { align-items: flex-start; gap: 13px; } .role-heading h2 { font-size: 24px; } .application-panel { padding: 21px; } .fit-summary { gap: 16px; } .fit-summary h3 { font-size: 20px; } .detail-tabs { gap: 18px; } }
+      .fit-note, .review-promise, .submission-note p { font-size:0.6875rem; }
+      @media(max-width: 700px) { .detail-columns { grid-template-columns: 1fr; gap: 26px; } .role-heading { align-items: flex-start; gap: 13px; } .role-heading h2 { font-size:1.5rem; } .application-panel { padding: 21px; } .fit-summary { gap: 16px; } .fit-summary h3 { font-size:1.25rem; } .detail-tabs { gap: 18px; } }
       @media(prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
     `}</style>
   </Modal>;

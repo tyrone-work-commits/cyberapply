@@ -1,0 +1,14 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import ts from 'typescript';
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+await mkdir('.sites-runtime/cooldown-tests',{recursive:true});
+await writeFile('.sites-runtime/cooldown-tests/cooldown.mjs',ts.transpileModule(await readFile('lib/search-cooldown.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+const {liveSearchCooldown,countdownSeconds}=await import('../.sites-runtime/cooldown-tests/cooldown.mjs');
+const now=Date.parse('2026-10-17T20:00:00.000Z');
+test('first searches and invalid historical dates do not block discovery',()=>{assert.equal(liveSearchCooldown(undefined,now).remainingMs,0);assert.equal(liveSearchCooldown('invalid',now).remainingMs,0);});
+test('a saved search reports the exact remaining server wait',()=>{const at=new Date(now).toISOString();assert.equal(liveSearchCooldown(at,now).remainingMs,60000);assert.equal(liveSearchCooldown(at,now+35000).remainingMs,25000);});
+test('search becomes available at precisely sixty seconds and stays available',()=>{const at=new Date(now).toISOString();assert.equal(liveSearchCooldown(at,now+59999).remainingMs,1);assert.equal(liveSearchCooldown(at,now+60000).remainingMs,0);assert.equal(liveSearchCooldown(at,now+90000).remainingMs,0);});
+test('display rounds up the last second so it never advertises early access',()=>{assert.equal(countdownSeconds(now+25001,now),26);assert.equal(countdownSeconds(now+1,now),1);assert.equal(countdownSeconds(now,now),0);assert.equal(countdownSeconds(now-1,now),0);});
+test('relative server timing yields the same countdown on fast or slow client clocks',()=>{const ms=liveSearchCooldown(new Date(now).toISOString(),now+15000).remainingMs;for(const clientNow of [now-3600000,now,now+3600000])assert.equal(countdownSeconds(clientNow+ms,clientNow),45);});
+test('unexpected future saved times cannot generate a countdown above one minute',()=>{assert.equal(liveSearchCooldown(new Date(now+3600000).toISOString(),now).remainingMs,60000);});
