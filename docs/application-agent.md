@@ -160,3 +160,9 @@ Storage HTTP 201 acceptance is recorded as an attachment outcome; it never marks
 Account Profile now also supplies a separate optional state/province. New claims snapshot it and profile changes invalidate stale authorization. The profile editor opens directly from Settings. Location, city, state and country remain plain text inputs, as requested; no location dropdowns or external geographic service are included.
 
 Validation: the read-only live Greenhouse ticket was recognized for both supported attachments without uploading a file. Intercepted browser fixtures verified exact selected-CV upload → one final submission → new employer receipt; dry-run, rejected upload, wrong file/ticket/destination, stale authorization, replay and preflight boundaries were checked. No new live employer application was submitted for this update. The previously confirmed Huntress application remains Applied.
+
+### Same-name cities in employer dropdowns (31 October 2026)
+
+Location (City) still gets its answer from Account Profile City. For offered labels containing city, state and country, the worker also compares the saved State with the offered state before selecting. This distinguishes Dallas, Texas from Dallas in Oregon or Georgia without changing City or inventing a location. The saved country must also match. Missing State with multiple same-country matches, a wrong State or duplicate matching options still pauses; the agent never chooses the first suggestion merely to advance.
+
+A check-only run on the live Huntress Senior Manager form selected `Dallas, Texas, United States` from ten offered locations using saved City Dallas, State Texas and Country USA. That check used no real CV/contact details and blocked all writes.

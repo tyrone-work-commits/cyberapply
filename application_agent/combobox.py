@@ -26,6 +26,11 @@ def option_matches(question, value, label, profile):
     if key == 'city':
         parts = [part.strip() for part in label.split(',')]
         country = profile.get('country')
+        state = profile.get('state')
+        # Several cities can share a name within one country. The answer is
+        # still the saved City; saved State only distinguishes offered places.
+        if state and len(parts) >= 3 and _text(parts[-2]) != _text(state):
+            return False
         return bool(len(parts) >= 2 and country and _text(parts[0]) == _text(value)
                     and place_key(parts[-1]) == place_key(country))
     return False
