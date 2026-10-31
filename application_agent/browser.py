@@ -10,6 +10,7 @@ import json
 import ipaddress
 import re
 import socket
+import time
 from urllib.parse import urlsplit, parse_qsl
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
@@ -649,16 +650,23 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if frame.locator('input:invalid:visible, textarea:invalid:visible, select:invalid:visible').count():
                         raise ApplicationAttention("A required answer changed before submission. Review the form.")
                 submitted = True  # A timed-out click may still have delivered a POST.
+                report['confirmation_wait']={'max_wait_ms':min(timeout,20000),'submit_click_attempts':1,'outcome':'waiting'}
                 button.click()
-                page.wait_for_timeout(1200)
-                validate_public_url(page.url, hosts, resolver)
-                if blocked:
-                    return finish("uncertain", "The employer may have received the application, but a redirect prevented confirmation. Check before retrying.", report)
-                texts = [f.locator('body').inner_text() for f in page.frames if f.url not in ('about:blank','')]
-                confirmation = next((SUCCESS.search(t) for t in texts if SUCCESS.search(t)), None)
-                if confirmation:
-                    text = confirmation.group(0)
-                    return finish("applied", "The employer displayed an application confirmation.", report, receipt=text, evidence={"url":page.url,"text":text})
+                deadline=time.monotonic()+min(timeout,20000)/1000
+                while True:
+                    page.wait_for_timeout(150)
+                    validate_public_url(page.url, hosts, resolver)
+                    if blocked:
+                        report['confirmation_wait']['outcome']='blocked_redirect'
+                        return finish("uncertain", "The employer may have received the application, but a redirect prevented confirmation. Check before retrying.", report)
+                    texts = [f.locator('body').inner_text() for f in page.frames if f.url not in ('about:blank','')]
+                    confirmation = next((SUCCESS.search(t) for t in texts if SUCCESS.search(t)), None)
+                    if confirmation:
+                        text = confirmation.group(0)
+                        report['confirmation_wait']['outcome']='confirmed'
+                        return finish("applied", "The employer displayed an application confirmation.", report, receipt=text, evidence={"url":page.url,"text":text})
+                    if time.monotonic()>=deadline:break
+                report['confirmation_wait']['outcome']='not_confirmed'
                 return finish("uncertain", "Submit was clicked, but no explicit employer confirmation was found. Check the employer or inbox before retrying.", report)
             raise ApplicationAttention("This application exceeded the six-step limit. Please review it yourself.")
     except (ApplicationAttention,RecoveryStopped) as exc:
