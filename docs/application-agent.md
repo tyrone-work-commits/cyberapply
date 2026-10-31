@@ -160,3 +160,7 @@ Storage HTTP 201 acceptance is recorded as an attachment outcome; it never marks
 Account Profile now also supplies a separate optional state/province. New claims snapshot it and profile changes invalidate stale authorization. The profile editor opens directly from Settings. Location, city, state and country remain plain text inputs, as requested; no location dropdowns or external geographic service are included.
 
 Validation: the read-only live Greenhouse ticket was recognized for both supported attachments without uploading a file. Intercepted browser fixtures verified exact selected-CV upload → one final submission → new employer receipt; dry-run, rejected upload, wrong file/ticket/destination, stale authorization, replay and preflight boundaries were checked. No new live employer application was submitted for this update. The previously confirmed Huntress application remains Applied.
+
+### City source rule (31 October 2026)
+
+Employer fields labelled City, Location (City), or equivalent city-only labels use the saved Account Profile **City** (`applicantProfile.city`). Label spacing and punctuation do not change the source. General Location, State, CV text, generated values and older per-application answers cannot replace City. If City is blank, the agent pauses for that missing profile fact. General Location fields retain their separate saved Location value.

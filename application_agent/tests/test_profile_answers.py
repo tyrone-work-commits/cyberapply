@@ -17,7 +17,19 @@ class ProfileAnswerTests(unittest.TestCase):
   result=plan([field('First name'),field('Last name')],{})
   self.assertFalse(result['answers']);self.assertTrue(all(q['profile_field']=='fullName' for q in result['unresolved']))
  def test_city_parenthetical_uses_saved_city(self):
-  self.assertEqual(plan([field('Location (City)')])['answers'][0]['value'],'Abuja')
+  labels=['City','Location (City)','Location(City)','Location ( City )','Your Location ( City )','Please enter your Location (City)','Location / City','Location: City','City (Location)']
+  saved=PROFILE|{'city':'Dallas','state':'Texas','location':'Texas, USA','country':'USA'}
+  stale=[{'question':label,'value':'Stale city answer'} for label in labels]
+  for kind in ['text','combobox']:
+   with self.subTest(kind=kind):
+    result=plan([field(label,kind) for label in labels],saved,confirmedAnswers=stale)
+    self.assertFalse(result['unresolved']);self.assertEqual(len(result['answers']),len(labels))
+    self.assertTrue(all(a['value']=='Dallas' and a['source']=='edit_profile' for a in result['answers']))
+ def test_missing_city_never_uses_general_location_state_cv_or_stale_answer(self):
+  for city in ['',None]:
+   with self.subTest(city=city):
+    result=plan([field('Location (City)')],PROFILE|{'city':city,'state':'Texas','location':'Texas, USA'},confirmedAnswers=[{'question':'Location (City)','value':'Stale city answer'}])
+    self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['profile_field'],'city')
  def test_country_aliases_choose_only_equivalent_offered_country(self):
   result=plan([field('Country','select',options=['United Kingdom','United States of America'])],PROFILE|{'country':'USA'})
   self.assertEqual(result['answers'][0]['value'],'United States of America')
