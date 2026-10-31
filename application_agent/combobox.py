@@ -15,6 +15,16 @@ def _text(value):
     return re.sub(r'\s+', ' ', str(value)).strip().casefold()
 
 
+def _open_dropdown(control,timeout):
+    """Opening/focusing is repeatable; ArrowDown never performs Submit/Enter."""
+    if control.get_attribute('aria-expanded')=='true':return
+    try:control.click(timeout=min(timeout,1000))
+    except Exception as error:
+        if type(error).__name__!='TimeoutError':raise
+    if control.get_attribute('aria-expanded')!='true':
+        control.press('ArrowDown',timeout=min(timeout,1000))
+
+
 def option_matches(question, value, label, profile):
     if _text(value) == _text(label):
         return True
@@ -67,7 +77,7 @@ def selected_display(control, label, frame=None):
         return False
     valid=False
     try:
-        control.click(timeout=750)
+        _open_dropdown(control,750)
         popup=_popup(frame,control,750)
         _,choices=_options(popup)
         selected=popup.locator('[role="option"][aria-selected="true"]')
@@ -136,23 +146,27 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
         return candidates
     if control.get_attribute('aria-multiselectable') == 'true' or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
         raise DropdownAttention('This dropdown is not a supported single-choice control.')
+    phase='opening the option list'
     try:
-        control.click(timeout=timeout)
+        _open_dropdown(control,timeout)
         editable=control.evaluate("e=>e.tagName==='INPUT'&&!e.readOnly")
         query=value
         if profile_field(field['label'])=='country':
             key=place_key(value)
             query={'uk':'United Kingdom','usa':'United States'}.get(key,key.title())
+        phase='reading the linked option list'
         try:popup = _popup(frame, control, min(timeout,750))
         except Exception as error:
             # Search-only widgets do not create a menu until text is entered.
             # Use only the saved answer, never a guessed alternative location.
             if not editable or not (type(error).__name__=='TimeoutError' or isinstance(error,DropdownAttention) and error.transient):raise
+            phase='searching the saved answer'
             control.fill(query,timeout=timeout)
             popup=_popup(frame,control,timeout)
         options, choices = _options(popup)
         matches = matching(choices)
         if not matches and editable and not field.get('phoneCountry'):
+            phase='searching the saved answer'
             control.fill(query, timeout=timeout)
             deadline = time.monotonic() + timeout / 1000
             while True:
@@ -174,8 +188,10 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
         item = options.nth(index)
         if not item.is_visible() or not item.is_enabled() or item.get_attribute('aria-disabled') == 'true' or _text(item.inner_text()) != _text(label):
             raise DropdownAttention('The dropdown options changed before selection. Review this choice.',transient=True)
+        phase='selecting the verified matching option'
         item.click(timeout=timeout)
         # React-style controls may commit their display asynchronously.
+        phase='verifying the committed selection'
         deadline=time.monotonic()+min(timeout,750)/1000
         while not selected_display(control,label,frame) and time.monotonic()<deadline:
             frame.wait_for_timeout(50)
@@ -187,7 +203,7 @@ def select_combobox(frame, control, field, value, profile, timeout=3000):
     except DropdownAttention:
         raise
     except Exception:
-        raise DropdownAttention('The dropdown could not be selected and verified reliably. Review this choice.',transient=True) from None
+        raise DropdownAttention(f'The dropdown could not be selected and verified reliably while {phase}. Review this choice.',transient=True) from None
     finally:
         # Escape cannot submit a form, unlike Enter on a focused search input.
         try:

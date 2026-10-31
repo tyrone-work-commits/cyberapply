@@ -595,17 +595,33 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 for frame in frames:
                     if frame.locator('input:invalid:visible, textarea:invalid:visible, select:invalid:visible').count():
                         raise ApplicationAttention("The employer rejected a field value or revealed another required answer. Review the form.")
-                buttons = []
-                for frame in frames:
+                buttons, associated_buttons = [], []
+                for fidx, frame in enumerate(frames):
+                    prepared=[key.split(':',1)[1] for key in expected_values if key.startswith(f'{fidx}:')]
                     candidates = frame.locator('button:visible, input[type="submit"]:visible, input[type="button"]:visible')
                     for i in range(candidates.count()):
                         item = candidates.nth(i)
                         if item.is_enabled():
                             text = (item.inner_text() if item.evaluate("e=>e.tagName") != "INPUT" else item.get_attribute('value') or '').strip()
+                            action=None
                             if re.fullmatch(r"(?:submit(?: application)?|send application|apply(?: now)?|complete application)",text,re.I):
-                                buttons.append(("submit", item))
+                                action='submit'
                             elif re.fullmatch(r"(?:next|continue|next step|review application)",text,re.I):
-                                buttons.append(("next", item))
+                                action='next'
+                            if action:
+                                buttons.append((action,item))
+                                # The page's introductory Apply button may just
+                                # scroll to the form. Prefer actions belonging
+                                # to a form that actually owns prepared inputs.
+                                associated=item.evaluate("""(e,ids)=>{
+                                  const owner=x=>x.form||x.closest('form,[role="form"]');
+                                  const form=owner(e);if(!form)return false;
+                                  return [...document.querySelectorAll('[data-cyberapply-field]')].some(
+                                    x=>ids.includes(x.getAttribute('data-cyberapply-field'))&&owner(x)===form);
+                                }""",prepared)
+                                if associated:associated_buttons.append((action,item))
+                if associated_buttons:buttons=associated_buttons
+                report['submission_control']={'association':'prepared_application_form' if associated_buttons else 'unscoped_unique','candidate_count':len(buttons)}
                 if len(buttons) != 1:
                     raise ApplicationAttention("The next step or submit button is ambiguous. Review the employer page.")
                 action, button = buttons[0]
