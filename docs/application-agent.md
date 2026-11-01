@@ -247,3 +247,14 @@ Local checks: `python -m unittest application_agent.tests.test_recording`; with 
 ### Separate viewer tabs
 
 Watch live and Watch recording now open separate same-site tabs for the selected request. The original Applications page stays open. Both viewers retain ChatGPT sign-in and owner-only access; the recording viewer uses `mode=recording` on the existing application-watch route. Opening, refreshing or closing either viewer never queues, retries or submits an application.
+
+
+## Recording recovery (v72)
+
+The application browser now finalizes its first playable MP4 section after about two seconds, then about every ten seconds. Sections are uploaded while the form run is still active, independently of live viewing or outcome reporting. Watch recording groups them under one run and plays them in sequence, with a section selector for revisiting footage. A crash can lose the currently unfinished section, but does not erase previously finalized/uploaded sections. The ten-minute/approximately 32 MB capture cap remains; partial capture is labelled. Private login handoff windows remain excluded.
+
+Finalized sections first enter a private local, site/owner-bound outbox under the current user's application data. Files and credential-free metadata survive upload failures and worker restarts. The worker retries media delivery with backoff (up to five minutes), checks the content checksum for idempotency, and deletes the local section only after the upload is acknowledged. The pending local-media cap is 256 MB; capture can stop if storage is unavailable/full. No credentials are stored in the recording outbox. Deletion/revocation is respected; media retries cannot recreate a deleted application.
+
+Recording-only reconciliation is allowed for the exact owned current claim for thirty days, including an expired form lease. This never authorizes employer interaction. The result POST remains single-attempt; failed video delivery cannot replay Submit, requeue a job or mark it Applied. The recording status endpoint stores only bounded capture/upload state in owner-scoped private storage. The UI distinguishes recording, uploading, interruption and no captured frames; saved sections remain playable after an application pause. Permanent application/account deletion erases remote recording sections and status metadata. Local queued media is discarded when the worker receives a deletion response for that application.
+
+The previously missing request-75e61a19-1840-4867-8dad-0df7af69a1f1 video cannot be recreated because no recoverable capture was found. Do not retry that possibly delivered application to make a video. Verification for this release uses an intercepted fictional employer form and isolated Worker data, never a real employer submission.

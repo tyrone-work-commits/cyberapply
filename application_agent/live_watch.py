@@ -6,7 +6,7 @@ import time
 from uuid import uuid4
 
 class LiveWatch:
- def __init__(self,call,request_id,claim_id,interval=1.5,record=False):
+ def __init__(self,call,request_id,claim_id,interval=1.5,record=False,on_part=None):
   self.call=call;self.ids={'requestId':request_id,'claimId':claim_id};self.interval=interval
   self.stop_event=threading.Event();self.watching=threading.Event();self.reset=threading.Event();self.active=threading.Event()
   self.lock=threading.Lock();self.latest=None;self.session=None;self.last_capture=0;self.queue=deque();self.generation=0
@@ -14,7 +14,7 @@ class LiveWatch:
   if record:
    try:
     from .recording import ApplicationRecording
-    self.recording=ApplicationRecording()
+    self.recording=ApplicationRecording(on_part=on_part)
    except Exception:pass
   self.thread=threading.Thread(target=self._upload,name='CyberApply video upload',daemon=True)
   self.encoder_thread=threading.Thread(target=self._encode,name='CyberApply video encoder',daemon=True)

@@ -18,7 +18,7 @@ def upload_recording(site,token,task,info,site_access_token=None):
     from urllib.request import build_opener
     path=info['path'];size=path.stat().st_size
     with path.open('rb') as file:checksum=hashlib.file_digest(file,'sha256').hexdigest()
-    query=urlencode({'requestId':task['requestId'],'claimId':task['claimId']})
+    query=urlencode({'requestId':task['requestId'],'claimId':task['claimId'],**({'part':info['part']} if 'part' in info else {})})
     status=call_site(site,token,'/api/application-agent/recording?'+query,site_access_token=site_access_token)
     if status.get('saved'):
         if status.get('sha256')!=checksum:raise ValueError('A different recording is already saved for this run.')
@@ -72,16 +72,22 @@ def call_site(site, token, path, data=None, binary=False, site_access_token=None
 
 
 def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None):
+    from .recording_delivery import RecordingDelivery,flush_pending
+    try:flush_pending(site,token,site_access_token)
+    except Exception:pass
     task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":4}, site_access_token=site_access_token)["task"]
     if not task:
         return False
     if on_state:on_state('working')
     query = urlencode({"requestId":task["requestId"], "claimId":task["claimId"]})
-    watch=None
+    watch=None;delivery=None
     try:
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)
         from .live_watch import LiveWatch
-        try:watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'],record=True)
+        try:
+            delivery=RecordingDelivery(site,token,task,site_access_token)
+            watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'],record=True,on_part=delivery.part)
+            delivery.observe(watch.recording)
         except Exception:watch=None
         def authorize():
             return call_site(site,token,"/api/application-agent/authorize",{"requestId":task["requestId"],"claimId":task["claimId"]}, site_access_token=site_access_token).get("authorized") is True
@@ -109,11 +115,14 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         if len(json.dumps(result['report'])) > 55000:
             result['report']={"note":"Detailed report exceeded the saved record limit.","experience":report.get('experience',{}),"recovery":report.get('recovery',{})}
     info=watch.recording_info if watch else None
-    result.setdefault('report',{})['recording']={'capture':'ready' if info else 'unavailable',**({'durationSeconds':info['duration'],'partial':info['partial']} if info else {})}
+    result.setdefault('report',{})['recording']={'capture':'ready' if info else 'unavailable',**({'durationSeconds':round(watch.recording.frames/8,3) if getattr(watch,'recording',None) else info['duration'],'parts':watch.recording.parts if getattr(watch,'recording',None) else 1,'partial':watch.recording.partial if getattr(watch,'recording',None) else info['partial']} if info else {})}
     try:
         call_site(site, token, "/api/application-agent/result", {"requestId":task["requestId"],"claimId":task["claimId"],**result}, site_access_token=site_access_token)
     finally:
-        if info:
+        if delivery:
+            try:delivery.finish(getattr(watch,'recording',None))
+            except Exception:pass
+        if info and not delivery:
             for attempt in range(2):
                 try:
                     upload_recording(site,token,task,info,site_access_token)

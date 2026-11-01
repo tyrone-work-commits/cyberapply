@@ -55,3 +55,5 @@ Use the Sites source helper to open the existing source repository, synchronize 
 Applications includes **Watch live**, a private read-only H.264 video player in a new tab. It uses short-lived owner/claim-bound video fragments in existing storage, without opening a second employer form or triggering submission/retry. Install `application_agent/requirements.txt` for the desktop encoder and keep the updated worker online. See `docs/application-agent.md` for retention, access and verification limits.
 
 Future agent runs also save private recordings. **Watch recording** opens a new tab and replays the finalized MP4 independently of the live stream. Permanent application/account deletion erases saved videos; see the agent guide for limits, storage and upload-failure behavior.
+
+Recording recovery saves playable sections during a run (first about two seconds, then ten-second sections) and retains unacknowledged uploads in a private desktop outbox. Sections replay in order in Watch recording. Capture/upload status is separate from the employer outcome; media reconciliation never retries an application. See the agent guide for recovery, limits and deletion behavior.

@@ -21,6 +21,18 @@ eq((await call('/api/application-agent/result',{method:'POST',headers:worker,bod
 let r=await send();eq(r.status,200);eq(r.data.saved,true);eq((await send()).data.alreadySaved,true);eq((await send({'X-Recording-SHA256':'1'.repeat(64)})).status,409);
 eq((await call(uploadPath,{headers:worker})).data.sha256,sha);
 r=await call(view);eq(r.data.items.length,1);eq(r.data.items[0].attempt,task.claimId);eq(r.data.items[0].duration,2);
+
+const statusBody={...ids,state:'capturing',code:'',parts:0,partial:false};
+eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:statusBody})).status,200);
+eq((await call(view)).data.status.state,'capturing');
+eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:{...statusBody,claimId:randomUUID()}})).status,409);
+for(let part=0;part<2;part++){
+ const r=await fetch(base+uploadPath+'&part='+part,{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(bytes.length),'X-Recording-Duration':'2','X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':sha},body:bytes});eq(r.status,200);
+}
+r=await call(view);eq(r.data.items.length,1);eq(r.data.items[0].parts.length,3);eq(r.data.items[0].duration,6);
+eq((await call(view+'&attempt='+task.claimId+'&part=0')).status,200);
+eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:{...statusBody,state:'interrupted',code:'runner_interrupted',parts:2,partial:true}})).status,200);
+eq((await call(view)).data.status.state,'interrupted');
 const media=view+'&attempt='+task.claimId;
 r=await call(media);eq(r.status,200);assert.deepEqual(Buffer.from(r.data),bytes);checks++;eq(r.response.headers.get('cache-control'),'private, no-store');eq(r.response.headers.get('accept-ranges'),'bytes');
 r=await call(media,{method:'HEAD'});eq(r.status,200);eq(r.response.headers.get('content-length'),String(bytes.length));eq(r.data.length,0);

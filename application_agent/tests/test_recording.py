@@ -35,7 +35,31 @@ class RecordingTests(unittest.TestCase):
    finally:recording.cleanup()
  def test_no_browser_frames_leaves_no_recording(self):
   recording=ApplicationRecording();self.assertIsNone(recording.finish());self.assertIsNone(recording.path)
- def test_failed_media_upload_never_replays_application_or_changes_result(self):
+ def test_checkpoint_is_playable_before_the_run_finishes(self):
+  import shutil
+  with tempfile.TemporaryDirectory() as directory,patch('application_agent.recording.CHECKPOINT_SECONDS',.25):
+   parts=[]
+   def keep(info):
+    target=Path(directory)/f"part-{len(parts)}.mp4";shutil.move(info['path'],target);parts.append({**info,'path':target})
+   recording=ApplicationRecording(on_part=keep);recording.set_active(True);recording.offer(base64.b64encode(jpeg()).decode());time.sleep(.8)
+   try:
+    self.assertGreaterEqual(len(parts),2);self.assertTrue(recording.thread.is_alive())
+    with av.open(str(parts[0]['path'])) as movie:self.assertGreater(len(list(movie.decode(video=0))),0)
+   finally:recording.finish();recording.cleanup()
+ def test_offline_upload_is_retained_and_recovered_without_applying_again(self):
+  import json
+  from application_agent.recording_delivery import RecordingDelivery,flush_pending,ACTIVE
+  with tempfile.TemporaryDirectory() as directory,patch('application_agent.recording_delivery.outbox',return_value=Path(directory)),patch.object(RecordingDelivery,'_pump'),patch('application_agent.runner.call_site',return_value={}) as call:
+   delivery=RecordingDelivery('https://site.example','ca2.owner.secret',{'requestId':'fixture','claimId':'claim'})
+   path=Path(directory)/'original.mp4';path.write_bytes(b'private fictional media')
+   delivery.part({'path':path,'duration':1,'startedAt':'2026-11-01T00:00:00Z','part':0,'partial':False,'reason':''})
+   with patch('application_agent.runner.upload_recording',side_effect=OSError('offline')):delivery.finish()
+   entries=list(Path(directory).glob('*.media.json'));self.assertEqual(len(entries),1);self.assertEqual(len(list(Path(directory).glob('*.mp4'))),1)
+   entry=entries[0];value=json.loads(entry.read_text());value['nextTry']=0;entry.write_text(json.dumps(value))
+   with patch('application_agent.runner.upload_recording',return_value={'saved':True}) as upload:flush_pending('https://site.example','ca2.owner.secret');self.assertEqual(upload.call_count,1)
+   self.assertFalse(list(Path(directory).glob('*.mp4')));self.assertFalse(list(Path(directory).glob('*.media.json')))
+   self.assertTrue(all(args.args[2]=='/api/application-agent/recording-status' for args in call.call_args_list))
+ def test_recording_failure_never_replays_application_or_changes_result(self):
   from types import SimpleNamespace
   calls=[];task={'requestId':'fixture','claimId':'claim'}
   def call(site,token,path,data=None,**kwargs):
@@ -43,7 +67,25 @@ class RecordingTests(unittest.TestCase):
    if path.endswith('/claim'):return {'task':task}
    if '/cv?' in path:return b'fictional CV'
    return {}
-  watch=SimpleNamespace(recording_info={'duration':2,'partial':False},close=lambda:None,cleanup_recording=lambda:None)
-  with patch('application_agent.runner.call_site',side_effect=call),patch('application_agent.live_watch.LiveWatch',return_value=watch),patch('application_agent.runner.execute_application',return_value={'status':'needs_attention','message':'Fixture only'} ) as execute,patch('application_agent.runner.upload_recording',side_effect=OSError('offline')) as upload,patch('application_agent.login_sessions.LoginSessions'):
-   self.assertTrue(run_once('https://site.example','ca2.owner.secret'));self.assertEqual(execute.call_count,1);self.assertEqual(upload.call_count,2)
+  watch=SimpleNamespace(recording_info={'duration':2,'partial':False},recording=None,close=lambda:None,cleanup_recording=lambda:None)
+  with patch('application_agent.recording_delivery.RecordingDelivery') as delivery,patch('application_agent.recording_delivery.flush_pending'),patch('application_agent.runner.call_site',side_effect=call),patch('application_agent.live_watch.LiveWatch',return_value=watch),patch('application_agent.runner.execute_application',return_value={'status':'needs_attention','message':'Fixture only'}) as execute,patch('application_agent.login_sessions.LoginSessions'):
+   delivery.return_value.finish.side_effect=lambda *_:self.assertTrue(any(path.endswith('/result') for path,_ in calls))
+   self.assertTrue(run_once('https://site.example','ca2.owner.secret'));self.assertEqual(execute.call_count,1);self.assertEqual(delivery.return_value.finish.call_count,1)
   results=[body for path,body in calls if path.endswith('/result')];self.assertEqual(len(results),1);self.assertEqual(results[0]['status'],'needs_attention')
+
+ def test_restart_recovers_saved_parts_and_marks_unfinished_capture_interrupted(self):
+  from application_agent.recording_delivery import RecordingDelivery,flush_pending,ACTIVE
+  with tempfile.TemporaryDirectory() as directory,patch('application_agent.recording_delivery.outbox',return_value=Path(directory)),patch.object(RecordingDelivery,'_pump'),patch('application_agent.runner.call_site',return_value={}) as call,patch('application_agent.runner.upload_recording',return_value={'saved':True}) as upload:
+   delivery=RecordingDelivery('https://site.example','ca2.owner.secret',{'requestId':'fixture','claimId':'claim'})
+   path=Path(directory)/'original.mp4';path.write_bytes(b'fictional interrupted capture')
+   delivery.part({'path':path,'duration':1,'startedAt':'2026-11-01T00:00:00Z','part':0,'partial':False,'reason':''})
+   ACTIVE.discard(str(delivery.path));delivery.stop.set()  # Simulates restarted worker memory, not a normal finish.
+   flush_pending('https://site.example','ca2.owner.secret')
+   self.assertEqual(upload.call_count,1);self.assertEqual(call.call_args.args[3]['state'],'interrupted');self.assertTrue(call.call_args.args[3]['partial'])
+ def test_media_paths_and_owners_cannot_cross_local_namespaces(self):
+  import os
+  from application_agent.recording_delivery import outbox,media_path
+  with tempfile.TemporaryDirectory() as directory,patch.dict(os.environ,{'LOCALAPPDATA':directory}):
+   a=outbox('https://site.example','ca2.ownerA.secret');b=outbox('https://site.example','ca2.ownerB.secret');self.assertNotEqual(a,b)
+   for name in ['../private.mp4','a'*32+'.mp4/..','C:/private.mp4']:
+    with self.assertRaises(ValueError):media_path(a,name)
