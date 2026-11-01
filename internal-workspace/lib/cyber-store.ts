@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { actionSchema, emptyState, liveState, retireLocalAgent, DomainError, reduceAction, record, type State, type Activity, type Attachment } from './cyber-domain';
+import { actionSchema, emptyState, liveState, retireLocalAgent, DomainError, reduceAction, record, workspacePayload, type State, type Activity, type Attachment } from './cyber-domain';
 import { deletionPlan, deletionHistoryExpression, type DeletionScope } from './application-deletion';
 import { extractCandidateFacts } from './candidate-facts';
 import { extractResume } from './resume-extraction';
@@ -32,8 +32,7 @@ export async function load(user: Identity): Promise<Snapshot> {
 }
 export async function save(user: Identity, expected: number, state: State, action: string): Promise<Snapshot> {
   if (!Number.isSafeInteger(expected) || expected < 0) throw new DomainError('A current workspace revision is required.');
-  const revision = expected + 1, at = new Date().toISOString(), token = crypto.randomUUID(), payload = JSON.stringify(state);
-  if (payload.length > 750000) throw new DomainError('Workspace record limit reached. Export your work before continuing.', 413);
+  const revision = expected + 1, at = new Date().toISOString(), token = crypto.randomUUID(), payload = workspacePayload(state);
   const results = await db().batch([
     db().prepare("UPDATE cyber_workspaces SET payload=?,revision=?,write_token=?,updated_at=? WHERE owner_id=? AND revision=? AND json_extract(payload,'$.__deleting') IS NULL").bind(payload,revision,token,at,user.userId,expected),
     db().prepare('INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE EXISTS (SELECT 1 FROM cyber_workspaces WHERE owner_id=? AND write_token=?)').bind(user.userId,revision,payload,action,at,user.userId,token),
@@ -65,8 +64,7 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
  const plan=deletionPlan(current.state,scope,applicationId,deleteCandidateFacts,replacement);
  const at=new Date().toISOString(),revision=expected+1,token=crypto.randomUUID();
  record(plan.state,'permanently_delete_application_records',`Permanently deleted ${plan.ids.length} application records and ${plan.draftIds.length} drafts${plan.legacy?' and retired legacy Candidate Facts reviews':''}.`,'interface',at);
- const payload=JSON.stringify(plan.state);
- if(payload.length>750000)throw new DomainError('Workspace record limit reached. No records were deleted.',413);
+ const payload=workspacePayload(plan.state);
  const redaction=deletionHistoryExpression(plan.ids,plan.draftIds,plan.legacy);
  const guard='EXISTS (SELECT 1 FROM cyber_workspaces WHERE owner_id=? AND write_token=?)';
  const results=await db().batch([

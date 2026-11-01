@@ -36,6 +36,15 @@ export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; opera
 export type State = { profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 
+// D1 caps a string/table row at 2,000,000 bytes. Leave room for row metadata.
+// Check UTF-8 bytes rather than UTF-16 characters, in both optimistic and saved writes.
+export const MAX_WORKSPACE_BYTES = 1_800_000;
+export function workspacePayload(state:State):string {
+  const payload=JSON.stringify(state);
+  if(new TextEncoder().encode(payload).byteLength>MAX_WORKSPACE_BYTES)throw new DomainError('Your workspace storage is full. No new choice was saved. Your saved work is unchanged; storage maintenance is needed before another application can be added.',413);
+  return payload;
+}
+
 const short = z.string().trim().max(200);
 const skills = z.array(z.string().trim().min(1).max(100)).max(80);
 const id = z.string().min(1).max(300);
@@ -293,7 +302,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   }
   if(operationId)state.decisionOperations=[...(state.decisionOperations||[]),{id:operationId,signature}].slice(-100);
   record(state, action.type, message, source, at);
-  if (JSON.stringify(state).length > 750000) throw new DomainError('The pilot workspace has reached its record limit. Export your work before continuing.', 413);
+  workspacePayload(state);
   return {state, message};
 }
 

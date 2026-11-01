@@ -7,13 +7,33 @@ await writeFile('.sites-runtime/tests/candidate-facts.mjs',ts.transpileModule(aw
 await writeFile('.sites-runtime/tests/features.mjs',ts.transpileModule(await readFile('lib/features.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
 await writeFile('.sites-runtime/tests/cover-letter.mjs',ts.transpileModule(await readFile('lib/cover-letter.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './features'","from './features.mjs'"));
 await writeFile('.sites-runtime/tests/domain.mjs',ts.transpileModule(await readFile('lib/cyber-domain.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './candidate-facts'","from './candidate-facts.mjs'").replace("from './cover-letter'","from './cover-letter.mjs'").replace("from './features'","from './features.mjs'"));
-const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,retireLocalAgent,connectionStatus,activateCv}=await import('../.sites-runtime/tests/domain.mjs');
+const {emptyState,reduceAction,actionSchema,matchJob,safeJobUrl,analyzeResume,fileReviewScore,liveState,retireLocalAgent,connectionStatus,activateCv,workspacePayload,MAX_WORKSPACE_BYTES}=await import('../.sites-runtime/tests/domain.mjs');
 const at='2026-10-17T12:00:00.000Z';
 const act=(s,a,time=at)=>reduceAction(s,actionSchema.parse(a),'interface',time).state;
 const profile={fullName:'QA Candidate',email:'candidate@example.test',skills:['SIEM','Python'],preferredRoles:['SOC Analyst'],resumeText:'QA Candidate\ncandidate@example.test\nSUMMARY\nCybersecurity practice with SIEM and incident response.\nEXPERIENCE\n- Investigated 20 alerts per day.\n- Reduced response time by 10 hours.\n- Built monitoring queries.\n- Documented incidents.\nSKILLS\nSIEM, Python\nEDUCATION\nSecurity studies.',reviewed:true};
 const listing={type:'add_job',title:'QA SOC Analyst',company:'QA Company',location:'Remote',workMode:'Remote',url:'https://qa.example.test/jobs/soc',description:'Local test fixture for monitoring SIEM and incident response.',skills:['SIEM','Incident response','Splunk']};
 const ready=()=>act(act(emptyState(),listing),{type:'save_profile',profile});
 const apply=s=>act(s,{type:'decide_job',jobId:s.jobs[0].id,decision:'apply'});
+
+test('workspace serialization leaves D1 headroom and measures UTF-8 bytes',()=>{
+ assert.ok(MAX_WORKSPACE_BYTES<2_000_000);
+ const state=emptyState();
+ const overhead=new TextEncoder().encode(JSON.stringify(state)).byteLength;
+ state.profile.resumeText='x'.repeat(MAX_WORKSPACE_BYTES-overhead);
+ assert.equal(new TextEncoder().encode(workspacePayload(state)).byteLength,MAX_WORKSPACE_BYTES);
+ state.profile.resumeText+='x';
+ assert.throws(()=>workspacePayload(state),error=>error.status===413&&/No new choice was saved/.test(error.message));
+ state.profile.resumeText='é'.repeat(Math.ceil(MAX_WORKSPACE_BYTES/2));
+ assert.ok(JSON.stringify(state).length<MAX_WORKSPACE_BYTES);
+ assert.throws(()=>workspacePayload(state),error=>error.status===413);
+});
+
+test('storage rejection leaves the original card, requests and CV untouched',()=>{
+ const state=ready();state.profile.resumeText='x'.repeat(MAX_WORKSPACE_BYTES-JSON.stringify(state).length-500);
+ const before=structuredClone(state);
+ assert.throws(()=>apply(state),error=>error.status===413);
+ assert.deepEqual(state,before);
+});
 
 test('clear applications is reversible, removes drafts and keeps profile, CVs and agent connection',()=>{
  const before=apply(ready());before.accountProfile={fullName:'QA',headline:'',targetRole:'SOC',completedAt:at,phone:'+2348012345678'};

@@ -5,7 +5,7 @@ import type { Job } from '@/lib/cyber-domain';
 import { swipeDirection } from '@/lib/swipe-gesture';
 
 type Offset={x:number;y:number};
-export function SwipeDeck({job,children,empty,disabled,canUndo,pending,blocked,onDecide,onSave,onUndo}:{job:Job|undefined;children:ReactNode;empty:ReactNode;disabled:boolean;canUndo:boolean;pending:number;blocked:boolean;onDecide:(job:Job,decision:'pass'|'apply')=>void;onSave:(job:Job)=>void;onUndo:()=>void}){
+export function SwipeDeck({job,children,empty,disabled,canUndo,pending,blocked,error,onDecide,onSave,onUndo}:{job:Job|undefined;children:ReactNode;empty:ReactNode;disabled:boolean;canUndo:boolean;pending:number;blocked:boolean;error?:string;onDecide:(job:Job,decision:'pass'|'apply')=>void;onSave:(job:Job)=>void;onUndo:()=>void}){
  const [drag,setDrag]=useState<Offset>({x:0,y:0});
  const start=useRef<{x:number;y:number;id:string}|null>(null),frame=useRef<number|null>(null),offset=useRef<Offset>({x:0,y:0});
  function cancel(){start.current=null;if(frame.current!==null)cancelAnimationFrame(frame.current);frame.current=null;offset.current={x:0,y:0};setDrag(offset.current);}
@@ -20,5 +20,6 @@ export function SwipeDeck({job,children,empty,disabled,canUndo,pending,blocked,o
   onKeyDown={event=>{if(event.target!==event.currentTarget||disabled||event.repeat)return;if(event.key==='ArrowUp'){event.preventDefault();onSave(job);}else if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();onDecide(job,event.key==='ArrowRight'?'apply':'pass');}}}>
   {direction&&<span className={`swipe-label ${direction==='save'?'save':direction==='apply'?'accept':'pass'}`}>{direction==='save'?'SAVE FOR LATER':direction==='apply'?'APPLY':'REJECT'}</span>}{children}</div>:empty}</div>
   <div className="swipe-actions" aria-label="Job decisions"><button type="button" className="button decision pass-button" aria-label="Reject this job" disabled={disabled||!job} onClick={()=>job&&onDecide(job,'pass')}><X size={23}/><span>Reject</span></button><button type="button" className="button decision undo-button" aria-label="Undo last swipe" disabled={disabled||!canUndo} onClick={onUndo}><Undo2 size={22}/><span>Undo</span></button><button type="button" className="button decision apply-button" aria-label="Apply for this job" disabled={disabled||!job} onClick={()=>job&&onDecide(job,'apply')}><ArrowRight size={24}/><span>Apply</span></button></div>
+  {error&&<div className="notice error"><span>{error}</span></div>}
   <div className="swipe-sync" role="status" aria-live="polite">{pending?<><LoaderCircle size={14} className="spin"/><span>Saving {pending===1?'your choice':`${pending} choices`}… You can keep swiping.</span></>:blocked?<span>Reload to confirm your saved choices.</span>:<span>Left: reject · Right: Apply · Up: save for later.<br/>Undo restores your latest choice.</span>}</div></>;
 }

@@ -63,3 +63,28 @@ test('a lost bookmark response reconciles once and a failed bookmark rolls back'
  let server=initial(),calls=0;const h=setup(async(base,action)=>{calls++;server=saved(server,action);throw Error('Lost response');},async()=>server);h.queue.enqueue({type:'save_job',jobId:'a',saved:true});await tick();assert.equal(h.view.state.jobs[0].saved,true);assert.equal(h.errors.length,0);assert.equal(calls,1);
  const failed=setup(async()=>{throw Error('Save failed');},async()=>initial());failed.queue.enqueue({type:'save_job',jobId:'a',saved:true});await tick();assert.equal(failed.view.state.jobs[0].saved,false);assert.equal(failed.status.pending,0);assert.match(failed.errors[0],/latest saved state/);
 });
+
+test('Apply advances and saves when a CV snapshot crosses the old 750k workspace limit',async()=>{
+ const packet=initial();
+ packet.state.profile.resumeText='Synthetic CV evidence. '.repeat(400);
+ packet.state.attachments=[{id:'qa-cv',key:'qa/private.txt',name:'qa-cv.txt',type:'text/plain',size:9000,createdAt:now,textExtracted:true}];
+ packet.state.selectedCvId='qa-cv';
+ packet.state.newApplicationAgent={enabled:true,tokenHash:'local-fixture-only',issuedAt:now,expiresAt:'2099-01-01T00:00:00.000Z'};
+ packet.state.jobs[2].description+='x'.repeat(739349-JSON.stringify(packet.state).length);
+ let server=packet;
+ const gate=deferred();
+ const h=setup(async(base,action)=>{await gate.promise;server=saved(base,action);return server;},async()=>server);
+ h.queue.replace(packet);
+ h.queue.enqueue({type:'decide_job',jobId:'a',decision:'apply'});
+ assert.ok(JSON.stringify(h.view.state).length>750000);
+ assert.equal(h.view.state.jobs.filter(job=>job.disposition==='open')[0].id,'b');
+ assert.equal(h.view.state.applications[0].status,'queued');
+ assert.equal(h.view.state.applications[0].cv.fileId,'qa-cv');
+ assert.equal(h.status.pending,1);
+ gate.resolve();await tick();
+ assert.equal(h.errors.length,0);assert.equal(h.status.pending,0);
+ assert.equal(server.state.applications.length,1);
+ const reloaded=structuredClone(server);h.queue.replace(reloaded);
+ assert.equal(h.view.state.applications[0].cv.fileId,'qa-cv');
+ assert.equal(h.view.state.jobs[0].disposition,'apply_requested');
+});

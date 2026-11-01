@@ -231,3 +231,13 @@ The computer's browser runner must stay open. It supports readable standard form
 Applications groups requests into In progress, Needs you, Applied and Check outcome, with role/company search and counts. Each job keeps its captured CV, source, known progress events, agent questions, prepared answers, cover letter, research and confirmation together. Expired claims or Applied records without confirmation display Check outcome without offering an automatic retry. These are display states and do not rewrite saved outcomes. Original CV snapshots are retained unless the owner explicitly updates an unsent request.
 
 Missing-answer forms require saving before the continuation action appears. Saved answers can be reviewed before queuing. Old manual drafts remain accessible separately from the agent's generated cover letter. New browser reports include readable question labels instead of technical field IDs. Local responsive checks use test-only records; no sample data was added to the hosted app.
+
+## 1 November 2026 — Apply blocked by workspace size
+
+The old 750,000-character pilot cap stopped optimistic Apply when an otherwise valid workspace gained its chosen-CV snapshot and draft. Reject could still succeed because it added much less data. A synthetic regression reproduced that exact failure before the change.
+
+Optimistic choices and server saves now share `workspacePayload`, capped at 1,800,000 UTF-8 bytes, leaving headroom below [D1's 2,000,000-byte row/string limit](https://developers.cloudflare.com/d1/platform/limits/). The same guard covers permanent-record cleanup. Existing records, CV snapshots, operation IDs and submission safeguards remain intact. Storage remains bounded; larger future workspaces will need records split across rows or archived storage. Errors also appear beside Explore's swipe controls so they are visible where the user acted.
+
+Verification: 55 domain/queue tests and four gesture tests passed, including the regression, Unicode byte limits and unchanged input after a rejected choice. TypeScript and the production build passed. In an isolated local browser with 96 fictional listings, Apply and a pointer right swipe each advanced the card while staying in Explore; both captured the chosen synthetic CV and persisted in a fresh server read and history beyond the old cap (763,482 characters). No hosted application request or employer submission was created for testing.
+
+`tests/large-workspace-http.test.mjs` provides a loopback-only fixture/persistence check. Its optional seed-only mode supports manual browser QA; use an empty isolated local workspace, never a hosted account.
