@@ -11,22 +11,21 @@ class ApprovalTests(unittest.TestCase):
   self.assertEqual(result['answers'][0]['value'],'Yes');self.assertEqual(result['answers'][0]['source'],'cv')
   for q in ['Do you have experience with Kubernetes?','Do you have experience with Splunk and Kubernetes?']:
    self.assertFalse(plan([field(q,'select',options=['Yes','No'])])['answers'])
- def test_generated_explanation_waits_for_approval(self):
+ def test_generated_explanation_uses_cv_evidence_without_separate_approval(self):
   question='Do you have experience with Splunk?'
   result=plan([field(question)])
-  self.assertFalse(result['answers']);draft=result['unresolved'][0]
-  self.assertEqual(draft['source'],'generated');self.assertIn('Yes.',draft['suggested_value']);self.assertIn('Splunk',draft['evidence'])
-  approved=plan([field(question)],confirmedAnswers=[{'question':question,'value':draft['suggested_value']}])
-  self.assertEqual(approved['answers'][0]['source'],'user_confirmed')
- def test_generated_optional_answer_also_waits_for_review(self):
+  self.assertFalse(result['unresolved']);answer=result['answers'][0]
+  self.assertTrue(answer['automatic']);self.assertIn('Splunk',answer['evidence'])
+  self.assertIn('Yes.',answer['value'])
+ def test_generated_optional_answer_is_automatic(self):
   result=plan([field('Why are you interested in this role?','textarea',required=False)])
-  self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['source'],'generated')
+  self.assertFalse(result['unresolved']);self.assertTrue(result['answers'][0]['automatic'])
  def test_unknown_personal_facts_and_unsupported_experience_are_not_fabricated(self):
   result=plan([field('What is your date of birth?'),field('Describe your experience with Kubernetes')])
   self.assertFalse(result['answers']);self.assertTrue(all('suggested_value' not in x for x in result['unresolved']))
- def test_cover_letter_file_requires_exact_approved_text(self):
+ def test_cover_letter_file_is_automatic_but_explicit_user_text_still_wins(self):
   q='Cover letter'
-  pending=plan([field(q,'file')]);self.assertFalse(pending['answers']);self.assertEqual(pending['unresolved'][0]['source'],'generated')
+  automatic=plan([field(q,'file')]);self.assertFalse(automatic['unresolved']);self.assertTrue(automatic['answers'][0]['automatic'])
   approved=plan([field(q,'file')],confirmedAnswers=[{'question':q,'value':'My personally reviewed and edited cover letter.'}])
   self.assertEqual(approved['answers'][0]['value'],'My personally reviewed and edited cover letter.')
  def test_visa_and_right_to_work_use_different_saved_answers(self):

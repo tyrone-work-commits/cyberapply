@@ -1,4 +1,4 @@
-"""CV-grounded drafts for review; unknown personal facts are never invented."""
+"""Automatic CV-grounded prose; unknown personal facts are never invented."""
 import re
 
 def experience_answer(question,text,kind):
@@ -20,7 +20,7 @@ def experience_answer(question,text,kind):
 def narrative_draft(question,text,job,contribution):
     """Draft only open prose, never numeric, legal, preference or identity answers."""
     if re.search(r'\b(?:age|birth|gender|race|ethnic|religion|marital|citizen|criminal|convict|disab|veteran|consent|agree|privacy|terms|clearance|notice|availability|start date|left|leave|leaving|dismissed|termination|relocat|willing|salary|compensation|phone|address|location|country|city|postal|zip|years|months|how many|which|what is your|what are your)\b',question,re.I):return None
-    if re.search(r'\b(?:why|describe|explain|tell us|summari[sz]e|outline|approach|contribute|interested|strength|challenge|motivation)\b',question,re.I):
+    if re.search(r'\b(?:why|describe|explain|tell us|summari[sz]e|outline|approach|contribute|interested|strength|challenge|motivation|how (?:would|could|will) you)\b',question,re.I):
         evidence=[line.strip(' -*•') for line in text.splitlines() if re.search(r'\b(?:built|developed|monitored|investigated|managed|tested|implemented|supported|assessed|configured)\b',line,re.I)]
         if not evidence:return None
         words=set(re.findall(r'\b[a-z]{4,}\b',question.casefold()))

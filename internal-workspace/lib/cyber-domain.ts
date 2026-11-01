@@ -3,6 +3,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
 import { CANDIDATE_FACTS_ENABLED } from './features';
+import type {EmployerQuestion} from './employer-questions';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -28,9 +29,9 @@ export type SelectedCv = { fileId:string; name:string; type:string; size:number 
 export type NewApplicationAgent = { enabled:boolean; tokenHash:string; issuedAt:string; expiresAt:string; lastSeenAt?:string };
 export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; applicantProfile?: ApplicantProfile; cv?: SelectedCv; employerConsent?:boolean; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string; agentAuthorizedAt?:string; agentVersion?:2; cvSha256?:string; confirmedAnswers?:{question:string;value:string}[]; report?:Record<string,unknown>; receiptVerification?:import('./employer-receipts').VerifiedReceipt & {verifiedAt:string;previousResult?:ApplicationRequest['result']}; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string;evidence?:{url:string;text:string}} };
 export type AccountDetails = { zipCode?:string; location?:string; address?:string; city?:string; state?:string; country?:string; phone?:string; yearsExperience?:number|null; expectedSalary?:SalaryFacts|null; ukVisaRequired?:boolean|null; usaVisaRequired?:boolean|null; canadaVisaRequired?:boolean|null; irelandVisaRequired?:boolean|null; ukRightToWork?:boolean|null; usaRightToWork?:boolean|null; canadaRightToWork?:boolean|null; irelandRightToWork?:boolean|null };
-export type ApplicantProfile = {fullName:string} & Pick<AccountDetails,'zipCode'|'location'|'address'|'city'|'state'|'country'|'phone'|'expectedSalary'|'ukVisaRequired'|'usaVisaRequired'|'canadaVisaRequired'|'irelandVisaRequired'|'ukRightToWork'|'usaRightToWork'|'canadaRightToWork'|'irelandRightToWork'>;
-export function applicationProfile(state:State):ApplicantProfile{const p=state.accountProfile;return {fullName:p?.fullName||'',zipCode:p?.zipCode||'',location:p?.location||'',address:p?.address||'',city:p?.city||'',state:p?.state||'',country:p?.country||'',phone:p?.phone||'',expectedSalary:p?.expectedSalary?structuredClone(p.expectedSalary):null,ukVisaRequired:p?.ukVisaRequired??null,usaVisaRequired:p?.usaVisaRequired??null,canadaVisaRequired:p?.canadaVisaRequired??null,irelandVisaRequired:p?.irelandVisaRequired??null,ukRightToWork:p?.ukRightToWork??null,usaRightToWork:p?.usaRightToWork??null,canadaRightToWork:p?.canadaRightToWork??null,irelandRightToWork:p?.irelandRightToWork??null};}
-export type AccountProfile = AccountDetails & { fullName: string; headline: string; targetRole: string; completedAt: string };
+export type ApplicantProfile = {fullName:string;employerQuestions?:EmployerQuestion[]} & Pick<AccountDetails,'zipCode'|'location'|'address'|'city'|'state'|'country'|'phone'|'expectedSalary'|'ukVisaRequired'|'usaVisaRequired'|'canadaVisaRequired'|'irelandVisaRequired'|'ukRightToWork'|'usaRightToWork'|'canadaRightToWork'|'irelandRightToWork'>;
+export function applicationProfile(state:State):ApplicantProfile{const p=state.accountProfile;return {employerQuestions:structuredClone(p?.employerQuestions||[]),fullName:p?.fullName||'',zipCode:p?.zipCode||'',location:p?.location||'',address:p?.address||'',city:p?.city||'',state:p?.state||'',country:p?.country||'',phone:p?.phone||'',expectedSalary:p?.expectedSalary?structuredClone(p.expectedSalary):null,ukVisaRequired:p?.ukVisaRequired??null,usaVisaRequired:p?.usaVisaRequired??null,canadaVisaRequired:p?.canadaVisaRequired??null,irelandVisaRequired:p?.irelandVisaRequired??null,ukRightToWork:p?.ukRightToWork??null,usaRightToWork:p?.usaRightToWork??null,canadaRightToWork:p?.canadaRightToWork??null,irelandRightToWork:p?.irelandRightToWork??null};}
+export type AccountProfile = AccountDetails & { employerQuestions?:EmployerQuestion[]; fullName: string; headline: string; targetRole: string; completedAt: string };
 export type ApplicationArchive = { applications:ApplicationRequest[]; drafts:Draft[]; at:string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export type State = { receiptChecksEnabled?:boolean; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
@@ -61,6 +62,7 @@ const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.str
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
+  z.object({type:z.literal('save_employer_answer'),questionId:id,answer:z.string().trim().max(2000)}).strict(),
   z.object({ type: z.literal('complete_tutorial') }).strict(),
   z.object({ type:z.literal('clear_applications'), confirmation:z.literal('CLEAR_APPLICATIONS') }).strict(),
   z.object({ type:z.literal('restore_applications') }).strict(),
@@ -129,6 +131,12 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const {type:_,...details}=action;
     state.accountProfile = {...state.accountProfile,...details,completedAt:at};
     message = 'Your account profile is saved. Open your workspace to review your CV and explore jobs.';
+  } else if(action.type==='save_employer_answer'){
+    const item=state.accountProfile?.employerQuestions?.find(q=>q.id===action.questionId);
+    if(!item)throw new DomainError('That saved question is no longer available.',404);
+    if(/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|authori[sz]|visa|sponsor|citizen|nationality|right to work|salary|compensation|wage|clearance|criminal|convict|gender|race|ethnic|religion|disabil|veteran|birth|age|password|captcha|verification|security code)\w*\b/i.test(item.question)||item.source==='edit_profile')throw new DomainError('Use the dedicated profile fields or the employer-specific consent step for this question.');
+    item.answer=action.answer;item.source='user';item.status=action.answer?'answered':'needs_details';item.evidence='Answer supplied directly in Account Profile.';item.updatedAt=at;delete item.originRequestId;
+    message='Answer saved for reuse with this exact question. Job-specific answers remain scoped to their original job.';
   } else if (action.type === 'complete_tutorial') {
     state.tutorialCompletedAt ||= at;
     message = 'Tutorial saved. You can replay it from Settings.';

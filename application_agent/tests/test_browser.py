@@ -106,16 +106,16 @@ def test_residence_and_work_rights_are_independent_native_radio_answers(country,
     assert any(a['question'].startswith('Are you located') and a['value']==expected for a in result['report']['answers'])
     assert any(a['question'].startswith('Are you authorized') and a['value']=='Yes' for a in result['report']['answers'])
 
-def test_generated_answer_pauses_until_its_exact_text_is_approved():
+def test_generated_answer_is_filled_automatically_without_approval():
     from application_agent.reasoning import build_plan
     question='Why are you interested in this role?'
     html=FORM.replace('{extra}',f'<label>{question}<textarea name="motivation" required></textarea></label>')
-    pending,posts=run(html,planner=build_plan)
-    assert pending['status']=='needs_attention' and not posts
-    draft=next(item for item in pending['report']['unresolved'] if item.get('source')=='generated')
-    payload={**PAYLOAD,'confirmedAnswers':[{'question':question,'value':draft['suggested_value']}]}
-    approved,posts=run(html,planner=build_plan,payload=payload)
-    assert approved['status']=='applied' and draft['suggested_value'].encode() in posts[0]
+    result,posts=run(html,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1,result
+    answer=next(a for a in result['report']['answers'] if a.get('source')=='cv_and_job')
+    assert answer['automatic'] and answer['value'].encode() in posts[0]
+    assert any(q['question']==question for q in result['report']['questions'])
+
 
 def test_saved_visa_and_work_rights_fill_native_select_and_radio():
     from application_agent.reasoning import build_plan
@@ -134,14 +134,13 @@ def test_uk_or_ireland_work_rights_fill_yes_if_selected_else_no():
     assert result['status']=='applied' and len(posts)==1 and b'no' in posts[0]
     assert any(answer.get('value')=='No' and 'User-selected rule' in answer.get('evidence','') for answer in result['report']['answers'])
 
-def test_generated_cover_letter_is_uploaded_only_after_approval():
+def test_generated_cover_letter_is_uploaded_automatically():
     from application_agent.reasoning import build_plan
     html=FORM.replace('{extra}','<label>Cover letter<input type="file" name="letter" required></label>')
     result,posts=run(html,planner=build_plan)
-    assert result['status']=='needs_attention' and not posts
-    approved='This exact cover letter was reviewed and approved for this job.'
-    result,posts=run(html,payload={**PAYLOAD,'confirmedAnswers':[{'question':'Cover letter','value':approved}]},planner=build_plan)
-    assert result['status']=='applied' and approved.encode() in posts[0]
+    assert result['status']=='applied' and len(posts)==1,result
+    assert result['report']['cover_letter'].encode() in posts[0]
+    assert CV in posts[0]
 
 
 def test_blocks_local_and_unapproved_hosts():
@@ -407,3 +406,14 @@ def test_employer_script_cannot_open_websocket_or_peer_transports():
     result,posts=run(FORM.replace('{extra}',extra))
     assert result['status']=='applied' and len(posts)==1
     assert b'name="transports_blocked"\r\n\r\n3' in posts[0]
+
+
+def test_saved_profile_answer_reaches_exact_dropdown():
+    from application_agent.reasoning import build_plan
+    question='Have you used Kubernetes professionally?'
+    payload={**PAYLOAD,'applicantProfile':{'employerQuestions':[{'question':question,'answer':'Yes','source':'user','fieldType':'select','jobSpecific':False}]}}
+    extra=f'<label>{question}<select name="tool" required><option value="">Choose</option><option>Yes</option><option>No</option></select></label>'
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert b'name="tool"\r\n\r\nYes' in posts[0]
+    assert any(a.get('source')=='saved_profile' and a['value']=='Yes' for a in result['report']['answers'])

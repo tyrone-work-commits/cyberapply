@@ -1,3 +1,4 @@
+import {rememberEmployerQuestions} from './employer-questions';
 import { DomainError, record, safeJobUrl, applicationProfile, type State } from './cyber-domain';
 
 export function claimApplication(state:State,at=new Date().toISOString()){
@@ -24,7 +25,7 @@ export function completeApplication(state:State,input:{requestId:string;claimId:
   const request=activeClaim(state,input.requestId,input.claimId,at);
   if(input.status==='applied'&&(!input.receipt||!input.evidence?.text.trim()||!safeJobUrl(input.evidence.url)))throw new DomainError('Applied requires an explicit employer confirmation and its URL.',409);
   request.status=input.status;request.result={at,message:input.message,...(input.receipt?{receipt:input.receipt}:{}),...(input.evidence?{evidence:input.evidence}:{})};
-  if(input.report)request.report=input.report;
+  if(input.report){request.report=input.report;rememberEmployerQuestions(state,request,input.report,at);}
   record(state,'application_agent_result',`Application agent: ${input.status.replaceAll('_',' ')}. ${input.message}`,'agent',at);
   return request;
 }

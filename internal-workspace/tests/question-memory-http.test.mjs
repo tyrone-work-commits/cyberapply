@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8792';if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Use an isolated loopback Worker.');
+const owner='question-memory-'+randomUUID(),auth={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':'questions@example.test'};let count=0;
+const eq=(a,b)=>{assert.equal(a,b);count++;};
+async function call(path,{method='GET',body,headers=auth}={}){const r=await fetch(base+path,{method,headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body)});return{status:r.status,data:await r.json()};}
+let current=(await call('/api/workspace')).data;
+async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});eq(r.status,200);current=r.data;}
+await act({type:'complete_onboarding',fullName:'Question QA',headline:'SOC analyst',targetRole:'SOC Analyst'});
+const upload=new FormData();upload.set('revision',String(current.revision));upload.set('file',new File(['Question QA\nquestions@example.test\nEXPERIENCE\nSOC Analyst 2023 - 2025\nInvestigated Splunk alerts.'],'question-qa.txt',{type:'text/plain'}));current=(await call('/api/files',{method:'POST',body:upload})).data;
+const pair=(await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}})).data;const worker={Authorization:'Bearer '+JSON.parse(pair.token).token};current=(await call('/api/workspace')).data;
+await act({type:'add_job',title:'SOC Analyst',company:'Fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Fictional question-learning application; no employer is contacted.',skills:['Splunk']});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;eq(task.applicantProfile.employerQuestions.length,0);
+const report={questions:[{question:'Why this role?',field_type:'textarea'},{question:'Have you worked with Kubernetes?',field_type:'select',options:['Yes','No']}],answers:[{question:'Why this role?',value:'I would use the Splunk investigations documented in my CV.',field_type:'textarea',source:'cv_and_job',evidence:'Investigated Splunk alerts.',automatic:true}],unresolved:[{question:'Have you worked with Kubernetes?',field_id:'unknown',reason:'Not established.'}]};
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Missing a factual answer.',report}})).status,200);
+current=(await call('/api/workspace')).data;eq(current.state.accountProfile.employerQuestions.length,2);const learnedRevision=current.revision;
+const q=current.state.accountProfile.employerQuestions.find(q=>q.question.includes('Kubernetes'));
+await act({type:'save_employer_answer',questionId:q.id,answer:'Yes'});
+eq(current.state.accountProfile.employerQuestions.find(item=>item.id===q.id).source,'user');
+await act({type:'complete_onboarding',fullName:'Updated QA',headline:'Still saved',targetRole:'SOC Analyst'});eq(current.state.accountProfile.employerQuestions.length,2);
+const other={'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'};const otherState=(await call('/api/workspace',{headers:other})).data;
+eq((await call('/api/workspace',{method:'POST',headers:other,body:{revision:otherState.revision,action:{type:'save_employer_answer',questionId:q.id,answer:'No'}}})).status,404);
+await act({type:'queue_application_agent',applicationId:task.requestId});const next=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+eq(next.applicantProfile.employerQuestions.find(item=>item.id===q.id).answer,'Yes');current=(await call('/api/workspace')).data;
+await act({type:'save_employer_answer',questionId:q.id,answer:'No'});
+eq((await call('/api/application-agent/authorize',{method:'POST',headers:worker,body:{requestId:next.requestId,claimId:next.claimId}})).status,409);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:next.requestId,claimId:next.claimId,status:'needs_attention',message:'Profile changed; fictional test stopped before delivery.'}})).status,200);current=(await call('/api/workspace')).data;
+eq((await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'application',applicationId:task.requestId,confirmation:'PERMANENTLY DELETE'}})).status,200);
+current=(await call('/api/workspace')).data;eq(current.state.accountProfile.employerQuestions.length,1);eq(current.state.accountProfile.employerQuestions[0].source,'user');
+const old=(await call('/api/history?revision='+learnedRevision)).data;eq(old.state.accountProfile.employerQuestions.length,0);
+console.log(`PASS ${count} question-memory HTTP checks: learning, persistence, manual fact reuse, profile saves, owner isolation, claim snapshots, stale-answer revocation and historical erasure.`);

@@ -8,6 +8,7 @@ export function deletionPlan(before:State,scope:DeletionScope,applicationId?:str
  if(scope==='application'&&!targets.length)throw new DomainError('That application is no longer in your account.',404);
  if(targets.some(item=>item.status==='processing')||(legacy&&state.applications?.some(item=>item.status==='processing')))throw new DomainError('Wait for the application in progress to finish or pause before deleting these records.',409);
  const ids=targets.map(item=>item.id),draftIds=[...new Set([...targets.map(item=>item.draftId),...(scope==='cleared'?state.applicationArchive?.drafts.map(item=>item.id)||[]:[])])];
+ if(state.accountProfile?.employerQuestions)state.accountProfile.employerQuestions=state.accountProfile.employerQuestions.filter(item=>!ids.includes(item.originRequestId||''));
  if(scope==='cleared'&&!ids.length&&!draftIds.length&&!legacy)throw new DomainError('There are no cleared applications to delete.',409);
  const safety=new Set(state.applicationSafetyJobIds||[]);
  targets.filter(item=>['applied','uncertain'].includes(item.status)).forEach(item=>safety.add(item.jobId));
@@ -43,5 +44,7 @@ export function deletionHistoryExpression(ids:string[],draftIds:string[],legacy:
  }
  const expression=`json_set(payload,'$.applications',${filtered('$.applications',ids,true)},'$.drafts',${filtered('$.drafts',draftIds)},'$.applicationArchive.applications',${filtered('$.applicationArchive.applications',ids,true)},'$.applicationArchive.drafts',${filtered('$.applicationArchive.drafts',draftIds)}${legacy?",'$.profile',json(?), '$.legacyCandidateFactsDeleted',json('true')":''})`;
  if(legacy)params.push(JSON.stringify(emptyState().profile));
- return {expression,params};
+ params.push(JSON.stringify(ids));
+ const withQuestions=`json_patch(${expression},CASE WHEN json_type(payload,'$.accountProfile')='object' THEN json_object('accountProfile',json_object('employerQuestions',json((SELECT COALESCE(json_group_array(json(value)),'[]') FROM json_each(payload,'$.accountProfile.employerQuestions') WHERE COALESCE(json_extract(value,'$.originRequestId'),'') NOT IN (SELECT value FROM json_each(?)))))) ELSE json('{}') END)`;
+ return {expression:withQuestions,params};
 }

@@ -463,6 +463,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             continue
                     raise ApplicationAttention("No supported application form was found, or it has too many fields to inspect reliably.")
                 journey.data['form_found']=True
+                known=report.setdefault('questions',[])
+                for field in fields:
+                    if field['type'] not in {'password','hidden'} and not any(q['question']==field['label'] and q['field_type']==field['type'] for q in known) and len(known)<100:
+                        known.append({'question':field['label'],'field_type':field['type'],'options':field.get('options',[])[:20]})
                 signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
                 step_identity=(tuple(frame.url for frame in frames),signature)
                 if step_identity in seen_steps:
@@ -491,6 +495,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 def approved_choice(field,answer):
                     if exact_confirmed(field,answer):return True
                     if not answer:return False
+                    if answer.get('source')=='saved_profile':
+                        from .answer_memory import remembered_answer
+                        remembered=remembered_answer(payload,field['label'],field)
+                        return bool(remembered and remembered[0]==answer.get('value'))
                     from .profile_answers import profile_field,saved_profile_answer
                     from .answer_drafts import experience_answer
                     key=profile_field(field['label'])
@@ -513,7 +521,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         return operation()
                     if kind == "file":
                         if re.search(r"cover.?letter", label):
-                            if not answer or answer.get('source')!='user_confirmed':
+                            if not answer or not (answer.get('source')=='user_confirmed' or answer.get('source')=='cv_and_job' and answer.get('automatic') is True):
                                 if not any(item.get('field_id')==field['id'] for item in unresolved):unresolved.append({'field_id':field['id'],'question':field['label'],'source':'generated','suggested_value':report['cover_letter'],'reason':'Approve the generated cover letter before upload.'})
                                 continue
                             report['cover_letter']=str(answer['value'])
@@ -575,6 +583,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         if unique and answer and answer.get('source')=='edit_profile' and profile_field(field['label']):
                             expected,_,_=saved_profile_answer(payload,field['label'],field)
                             permitted=expected is not None and expected==answer.get('value')
+                        elif unique and answer and answer.get('source')=='saved_profile':
+                            from .answer_memory import remembered_answer
+                            remembered=remembered_answer(payload,field['label'],field)
+                            permitted=bool(remembered and remembered[0]==answer.get('value'))
                         elif unique and answer and answer.get('source')=='cv':
                             known=experience_answer(field['label'],str(cv.get('text','')),'select')
                             permitted=bool(known and not known[2] and known[0]==answer.get('value'))

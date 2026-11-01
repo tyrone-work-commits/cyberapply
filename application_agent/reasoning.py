@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from .profile_answers import profile_field, saved_profile_answer, place_key
 from .answer_drafts import experience_answer, narrative_draft
+from .answer_memory import remembered_answer
 from html import unescape
 import re
 from urllib.parse import urlsplit
@@ -19,7 +20,7 @@ _SECURITY = re.compile(r"\b(?:cyber\s*security|information security|infosec|secu
 _MONTHS = {name.lower(): number for number in range(1, 13) for name in (calendar.month_name[number], calendar.month_abbr[number])}
 _DATE = r"(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}"
 _DATES = re.compile(rf"(?P<start>{_DATE})\s*(?:[-–—]|to)\s*(?P<end>{_DATE}|present|current|now)\b", re.I)
-_UNSUPPORTED = re.compile(r"\b(?:authori[sz]|citizen|nationality|visa|sponsor|clearance|criminal|convict|disab|veteran|gender|race|ethnic|religion|marital|birth|age|consent|agree|privacy|terms|relocat|willing|notice|start date|availability|current salary|previous salary|minimum salary|lowest salary|right to work|legally|background check)\w*\b", re.I)
+_UNSUPPORTED = re.compile(r"\b(?:authori[sz]|citizen|nationality|visa|sponsor|clearance|criminal|convict|disab|veteran|gender|race|ethnic|religion|marital|birth|age|consent|agree|accept|acknowledg|attest|certify|privacy|terms|relocat|willing|notice|start date|availability|current salary|previous salary|minimum salary|lowest salary|right to work|legally|background check)\w*\b", re.I)
 _ACTION = re.compile(r"\b(?:built|developed|configured|monitored|investigated|analysed|analyzed|managed|deployed|used|performed|conducted|secured|audited|supported|responded|triaged|tested|implemented|automated|assessed|designed)\b", re.I)
 _SKILLS = ("Python", "JavaScript", "TypeScript", "SQL", "Linux", "Windows", "AWS", "Azure", "GCP", "SIEM", "Splunk", "Sentinel", "Wireshark", "Nmap", "Burp Suite", "Nessus", "Metasploit", "incident response", "threat hunting", "vulnerability management", "penetration testing", "risk assessment", "ISO 27001", "NIST", "SOC 2", "firewalls", "network security", "IAM", "Docker", "Kubernetes", "Git")
 
@@ -165,7 +166,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         contribution += f" Your published material highlights {str(opportunity['text'])[:280].rstrip('.')}. I would use the job's responsibilities to guide where I could contribute, then validate priorities with the team."
     cover_letter = f"Dear {company} hiring team,\n\nI am applying for {title}. "
     cover_letter += ("My CV includes the following relevant work: " + " ".join(evidence) + "\n\n") if evidence else "Please consider the experience and qualifications in my attached CV.\n\n"
-    cover_letter += contribution + "\n\nI would welcome the opportunity to discuss how this background fits your team's needs.\n\nKind regards,\n" + (facts["name"] or "Applicant")
+    cover_letter += contribution + "\n\nI would welcome the opportunity to discuss how this background fits your team's needs.\n\nKind regards,\n" + (str((payload.get("applicantProfile") or {}).get("fullName") or facts["name"] or "Applicant"))
     answers, unresolved = [], []
     for field in fields[:100]:
         question = str(field.get("label", "")).strip()
@@ -175,6 +176,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         profile_key=profile_field(question)
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
+        remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
         if profile_key and kind not in {"password","hidden","file"}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)
             source="edit_profile"
@@ -185,6 +187,8 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             source='cv';proof='LinkedIn profile URL extracted from the exact chosen CV.'
         elif user_supplied:
             value, source, proof = confirmed_value, "user_confirmed", confirmed_proof
+        elif remembered:
+            value,proof=remembered;source='saved_profile'
         elif kind not in {"password","hidden","file"} and not _UNSUPPORTED.search(question) and (match:=experience_answer(question,text,kind)):
             value,proof,generated=match
             source="cv_and_job" if generated else "cv"
@@ -221,10 +225,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
                 value, proof = "My CV describes: " + " ".join(selected_evidence), "; ".join(selected_evidence)
         if not value and not profile_key and not linkedin_field and not user_supplied and kind in {"text","textarea"} and not _UNSUPPORTED.search(question) and not re.search(r"experience (?:with|in|using|as)|have you (?:used|worked with)",question,re.I):
             draft=narrative_draft(question,text,job,contribution)
-            if draft:value,source,proof=draft,"cv_and_job","CV evidence and selected role; user review required."
-        if value and source=="cv_and_job":
-            unresolved.append({"field_id":field.get("id"),"question":question,"reason":"The agent generated this draft. Review or edit it, then explicitly approve it before it is used.","source":"generated","suggested_value":str(value),"evidence":proof,"required":bool(field.get("required"))})
-            continue
+            if draft:value,source,proof=draft,"cv_and_job","CV evidence and selected role; generated under the user's automatic-answer instruction."
         if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
             options = field.get("options") or []
@@ -232,7 +233,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
                 match = next((str(option) for option in options if str(option).casefold().strip() == str(value).casefold().strip() or profile_key=='country' and place_key(option)==place_key(value)), None)
                 value = match
             if value is not None:
-                answers.append({"field_id": field.get("id"), "value": str(value), "source": source, "evidence": proof or str(value)})
+                answers.append({"field_id": field.get("id"), "value": str(value), "source": source, "evidence": proof or str(value),"field_type":kind,"automatic":source=='cv_and_job'})
                 continue
         if field.get("required"):
             reason = "A personal, eligibility, consent or screening answer must be supplied by the user." if _UNSUPPORTED.search(question) or kind in {"checkbox", "radio"} else "The CV and verified research do not establish a reliable answer."
@@ -243,6 +244,6 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
                 reason = "The browser runner must upload the selected CV or a separately generated cover-letter file."
             if user_supplied and confirmed_value is None and not profile_key:
                 reason = confirmed_proof
-            unresolved.append({"field_id": field.get("id"), "question": question, "reason": reason, **({"source":"edit_profile","profile_field":profile_key} if profile_key else {})})
+            unresolved.append({"field_id": field.get("id"), "question": question, "field_type":kind,"reason": reason, **({"source":"edit_profile","profile_field":profile_key} if profile_key else {})})
     return {"answers": answers, "unresolved": unresolved, "cover_letter": cover_letter, "experience": experience,
             "research_sources": research.get("sources", []), "method": "cv_evidence_saved_edit_profile_and_company_research"}
