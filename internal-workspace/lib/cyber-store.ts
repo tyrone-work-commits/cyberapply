@@ -1,3 +1,4 @@
+import {recordingPrefix} from './application-recordings';
 import {watchStorageKeys} from './agent-watch-storage';
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
@@ -93,6 +94,7 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
  }
  const plan=deletionPlan(current.state,scope,applicationId,deleteCandidateFacts,replacement);
  if(plan.ids.length)await files().delete(plan.ids.flatMap(id=>watchStorageKeys(user.userId,id).all));
+ for(const id of plan.ids){while(true){const page=await files().list({prefix:recordingPrefix(user.userId,id),limit:1000});const keys=page.objects.map(object=>object.key);if(!keys.length)break;await files().delete(keys);}}
  const at=new Date().toISOString(),revision=expected+1,token=crypto.randomUUID();
  record(plan.state,'permanently_delete_application_records',`Permanently deleted ${plan.ids.length} application records and ${plan.draftIds.length} drafts${plan.legacy?' and retired legacy Candidate Facts reviews':''}.`,'interface',at);
  const payload=workspacePayload(plan.state);

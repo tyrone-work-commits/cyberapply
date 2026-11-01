@@ -6,10 +6,16 @@ import time
 from uuid import uuid4
 
 class LiveWatch:
- def __init__(self,call,request_id,claim_id,interval=1.5):
+ def __init__(self,call,request_id,claim_id,interval=1.5,record=False):
   self.call=call;self.ids={'requestId':request_id,'claimId':claim_id};self.interval=interval
   self.stop_event=threading.Event();self.watching=threading.Event();self.reset=threading.Event();self.active=threading.Event()
   self.lock=threading.Lock();self.latest=None;self.session=None;self.last_capture=0;self.queue=deque();self.generation=0
+  self.recording=None;self.recording_info=None
+  if record:
+   try:
+    from .recording import ApplicationRecording
+    self.recording=ApplicationRecording()
+   except Exception:pass
   self.thread=threading.Thread(target=self._upload,name='CyberApply video upload',daemon=True)
   self.encoder_thread=threading.Thread(target=self._encode,name='CyberApply video encoder',daemon=True)
   self.thread.start();self.encoder_thread.start()
@@ -21,14 +27,17 @@ class LiveWatch:
     try:session.send('Page.screencastFrameAck',{'sessionId':event['sessionId']})
     except Exception:return
     data=event.get('data','')
-    if self.session is session and self.watching.is_set() and isinstance(data,str) and 0<len(data)<=320000:
+    if self.session is session and (self.watching.is_set() or self.recording) and isinstance(data,str) and 0<len(data)<=320000:
      with self.lock:self.latest=data
+     if self.recording:self.recording.offer(data)
    session.on('Page.screencastFrame',frame)
    session.send('Page.startScreencast',{'format':'jpeg','quality':65,'maxWidth':1280,'maxHeight':720,'everyNthFrame':1})
    self.active.set()
+   if self.recording:self.recording.set_active(True)
   except Exception:self.detach()
  def detach(self):
   self.active.clear();self.reset.set()
+  if self.recording:self.recording.set_active(False)
   if self.session:
    try:self.session.send('Page.stopScreencast')
    except Exception:pass
@@ -36,14 +45,20 @@ class LiveWatch:
    except Exception:pass
    self.session=None
   with self.lock:self.latest=None;self.generation+=1
- def capture(self):
-  if not self.session or not self.watching.is_set() or time.monotonic()-self.last_capture<.5:return
+ def capture(self,force=False):
+  if not self.session or not (self.watching.is_set() or self.recording) or not force and time.monotonic()-self.last_capture<.5:return
   self.last_capture=time.monotonic()
   try:
    data=self.session.send('Page.captureScreenshot',{'format':'jpeg','quality':65})['data']
    if len(data)<=320000:
     with self.lock:self.latest=data
+    if self.recording:self.recording.offer(data)
   except Exception:pass
+ def finish_capture(self):
+  self.capture(force=True)
+  if self.recording:
+   with self.lock:data=self.latest
+   self.recording.finish_capture(data)
  def _encode(self):
   encoder=None;generation=-1;stream_id='';next_frame=0
   while not self.stop_event.is_set():
@@ -84,5 +99,8 @@ class LiveWatch:
    except Exception:self.watching.clear();self.reset.set();self.stop_event.wait(.5)
  def close(self):
   self.stop_event.set();self.encoder_thread.join(timeout=3);self.thread.join(timeout=5)
+  if self.recording:self.recording_info=self.recording.finish()
   try:self.call({**self.ids,'stop':True,'protocol':2})
   except Exception:pass
+ def cleanup_recording(self):
+  if self.recording:self.recording.cleanup()

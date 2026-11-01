@@ -60,3 +60,24 @@ class VideoEncoder:
   for packet in self.stream.encode():self.container.mux(packet)
   self.container.close()
   return self._events()
+
+
+class RecordingEncoder:
+ """A finalized, seekable MP4 for one run, independent of live-view leases."""
+ def __init__(self,path):
+  import av
+  self.av=av;self.index=0
+  self.container=av.open(str(path),mode='w',format='mp4',options={'movflags':'faststart'})
+  self.stream=self.container.add_stream('libx264',rate=FPS)
+  self.stream.width=960;self.stream.height=540;self.stream.pix_fmt='yuv420p'
+  self.stream.codec_context.thread_count=1;self.stream.codec_context.gop_size=FPS
+  self.stream.options={'preset':'ultrafast','tune':'zerolatency','profile':'baseline','level':'3.1','crf':'25','bf':'0','sc_threshold':'0'}
+  self.decoder=av.CodecContext.create('mjpeg','r')
+ def add(self,jpeg):
+  frames=self.decoder.decode(self.av.Packet(jpeg))
+  if not frames:return
+  frame=frames[0].reformat(width=960,height=540,format='yuv420p');frame.pict_type=self.av.video.frame.PictureType.NONE;frame.pts=self.index;frame.time_base=Fraction(1,FPS);self.index+=1
+  for packet in self.stream.encode(frame):self.container.mux(packet)
+ def close(self):
+  for packet in self.stream.encode():self.container.mux(packet)
+  self.container.close()

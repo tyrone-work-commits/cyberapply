@@ -185,6 +185,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     session_active = False
     def finish(*args,**kwargs):
         journey.data['possible_delivery'] = submitted
+        if live_watch:
+            try:live_watch.finish_capture()
+            except Exception:pass
         if session_active and context and session_store:
             try:session_store.save(job,hosts,context.storage_state(),refresh=True)
             except Exception:pass

@@ -1,3 +1,4 @@
+import {recordingPrefix,recordingKey,recordingRange,MAX_RECORDING_SIZE} from './application-recordings';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
@@ -191,4 +192,58 @@ export async function watchWorker(request:Request){try{
   }
  }
  return response({watching:true});
+}catch(error){return failure(error);}}
+
+function recordingOwnerItem(state:State,id:string){
+ const item=[...(state.applications||[]),...(state.applicationArchive?.applications||[])].find(item=>item.id===id&&item.agentVersion===2);
+ if(!item)throw new DomainError('This application is not in your workspace.',404);return item;
+}
+export async function saveRecording(request:Request){
+ let writtenKey:string|undefined;
+ try{
+  const user=await worker(request),url=new URL(request.url),ids=claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
+  const current=await load(user);stillConnected(current.state,user);const item=recordingOwnerItem(current.state,ids.requestId);
+  if(item.claim?.id!==ids.claimId||item.status==='queued'||!Number.isFinite(Date.parse(item.claim.at))||Date.parse(item.claim.at)<Date.now()-3600000)throw new DomainError('This recording does not match a recent application run.',409);
+  if(request.method==='GET'){const stored=await files().head(recordingKey(user.userId,ids.requestId,ids.claimId));return response({saved:!!stored,...(stored?{sha256:stored.customMetadata?.sha256}:{})});}
+  if(request.headers.get('content-type')!=='video/mp4')throw new DomainError('Send an MP4 recording.',415);
+  const size=Number(request.headers.get('content-length')),duration=Number(request.headers.get('x-recording-duration')),checksum=request.headers.get('x-recording-sha256')||'',started=request.headers.get('x-recording-started-at')||'',partial=request.headers.get('x-recording-partial'),reason=request.headers.get('x-recording-reason')||'';
+  if(!Number.isSafeInteger(size)||size<16||size>MAX_RECORDING_SIZE)throw new DomainError('Recording must be smaller than 40 MB.',413);
+  if(!Number.isFinite(duration)||duration<=0||duration>600.5||!Number.isFinite(Date.parse(started))||Date.parse(started)>Date.now()+60000||Date.parse(started)<Date.parse(item.claim.at)-60000||!['true','false'].includes(partial||'')||!['','recording_limit','capture_interrupted'].includes(reason)||!/^[a-f0-9]{64}$/.test(checksum))throw new DomainError('Invalid recording metadata.');
+  const key=recordingKey(user.userId,ids.requestId,ids.claimId),prior=await files().head(key);
+  if(prior){if(request.body)await request.body.pipeTo(new WritableStream({write(){}}));if(prior.customMetadata?.sha256!==checksum)throw new DomainError('A different recording is already saved for this run.',409);return response({saved:true,alreadySaved:true});}
+  if(!request.body)throw new DomainError('Recording data is missing.');
+  let prefix=new Uint8Array(0);
+  const validate=new TransformStream<Uint8Array,Uint8Array>({transform(chunk,controller){if(prefix.length<8){const next=new Uint8Array(Math.min(8,prefix.length+chunk.length));next.set(prefix);next.set(chunk.slice(0,8-prefix.length),prefix.length);prefix=next;if(prefix.length===8&&new TextDecoder().decode(prefix.slice(4,8))!=='ftyp')throw Error('Not an MP4 recording.');}controller.enqueue(chunk);},flush(){if(prefix.length<8)throw Error('Incomplete recording.');}});
+  const fixed=new FixedLengthStream(size),pipe=request.body.pipeThrough(validate).pipeTo(fixed.writable),digestBytes=Uint8Array.from(checksum.match(/../g)!,value=>parseInt(value,16));
+  const writing=files().put(key,fixed.readable,{sha256:digestBytes,onlyIf:{etagDoesNotMatch:'*'},httpMetadata:{contentType:'video/mp4'},customMetadata:{claimId:ids.claimId,sha256:checksum,duration:String(duration),startedAt:new Date(started).toISOString(),recordedAt:new Date().toISOString(),partial:partial!,reason}});
+  const settled=await Promise.allSettled([pipe,writing]);
+  if(settled.some(item=>item.status==='rejected'))throw new DomainError('Recording upload did not finish or its checksum did not match. The application outcome is unchanged.',400);
+  const result=settled[1];if(result.status==='fulfilled'&&!result.value){const same=await files().head(key);if(same?.customMetadata?.sha256!==checksum)throw new DomainError('A different recording is already saved for this run.',409);return response({saved:true,alreadySaved:true});}
+  writtenKey=key;
+  // Do not leave a video behind if its owner/application was deleted during upload.
+  const latest=await load(user);stillConnected(latest.state,user);recordingOwnerItem(latest.state,ids.requestId);
+  writtenKey=undefined;return response({saved:true,attempt:ids.claimId});
+ }catch(error){
+  if(writtenKey)try{await files().delete(writtenKey);}catch{}
+  return failure(error);
+ }
+}
+export async function recordingViewer(request:Request){try{
+ const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId')),current=await load(user);recordingOwnerItem(current.state,id);
+ const attempt=url.searchParams.get('attempt');
+ if(!attempt){
+  const cursor=url.searchParams.get('cursor')||undefined;if(cursor&&cursor.length>2000)throw new DomainError('Invalid recording cursor.');
+  const prefix=recordingPrefix(user.userId,id),page=await files().list({prefix,limit:100,cursor});
+  const objects=await Promise.all(page.objects.map(object=>files().head(object.key)));
+  const items=objects.filter((object):object is NonNullable<typeof object>=>!!object).filter(object=>object.key.startsWith(prefix)&&/^[0-9a-f-]{36}\.mp4$/.test(object.key.slice(prefix.length))).map(object=>({attempt:object.customMetadata?.claimId,duration:Number(object.customMetadata?.duration||0),startedAt:object.customMetadata?.startedAt,recordedAt:object.customMetadata?.recordedAt,partial:object.customMetadata?.partial==='true',reason:object.customMetadata?.reason||'',size:object.size})).filter(item=>item.attempt).sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt)));
+  return response({items,nextCursor:page.truncated?page.cursor:null});
+ }
+ z.string().uuid().parse(attempt);const key=recordingKey(user.userId,id,attempt),head=await files().head(key);if(!head)throw new DomainError('No saved recording was found for this run.',404);
+ const range=recordingRange(request.headers.get('range'),head.size);
+ if(range==='invalid')return new Response(null,{status:416,headers:{'Content-Range':`bytes */${head.size}`,'Cache-Control':'private, no-store'}});
+ const object=await files().get(key,range?{range}:undefined);if(!object)throw new DomainError('This recording is no longer available.',404);
+ const latest=await load(user);recordingOwnerItem(latest.state,id);
+ const headers=new Headers({'Content-Type':'video/mp4','Content-Length':String(range?range.length:head.size),'Accept-Ranges':'bytes','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin','Content-Disposition':'inline; filename="application-recording.mp4"'});
+ if(range)headers.set('Content-Range',`bytes ${range.offset}-${range.offset+range.length-1}/${head.size}`);
+ return new Response(request.method==='HEAD'?null:object.body,{status:range?206:200,headers});
 }catch(error){return failure(error);}}

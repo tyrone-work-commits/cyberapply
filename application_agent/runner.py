@@ -12,6 +12,25 @@ from urllib.request import HTTPRedirectHandler, Request
 
 from .browser import execute_application, validate_public_url
 
+def upload_recording(site,token,task,info,site_access_token=None):
+    """Idempotent media-only upload. Never calls an employer or queues a job."""
+    import hashlib
+    from urllib.request import build_opener
+    path=info['path'];size=path.stat().st_size
+    with path.open('rb') as file:checksum=hashlib.file_digest(file,'sha256').hexdigest()
+    query=urlencode({'requestId':task['requestId'],'claimId':task['claimId']})
+    status=call_site(site,token,'/api/application-agent/recording?'+query,site_access_token=site_access_token)
+    if status.get('saved'):
+        if status.get('sha256')!=checksum:raise ValueError('A different recording is already saved for this run.')
+        return status
+    headers={'Authorization':'Bearer '+token,'Content-Type':'video/mp4','Content-Length':str(size),
+             'X-Recording-SHA256':checksum,'X-Recording-Duration':str(info['duration']),
+             'X-Recording-Started-At':info['startedAt'],'X-Recording-Partial':'true' if info['partial'] else 'false',
+             'X-Recording-Reason':info.get('reason',''),**({'OAI-Sites-Authorization':'Bearer '+site_access_token} if site_access_token else {})}
+    with path.open('rb') as file:
+        request=Request(site+'/api/application-agent/recording?'+query,data=file,headers=headers,method='POST')
+        with build_opener(NoRedirect()).open(request,timeout=30) as response:return json.loads(response.read(10000))
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -62,7 +81,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
     try:
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)
         from .live_watch import LiveWatch
-        try:watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'])
+        try:watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'],record=True)
         except Exception:watch=None
         def authorize():
             return call_site(site,token,"/api/application-agent/authorize",{"requestId":task["requestId"],"claimId":task["claimId"]}, site_access_token=site_access_token).get("authorized") is True
@@ -89,7 +108,19 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
                           "research":{"note":"Report abbreviated to fit the saved record; no additional answers were invented."}}
         if len(json.dumps(result['report'])) > 55000:
             result['report']={"note":"Detailed report exceeded the saved record limit.","experience":report.get('experience',{}),"recovery":report.get('recovery',{})}
-    call_site(site, token, "/api/application-agent/result", {"requestId":task["requestId"],"claimId":task["claimId"],**result}, site_access_token=site_access_token)
+    info=watch.recording_info if watch else None
+    result.setdefault('report',{})['recording']={'capture':'ready' if info else 'unavailable',**({'durationSeconds':info['duration'],'partial':info['partial']} if info else {})}
+    try:
+        call_site(site, token, "/api/application-agent/result", {"requestId":task["requestId"],"claimId":task["claimId"],**result}, site_access_token=site_access_token)
+    finally:
+        if info:
+            for attempt in range(2):
+                try:
+                    upload_recording(site,token,task,info,site_access_token)
+                    break
+                except Exception:
+                    if attempt:print('Application recording upload could not be confirmed. Application outcome is unchanged.')
+        if watch:watch.cleanup_recording()
     print("Application agent:", result["status"], "—", result["message"])
     return True
 
