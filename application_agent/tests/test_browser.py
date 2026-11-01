@@ -427,19 +427,25 @@ def test_automation_identity_choice_pauses_even_with_confirmed_human_answer():
     assert result['status']=='needs_attention' and not posts
     assert any(q.get('source')=='verification' for q in result['report']['unresolved'])
 
-def test_private_live_view_captures_actual_browser_without_extra_submission():
-    import base64,threading
+def test_private_live_video_captures_actual_browser_without_extra_submission():
+    import base64,threading,time
     from application_agent.live_watch import LiveWatch
-    observed=threading.Event();frames=[];posts=[]
+    observed=threading.Event();videos=[];posts=[]
     def call(body):
-        if body.get('frame'):frames.append(body['frame']);observed.set()
+        if body.get('video'):
+            videos.append(body['video'])
+            if body['video']['kind']=='segment':observed.set()
         return {'watching':True}
-    watch=LiveWatch(call,'one','claim',interval=.05)
+    watch=LiveWatch(call,'one','claim',interval=.05);held=[False]
+    def authorize():
+        if not held[0]:held[0]=True;time.sleep(3)
+        return True
     try:
         assert watch.watching.wait(2)
         result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
-          playwright_factory=lambda:browser_factory(FORM.replace('{extra}',''),posts),before_submit=lambda:True,timeout=3000,live_watch=watch)
+          playwright_factory=lambda:browser_factory(FORM.replace('{extra}',''),posts),before_submit=authorize,timeout=5000,live_watch=watch)
         assert result['status']=='applied' and len(posts)==1
         assert observed.wait(2)
-        assert base64.b64decode(frames[0]).startswith(b'\xff\xd8')
+        assert base64.b64decode(videos[0]['data'])[4:8]==b'ftyp'
+        assert any(base64.b64decode(item['data'])[4:8]==b'moof' for item in videos if item['kind']=='segment')
     finally:watch.close()

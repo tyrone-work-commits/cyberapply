@@ -5,6 +5,7 @@ import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-dom
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
 import { ApplicationDeleteDialog, type DeleteTarget } from './application-delete-dialog';
 import { ReceiptCheckPanel } from './receipt-check-panel';
+import AgentWatch from './application-watch/watch-view';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -27,6 +28,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
  const [filter,setFilter]=useState<ProgressGroup|'all'>('all'),[search,setSearch]=useState('');
  const [confirmClear,setConfirmClear]=useState(false);
  const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);
+ const [watching,setWatching]=useState<string|null>(null);
  const chosenCv=files.find(file=>file.id===selectedCvId);
  const ordered=[...applications].sort((a,b)=>b.at.localeCompare(a.at));
  const counts=Object.fromEntries(filters.map(([key])=>[key,key==='all'?ordered.length:ordered.filter(item=>applicationProgress(item).group===key).length]));
@@ -67,7 +69,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
     {application.status==='needs_attention'&&<ApplicationQuestionAnswers key={`${application.id}-${application.result?.at||''}`} application={application} busy={busy} onSave={answers=>onAnswer(application.id,answers)}/>}
     {!!application.confirmedAnswers?.length&&<details className="application-saved-draft"><summary>Review your saved answers ({application.confirmedAnswers.length})</summary><dl>{application.confirmedAnswers.map((answer,index)=><div className="application-detail-section" key={`${answer.question}-${index}`}><dt><strong>{answer.question}</strong></dt><dd style={{margin:0,whiteSpace:'pre-wrap'}}>{answer.value}</dd></div>)}</dl></details>}
     <div className="application-overview-actions">
-     {application.agentVersion===2&&<a className="button quiet" href={`/application-watch?request=${encodeURIComponent(application.id)}`} target="_blank" rel="noopener noreferrer"><Eye size={15}/>Watch agent<ExternalLink size={13}/></a>}
+     {application.agentVersion===2&&<button id={'watch-live-'+application.id} type="button" className="button quiet" aria-expanded={watching===application.id} onClick={()=>setWatching(watching===application.id?null:application.id)}><Eye size={15}/>{watching===application.id?'Hide live video':'Watch live'}</button>}
      {progress.canQueue&&!!attachedFile&&!needsUpdate&&!answeringQuestions&&(agentEnabled?<button type="button" className="button" disabled={busy} onClick={()=>void onQueue(application.id)}><Bot size={15}/>{application.confirmedAnswers?.length?'Continue with my answers':'Start agent for this job'}</button>:<a className="button" href="/account#application-agent-heading"><Bot size={15}/>Connect agent to apply</a>)}
      {canUpdate&&<button type="button" className="button" disabled={busy} onClick={()=>void onRefresh(application.id)}><FileText size={15}/>{application.cv?'Update request with chosen CV':'Attach chosen CV'}</button>}
      {!attachedFile&&!chosenCv&&progress.group==='needs_you'&&<button type="button" className="button" onClick={onChooseCv}><FileText size={15}/>Choose a CV</button>}
@@ -75,6 +77,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
      {attachedFile&&<a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer"><Eye size={15}/>View application CV</a>}
      <button className="button quiet danger" type="button" disabled={busy||application.status==='processing'} onClick={()=>setDeleteTarget({scope:'application',applicationId:application.id,label:`${job?.title||'Application'}${job?.company?` · ${job.company}`:''}`})}><Trash2 size={15}/>Delete application</button>
     </div>
+    {watching===application.id&&<AgentWatch requestId={application.id} embedded onClose={()=>{setWatching(null);document.getElementById('watch-live-'+application.id)?.focus();}}/>}
     <details className="application-detail-panel"><summary>Application details and agent report</summary>
      {application.report?<AgentReport value={application.report}/>:<p className="subtle">The agent’s answers, experience calculation, company research and cover letter will appear here after it reports back.</p>}
      <div className="application-detail-section"><h4>Recorded activity</h4><ol className="application-event-list">{progress.events.map((event,index)=><li key={`${event.label}-${index}`}><span>{event.label}</span><time dateTime={event.at}>{timestamp(event.at)}</time></li>)}</ol></div>

@@ -4,6 +4,7 @@ import { DomainError, record, type State } from './cyber-domain';
 import { identity, load, save, files, response, failure, type Identity } from './cyber-store';
 import { activeClaim, claimApplication, completeApplication, assertApplicationProfileCurrent } from './application-agent-state';
 import { runnerPresence, type PresenceRow } from './agent-presence';
+import {watchStorageKeys,VIDEO_SLOTS} from './agent-watch-storage';
 import { extractResume } from './resume-extraction';
 
 const digest=async(value:BufferSource)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',value)),x=>x.toString(16).padStart(2,'0')).join('');
@@ -115,64 +116,79 @@ export async function heartbeat(request:Request){try{
  return response({received:true,at});
 }catch(error){return failure(error);}}
 
-// Live snapshots use existing private file storage, outside workspace history.
-// A lease is renewed only by the signed-in owner while the viewer is visible.
-const watchKeys=(owner:string,id:string)=>{
- const root=`owners/${encodeURIComponent(owner)}/live-watch/${encodeURIComponent(id)}`;
- return {lease:root+'/lease',frame:root+'/frame.jpg'};
-};
+// Read-only H.264 video uses a bounded private ring, outside workspace history.
+type VideoManifest={claimId:string;streamId:string;mimeCodec:string;oldest:number;latest:number;at:number};
 const watchId=z.string().min(1).max(300);
+const codec=z.string().regex(/^video\/mp4; codecs="avc1\.[0-9A-Fa-f]{6}"$/);
 async function watchItem(user:Identity,id:string){
  const current=await load(user),item=current.state.applications?.find(item=>item.id===id);
  if(!item)throw new DomainError('This application is not in your workspace.',404);
  return {current,item};
 }
 async function watchLease(owner:string,id:string){
- const stored=await files().get(watchKeys(owner,id).lease);
- return stored?await stored.json<{expiresAt:number;claimId:string|null}>():null;
+ const stored=await files().get(watchStorageKeys(owner,id).lease);
+ return stored?await stored.json<{expiresAt:number;claimId:string|null;protocol:number}>():null;
 }
 export async function watchViewer(request:Request){try{
  if(request.method==='POST')z.object({}).strict().parse(await json(request));
- const user=await identity(request),url=new URL(request.url);
- const id=watchId.parse(url.searchParams.get('requestId'));
- const {current,item}=await watchItem(user,id),keys=watchKeys(user.userId,id);
+ const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId'));
+ const {current,item}=await watchItem(user,id),keys=watchStorageKeys(user.userId,id);
  const active=item.status==='queued'||item.status==='processing'&&!!item.claim&&Date.parse(item.claim.expiresAt)>Date.now();
  if(request.method==='POST'){
   sameOrigin(request);
-  if(active)await files().put(keys.lease,JSON.stringify({expiresAt:Date.now()+20000,claimId:item.status==='processing'?item.claim?.id:null}));
-  else await files().delete([keys.lease,keys.frame]);
+  if(active)await files().put(keys.lease,JSON.stringify({expiresAt:Date.now()+20000,claimId:item.status==='processing'?item.claim?.id:null,protocol:2}));
+  else await files().delete(keys.all);
   const job=current.state.jobs.find(job=>job.id===item.jobId);
-  return response({active,status:item.status,title:job?.title||'Application',company:job?.company||'',message:active?(item.status==='queued'?'Waiting for the background agent to pick up this request.':'The agent is working. Waiting for a current browser snapshot.'):'The agent is no longer working on this request. Viewing does not restart it.'});
+  return response({active,status:item.status,title:job?.title||'Application',company:job?.company||'',message:active?(item.status==='queued'?'Waiting for the background agent to pick up this request.':'Connecting to the agent’s live video…'):'The agent is no longer working on this request. Viewing does not restart it.'});
  }
- if(!active||item.status!=='processing')return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
+ const empty=()=>new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
+ if(!active||item.status!=='processing')return empty();
  const lease=await watchLease(user.userId,id);
- if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==item.claim?.id)return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
- const frame=await files().get(keys.frame),meta=frame?.customMetadata;
- if(!frame||meta?.claimId!==item.claim?.id||!Number.isFinite(Number(meta.at))||Number(meta.at)<Date.now()-12000)return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
- // Recheck owner state after storage I/O; a finished/deleted request must not
- // continue serving frames from an old claim.
- const latest=await watchItem(user,id);
- if(latest.item.status!=='processing'||latest.item.claim?.id!==meta.claimId)return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
- return new Response(frame.body,{headers:{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Frame-Observed-At':meta.at,'Content-Security-Policy':"default-src 'none'; sandbox",'Cross-Origin-Resource-Policy':'same-origin'}});
+ if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==item.claim?.id||lease.protocol!==2)return empty();
+ const stored=await files().get(keys.manifest),manifest=stored?await stored.json<VideoManifest>():null;
+ if(!manifest||manifest.claimId!==item.claim?.id||manifest.at<Date.now()-12000)return empty();
+ const part=url.searchParams.get('part')||'manifest';
+ if(part==='manifest')return response({streamId:manifest.streamId,mimeCodec:manifest.mimeCodec,oldest:manifest.oldest,latest:manifest.latest,at:manifest.at});
+ if(url.searchParams.get('stream')!==manifest.streamId)return empty();
+ const sequence=Number(url.searchParams.get('seq'));
+ if(part!=='init'&&(part!=='segment'||!Number.isSafeInteger(sequence)||sequence<manifest.oldest||sequence>manifest.latest))return empty();
+ const object=await files().get(part==='init'?keys.init:keys.segment(sequence)),meta=object?.customMetadata;
+ if(!object||meta?.claimId!==item.claim?.id||meta.streamId!==manifest.streamId||part==='segment'&&meta.sequence!==String(sequence))return empty();
+ const latest=await watchItem(user,id),leaseNow=await watchLease(user.userId,id);
+ if(latest.item.status!=='processing'||latest.item.claim?.id!==manifest.claimId||Date.parse(latest.item.claim.expiresAt)<=Date.now()||!leaseNow||leaseNow.expiresAt<=Date.now()||leaseNow.claimId!==manifest.claimId)return empty();
+ return new Response(object.body,{headers:{'Content-Type':'video/mp4','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'}});
 }catch(error){return failure(error);}}
 export async function watchWorker(request:Request){try{
  if(!request.headers.get('content-type')?.startsWith('application/json'))throw new DomainError('Send JSON.',415);
- if(Number(request.headers.get('content-length')||0)>325000){await request.body?.cancel();throw new DomainError('Snapshot is too large.',413);}
- const raw=await request.text();if(raw.length>325000)throw new DomainError('Snapshot is too large.',413);
- const user=await worker(request);
- let input;try{input=JSON.parse(raw);}catch{throw new DomainError('Invalid JSON.');}
- const body=claimBody.extend({frame:z.string().min(1).max(320000).optional(),stop:z.boolean().optional()}).strict().parse(input);
- const {current,item}=await watchItem(user,body.requestId);stillConnected(current.state,user);
- activeClaim(current.state,body.requestId,body.claimId);
- const keys=watchKeys(user.userId,body.requestId);
- if(body.stop){await files().delete([keys.lease,keys.frame]);return response({watching:false});}
+ if(Number(request.headers.get('content-length')||0)>710000){await request.body?.cancel();throw new DomainError('Video segment is too large.',413);}
+ const raw=await request.text();if(raw.length>710000)throw new DomainError('Video segment is too large.',413);
+ const user=await worker(request);let input;try{input=JSON.parse(raw);}catch{throw new DomainError('Invalid JSON.');}
+ const body=claimBody.extend({protocol:z.number().optional(),video:z.object({streamId:z.string().uuid(),kind:z.enum(['init','segment']),sequence:z.number().int().min(0).max(10000),mimeCodec:codec,data:z.string().min(1).max(700000)}).strict().optional(),stop:z.boolean().optional(),frame:z.string().max(320000).optional()}).strict().parse(input);
+ const {current}=await watchItem(user,body.requestId);stillConnected(current.state,user);activeClaim(current.state,body.requestId,body.claimId);
+ const keys=watchStorageKeys(user.userId,body.requestId);
+ if(body.stop){await files().delete(keys.all);return response({watching:false});}
+ if(body.protocol!==2)return response({watching:false,upgradeRequired:true});
  const lease=await watchLease(user.userId,body.requestId);
- if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==body.claimId){await files().delete(keys.frame);return response({watching:false});}
- if(body.frame){
-  let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(body.frame),c=>c.charCodeAt(0));}catch{throw new DomainError('Invalid JPEG snapshot.');}
-  if(bytes.length>240000||bytes[0]!==255||bytes[1]!==216||bytes.at(-2)!==255||bytes.at(-1)!==217)throw new DomainError('Invalid JPEG snapshot.');
+ if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==body.claimId||lease.protocol!==2){await files().delete(keys.all.filter(key=>key!==keys.lease));return response({watching:false});}
+ if(body.video){
+  const video=body.video;let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(video.data),c=>c.charCodeAt(0));}catch{throw new DomainError('Invalid video segment.');}
+  const box=new TextDecoder().decode(bytes.slice(4,8));if(bytes.length<16||bytes.length>500000||(video.kind==='init'?box!=='ftyp':box!=='moof'))throw new DomainError('Invalid fragmented MP4 segment.');
   const latest=await watchItem(user,body.requestId);stillConnected(latest.current.state,user);activeClaim(latest.current.state,body.requestId,body.claimId);
-  await files().put(keys.frame,bytes,{httpMetadata:{contentType:'image/jpeg'},customMetadata:{claimId:body.claimId,at:String(Date.now())}});
+  const currentLease=await watchLease(user.userId,body.requestId);if(!currentLease||currentLease.expiresAt<=Date.now()||currentLease.claimId!==body.claimId||currentLease.protocol!==2)return response({watching:false});
+  const now=Date.now(),metadata={claimId:body.claimId,streamId:video.streamId,sequence:String(video.sequence)};
+  if(video.kind==='init'){
+   if(video.sequence!==0)throw new DomainError('Invalid video initialization.');
+   await files().delete(keys.all.filter(key=>key!==keys.lease));
+   await files().put(keys.init,bytes,{httpMetadata:{contentType:'video/mp4'},customMetadata:metadata});
+   await files().put(keys.manifest,JSON.stringify({claimId:body.claimId,streamId:video.streamId,mimeCodec:video.mimeCodec,oldest:0,latest:-1,at:now} satisfies VideoManifest));
+  }else{
+   const stored=await files().get(keys.manifest),manifest=stored?await stored.json<VideoManifest>():null;
+   if(!manifest||manifest.streamId!==video.streamId||manifest.claimId!==body.claimId||manifest.mimeCodec!==video.mimeCodec)throw new DomainError('The video session changed. Reconnect the viewer.',409);
+   if(video.sequence===manifest.latest)return response({watching:true}); // Retry of this read-only media upload.
+   if(video.sequence!==manifest.latest+1)throw new DomainError('The video sequence changed. Reconnect the viewer.',409);
+   await files().put(keys.segment(video.sequence),bytes,{httpMetadata:{contentType:'video/mp4'},customMetadata:metadata});
+   await files().put(keys.manifest,JSON.stringify({...manifest,latest:video.sequence,oldest:Math.max(0,video.sequence-VIDEO_SLOTS+1),at:now}));
+  }
  }
  return response({watching:true});
 }catch(error){return failure(error);}}
