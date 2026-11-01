@@ -114,3 +114,65 @@ export async function heartbeat(request:Request){try{
  await presenceDb().prepare('INSERT INTO cyber_agent_presence (owner_id,token_hash,state,seen_at) VALUES (?,?,?,?) ON CONFLICT(owner_id) DO UPDATE SET token_hash=excluded.token_hash,state=excluded.state,seen_at=excluded.seen_at').bind(user.userId,user.agentHash,body.state,at).run();
  return response({received:true,at});
 }catch(error){return failure(error);}}
+
+// Live snapshots use existing private file storage, outside workspace history.
+// A lease is renewed only by the signed-in owner while the viewer is visible.
+const watchKeys=(owner:string,id:string)=>{
+ const root=`owners/${encodeURIComponent(owner)}/live-watch/${encodeURIComponent(id)}`;
+ return {lease:root+'/lease',frame:root+'/frame.jpg'};
+};
+const watchId=z.string().min(1).max(300);
+async function watchItem(user:Identity,id:string){
+ const current=await load(user),item=current.state.applications?.find(item=>item.id===id);
+ if(!item)throw new DomainError('This application is not in your workspace.',404);
+ return {current,item};
+}
+async function watchLease(owner:string,id:string){
+ const stored=await files().get(watchKeys(owner,id).lease);
+ return stored?await stored.json<{expiresAt:number;claimId:string|null}>():null;
+}
+export async function watchViewer(request:Request){try{
+ if(request.method==='POST')z.object({}).strict().parse(await json(request));
+ const user=await identity(request),url=new URL(request.url);
+ const id=watchId.parse(url.searchParams.get('requestId'));
+ const {current,item}=await watchItem(user,id),keys=watchKeys(user.userId,id);
+ const active=item.status==='queued'||item.status==='processing'&&!!item.claim&&Date.parse(item.claim.expiresAt)>Date.now();
+ if(request.method==='POST'){
+  sameOrigin(request);
+  if(active)await files().put(keys.lease,JSON.stringify({expiresAt:Date.now()+20000,claimId:item.status==='processing'?item.claim?.id:null}));
+  else await files().delete([keys.lease,keys.frame]);
+  const job=current.state.jobs.find(job=>job.id===item.jobId);
+  return response({active,status:item.status,title:job?.title||'Application',company:job?.company||'',message:active?(item.status==='queued'?'Waiting for the background agent to pick up this request.':'The agent is working. Waiting for a current browser snapshot.'):'The agent is no longer working on this request. Viewing does not restart it.'});
+ }
+ if(!active||item.status!=='processing')return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
+ const lease=await watchLease(user.userId,id);
+ if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==item.claim?.id)return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
+ const frame=await files().get(keys.frame),meta=frame?.customMetadata;
+ if(!frame||meta?.claimId!==item.claim?.id||!Number.isFinite(Number(meta.at))||Number(meta.at)<Date.now()-12000)return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
+ // Recheck owner state after storage I/O; a finished/deleted request must not
+ // continue serving frames from an old claim.
+ const latest=await watchItem(user,id);
+ if(latest.item.status!=='processing'||latest.item.claim?.id!==meta.claimId)return new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
+ return new Response(frame.body,{headers:{'Content-Type':'image/jpeg','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','X-Frame-Observed-At':meta.at,'Content-Security-Policy':"default-src 'none'; sandbox",'Cross-Origin-Resource-Policy':'same-origin'}});
+}catch(error){return failure(error);}}
+export async function watchWorker(request:Request){try{
+ if(!request.headers.get('content-type')?.startsWith('application/json'))throw new DomainError('Send JSON.',415);
+ if(Number(request.headers.get('content-length')||0)>325000){await request.body?.cancel();throw new DomainError('Snapshot is too large.',413);}
+ const raw=await request.text();if(raw.length>325000)throw new DomainError('Snapshot is too large.',413);
+ const user=await worker(request);
+ let input;try{input=JSON.parse(raw);}catch{throw new DomainError('Invalid JSON.');}
+ const body=claimBody.extend({frame:z.string().min(1).max(320000).optional(),stop:z.boolean().optional()}).strict().parse(input);
+ const {current,item}=await watchItem(user,body.requestId);stillConnected(current.state,user);
+ activeClaim(current.state,body.requestId,body.claimId);
+ const keys=watchKeys(user.userId,body.requestId);
+ if(body.stop){await files().delete([keys.lease,keys.frame]);return response({watching:false});}
+ const lease=await watchLease(user.userId,body.requestId);
+ if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==body.claimId){await files().delete(keys.frame);return response({watching:false});}
+ if(body.frame){
+  let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(body.frame),c=>c.charCodeAt(0));}catch{throw new DomainError('Invalid JPEG snapshot.');}
+  if(bytes.length>240000||bytes[0]!==255||bytes[1]!==216||bytes.at(-2)!==255||bytes.at(-1)!==217)throw new DomainError('Invalid JPEG snapshot.');
+  const latest=await watchItem(user,body.requestId);stillConnected(latest.current.state,user);activeClaim(latest.current.state,body.requestId,body.claimId);
+  await files().put(keys.frame,bytes,{httpMetadata:{contentType:'image/jpeg'},customMetadata:{claimId:body.claimId,at:String(Date.now())}});
+ }
+ return response({watching:true});
+}catch(error){return failure(error);}}

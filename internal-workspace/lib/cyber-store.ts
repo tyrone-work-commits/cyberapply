@@ -91,6 +91,7 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
   }
  }
  const plan=deletionPlan(current.state,scope,applicationId,deleteCandidateFacts,replacement);
+ if(plan.ids.length)await files().delete(plan.ids.flatMap(id=>{const prefix=`owners/${encodeURIComponent(user.userId)}/live-watch/${encodeURIComponent(id)}`;return [prefix+'/lease',prefix+'/frame.jpg'];}));
  const at=new Date().toISOString(),revision=expected+1,token=crypto.randomUUID();
  record(plan.state,'permanently_delete_application_records',`Permanently deleted ${plan.ids.length} application records and ${plan.draftIds.length} drafts${plan.legacy?' and retired legacy Candidate Facts reviews':''}.`,'interface',at);
  const payload=workspacePayload(plan.state);

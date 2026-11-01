@@ -426,3 +426,20 @@ def test_automation_identity_choice_pauses_even_with_confirmed_human_answer():
     result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
     assert result['status']=='needs_attention' and not posts
     assert any(q.get('source')=='verification' for q in result['report']['unresolved'])
+
+def test_private_live_view_captures_actual_browser_without_extra_submission():
+    import base64,threading
+    from application_agent.live_watch import LiveWatch
+    observed=threading.Event();frames=[];posts=[]
+    def call(body):
+        if body.get('frame'):frames.append(body['frame']);observed.set()
+        return {'watching':True}
+    watch=LiveWatch(call,'one','claim',interval=.05)
+    try:
+        assert watch.watching.wait(2)
+        result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,
+          playwright_factory=lambda:browser_factory(FORM.replace('{extra}',''),posts),before_submit=lambda:True,timeout=3000,live_watch=watch)
+        assert result['status']=='applied' and len(posts)==1
+        assert observed.wait(2)
+        assert base64.b64decode(frames[0]).startswith(b'\xff\xd8')
+    finally:watch.close()

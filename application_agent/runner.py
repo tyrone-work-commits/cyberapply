@@ -58,8 +58,12 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         return False
     if on_state:on_state('working')
     query = urlencode({"requestId":task["requestId"], "claimId":task["claimId"]})
+    watch=None
     try:
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)
+        from .live_watch import LiveWatch
+        try:watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'])
+        except Exception:watch=None
         def authorize():
             return call_site(site,token,"/api/application-agent/authorize",{"requestId":task["requestId"],"claimId":task["claimId"]}, site_access_token=site_access_token).get("authorized") is True
         import sys
@@ -69,9 +73,13 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
             sessions=LoginSessions(site,token.split('.')[1])
         result = execute_application(task, cv_bytes, submit=submit, allowed_hosts=allowed_hosts, before_submit=authorize,
                                      browser_channel=None if browser_channel=='chromium' else browser_channel,
-                                     session_store=sessions,interactive_login=submit)
+                                     session_store=sessions,interactive_login=submit,live_watch=watch)
     except Exception:
         result = {"status":"failed", "message":"The selected CV could not be read. No employer submission was attempted."}
+    finally:
+        if watch:
+            try:watch.close()
+            except Exception:pass
     # This result POST is never automatically retried: retain the claim if delivery is uncertain.
     if len(json.dumps(result.get('report',{}))) > 55000:
         report=result['report']

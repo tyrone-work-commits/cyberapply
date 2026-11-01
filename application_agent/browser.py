@@ -168,7 +168,7 @@ def restrict_transports(context):
 
 def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), playwright_factory=None,
                         research_fn=None, planner=None, resolver=socket.getaddrinfo, timeout=15000, before_submit=None,
-                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None):
+                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None):
     """Inspect/fill a single claim. No application is retried after final click."""
     if planner is None:
         from .reasoning import build_plan
@@ -330,6 +330,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
 
             context.route("**/*", guard)
             page = context.new_page()
+            if live_watch:live_watch.attach(context,page)
             page.set_default_timeout(timeout)
             recovery=FormRecovery(report,
                 can_retry=lambda:not submitted and not blocked and (not submit or before_submit is not None and before_submit() is True),
@@ -411,6 +412,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     context.route('**/*',guard)
                     blocked.clear()
                     page=context.new_page()
+                    if live_watch:live_watch.attach(context,page)
                     page.set_default_timeout(timeout)
                     page.goto(url,wait_until='domcontentloaded',timeout=timeout*2)
                     page.wait_for_timeout(500)
@@ -511,6 +513,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if field['type']=='checkbox' and expected in {'Yes','No'}:expected='true' if expected=='Yes' else 'false'
                     return expected is not None and expected==answer.get('value')
                 for field in fields:
+                    if live_watch:live_watch.capture()
                     control = controls[field["id"]]
                     kind, label = field["type"], field["label"].lower()
                     answer = answers.get(field["id"])
@@ -745,6 +748,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 deadline=time.monotonic()+confirmation_ms/1000
                 while True:
                     page.wait_for_timeout(150)
+                    if live_watch:live_watch.capture()
                     validate_public_url(page.url, hosts, resolver)
                     if blocked:
                         report['confirmation_wait']['outcome']='blocked_redirect'
@@ -766,6 +770,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     except Exception:
         return finish("uncertain" if submitted else "failed", "The browser stopped after a possible submission; check the employer before retrying." if submitted else "The browser could not finish this form. No submission was attempted.", report)
     finally:
+        if live_watch:
+            try:live_watch.detach()
+            except Exception:pass
         if browser:
             try:
                 browser.close()

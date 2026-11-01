@@ -51,3 +51,5 @@ Applied requires a new employer confirmation. Any possibly delivered application
 ## Publishing
 
 Use the Sites source helper to open the existing source repository, synchronize these files, run checks/build, commit/push and package that exact source commit, then save/deploy a new version to the same Site. Never publish `.env`, `.wrangler`, `.sites-runtime`, private originals or local connection credentials. Record the GitHub commit, Site version, checks and any live-test limits in Linear after meaningful changes. The old standalone frontend/backend and separate-host deployment instructions are no longer part of this app.
+
+Applications includes **Watch agent**, a private read-only new-tab view of the actual background browser. It uses short-lived owner/claim-bound snapshots through existing storage, not a second employer form or a submission/retry action. It needs the updated desktop worker online. See `docs/application-agent.md` in the repository for retention, access and verification limits.
