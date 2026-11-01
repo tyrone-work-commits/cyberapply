@@ -4,9 +4,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Event
-from uuid import uuid4
 
-import httpx
 import jwt
 import pyotp
 from fastapi import HTTPException
@@ -92,27 +90,6 @@ def test_upload_and_erasure_serialize_on_active_account(settings, tmp_path, monk
     engine.dispose()
 
 
-def test_provider_sensitive_actions_require_fresh_authentication(client, settings, user, monkeypatch):
-    settings.auth_mode, settings.supabase_url = "supabase", "https://provider.example"
-    settings.supabase_jwt_secret = "test-provider-signing-secret-with-32-characters"
-    monkeypatch.setattr("httpx.get", lambda *a, **k: httpx.Response(200, json={"id": user.id, "factors": []}))
-    sent = []
-    monkeypatch.setattr("app.domain.auth.httpx.request", lambda method, url, **kw: (sent.append(method) or httpx.Response(200, json={}, request=httpx.Request(method, url))))
-    now = int(utcnow().timestamp())
-    # utcnow is naive UTC; use the signed claim's UTC epoch explicitly.
-    from datetime import timezone
-    now = int(utcnow().replace(tzinfo=timezone.utc).timestamp())
-    claims = {"sub":user.id, "email":user.email, "aud":"authenticated", "role":"authenticated",
-        "iss":settings.supabase_url+"/auth/v1", "iat":now, "exp":now+1800, "aal":"aal2", "amr":[{"method":"password", "timestamp":now-900}]}
-    def headers():
-        return {"Authorization":"Bearer "+jwt.encode(claims,settings.supabase_jwt_secret,algorithm="HS256")}
-    result = client.put("/api/v1/auth/password", headers=headers(), json={"password":PASSWORD})
-    assert result.status_code == 401 and not sent
-    result = client.delete(f"/api/v1/auth/mfa/provider/factors/{uuid4()}", headers=headers())
-    assert result.status_code == 401 and not sent
-    claims["amr"][0]["timestamp"] = now
-    assert client.put("/api/v1/auth/password", headers=headers(), json={"password":PASSWORD}).status_code == 200
-    assert sent == ["PUT"]
 
 
 def test_failed_document_delete_keeps_key_for_account_erasure(client, db, user, headers, monkeypatch):
@@ -256,7 +233,7 @@ def test_submission_badges_reflect_server_configuration(client, db, user, header
 def test_reviewed_resume_ranking_and_factual_targeted_draft(client, db, user, headers, other_headers):
     job, resume = inputs(db, user)
     resume.is_main = False
-    worse = Resume(user_id=user.id, title="Cloud résumé", reviewed=True, is_main=True,
+    worse = Resume(user_id=user.id, title="Cloud rÃ©sumÃ©", reviewed=True, is_main=True,
                    extracted_text="AWS", profile_data={"skills": ["AWS"]})
     db.add(worse)
     db.commit()
@@ -423,27 +400,11 @@ def test_deletion_cleanup_retries_storage_failure(client, db, user, headers, mon
     assert db.get(AccountDeletion, user.id).status == "complete"
 
 
-def test_provider_mfa_enforced_using_trusted_factors(client, settings, user, monkeypatch):
-    settings.auth_mode = "supabase"
-    settings.supabase_url = "https://provider.example"
-    settings.supabase_jwt_secret = "test-provider-signing-secret-with-32-characters"
-    factor_id = "00000000-0000-4000-8000-000000000001"
-    monkeypatch.setattr("httpx.get", lambda *a, **k: httpx.Response(200, json={"id": user.id, "factors": [{"id": factor_id, "status": "verified", "factor_type": "totp"}]}))
-    claims = {"sub": user.id, "email": user.email, "aud": "authenticated", "role": "authenticated",
-              "iss": settings.supabase_url + "/auth/v1", "iat": utcnow(), "exp": 9999999999, "aal": "aal1"}
-    def headers_for(value):
-        return {"Authorization": "Bearer " + jwt.encode(value, settings.supabase_jwt_secret, algorithm="HS256")}
-    assert client.get("/api/v1/profiles/me", headers=headers_for(claims)).status_code == 401
-    assert client.get("/api/v1/auth/mfa/status", headers=headers_for(claims)).json()["verification_required"]
-    claims["aal"] = "aal2"
-    assert client.get("/api/v1/profiles/me", headers=headers_for(claims)).status_code == 200
-    monkeypatch.setattr("httpx.get", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("provider offline")))
-    assert client.get("/api/v1/profiles/me", headers=headers_for(claims)).status_code == 503
 
 
 def test_background_discovery_chooses_best_reviewed_resume_and_honors_preference(db, user):
     job, best = inputs(db, user)
-    main = Resume(user_id=user.id, title="Main résumé", extracted_text="Candidate", reviewed=True, is_main=True, profile_data={})
+    main = Resume(user_id=user.id, title="Main rÃ©sumÃ©", extracted_text="Candidate", reviewed=True, is_main=True, profile_data={})
     db.add(main)
     db.get(AutomationSettings, user.id).mode = "automatic"
     db.get(Preferences, user.id).data = {"roles": ["SOC Analyst"]}

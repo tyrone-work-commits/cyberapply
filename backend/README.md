@@ -69,34 +69,11 @@ Use a generated `JWT_SECRET` and Fernet `ENCRYPTION_KEY` for your own environmen
 
 Keep the encryption key stable: changing it makes previously stored mailbox credentials unreadable. Python dependency versions are pinned in `requirements.lock`; the browser executable is a separate runtime.
 
-## Connect Google and Apple sign-in
+## Authentication for the standalone prototype
 
-The local app can use hosted Supabase **only for authentication** while the API, SQLite database and uploaded files stay on this computer. Google and Apple use the same buttons for creating an account and returning to an existing account. The verified provider identity creates the CyberApply profile, preferences and automation records on first sign-in; existing provider users reuse those records.
+This earlier FastAPI/Next.js prototype supports local email/password accounts, rotating refresh sessions, authenticator MFA, recovery codes and private local files. It has no external identity or file-storage integration. Google, Apple and phone sign-in routes are retired; the old callback page discards credentials and directs users back to email sign-in.
 
-1. Open [Supabase Dashboard](https://supabase.com/dashboard), sign in privately, create a project named **CyberApply** in your organization, and save the database password privately. Connect the Supabase plugin in Codex if you want help configuring the project. An unconnected plugin does not give Codex access to the account.
-2. In Supabase **Authentication → URL Configuration**, set Site URL to `http://localhost:3000`. Add these exact redirect URLs:
-   - `http://localhost:3000/auth/callback`
-   - `http://127.0.0.1:3000/auth/callback` if you also use that address.
-   Use the same hostname and browser tab from starting sign-in through returning to the app. The local PKCE attempt expires after ten minutes; provider authorization codes have their own shorter lifetime and are single-use.
-3. For **Google**, create a Web application OAuth client in [Google Auth Platform](https://console.cloud.google.com/auth/overview). Configure the consent screen, `openid`, email and profile scopes, and test users if the consent audience is in testing. Add `http://localhost:3000` as an authorized JavaScript origin. Add the **Supabase** callback `https://<project-ref>.supabase.co/auth/v1/callback` as the authorized redirect URI. Paste the client ID and secret privately into Supabase **Authentication → Sign In / Providers → Google**, and enable it. The provider callback and the app callback are different URLs. [Official Google setup](https://supabase.com/docs/guides/auth/social-login/auth-google).
-4. For **Apple**, use an Apple Developer account: enable Sign in with Apple on the App ID, create a Services ID for the website, register the Supabase project domain and its HTTPS `/auth/v1/callback` return URL, then create a signing key and generate the Apple client secret. Enter the Services ID and client secret privately in Supabase's Apple provider configuration and enable it. Put the Services ID first if native App IDs are also listed. Apple's web OAuth secret needs renewal every six months; keep the signing key private. [Official Apple setup](https://supabase.com/docs/guides/auth/social-login/auth-apple). Apple returns through hosted Supabase, which redirects back to the local app.
-5. Configure the project's ignored `backend/.env` privately:
-
-   ```dotenv
-   AUTH_MODE=supabase
-   SUPABASE_URL=https://<project-ref>.supabase.co
-   SUPABASE_ANON_KEY=<project-publishable-or-legacy-anon-key>
-   OAUTH_REDIRECT_URLS=["http://localhost:3000/auth/callback","http://127.0.0.1:3000/auth/callback"]
-   ```
-
-   Use a project with an asymmetric JWT signing key (ES256/RS256); CyberApply retrieves public verification keys from Supabase. For an older project still issuing HS256 JWTs, `SUPABASE_JWT_SECRET` must also be set privately on the backend. A service-role/secret key is **not** needed for Google or Apple sign-in and must never be used as the anon key. Google/Apple secrets belong in Supabase, never the frontend, chat, GitHub or Linear. Keep the existing CyberApply `JWT_SECRET` and `ENCRYPTION_KEY` stable.
-6. Restart the API and worker so they read the same authentication configuration. Check `GET /api/v1/auth/capabilities`: enabled providers report `true` and `providers.<name>: "ready"`. `not_configured`, `disabled` and `unavailable` distinguish missing setup, a disabled provider and a temporary service failure. Readiness checks do not prove that client secrets or all console redirects are correct; complete the real sign-in checks below.
-
-**Existing local email accounts:** switching `AUTH_MODE` changes the identity authority. Local email/password accounts and their data are not automatically migrated or linked to provider identities. The API rejects a provider identity whose email already belongs to a different local user, rather than exposing that user's data. Back up the SQLite database/private storage and plan an authenticated migration before switching an installation with real accounts. For the first live provider test, use an email not already registered locally. Do not delete accounts or merge identities merely to bypass a conflict. Changing `AUTH_MODE` back to `local` restores the original local authority; it does not undo provider accounts created externally.
-
-**Live acceptance checks:** test Google and Apple first-time account creation and returning sign-in; provider cancellation; a second factor if enabled; refresh after the access token expires; logout; account confirmation and password recovery for provider email accounts. Confirm one CyberApply user/profile per verified provider ID and no credentials left in callback URLs. Apple Hide My Email addresses are accepted as provider identities. The app requests sign-in identity access, not mailbox access. Provider signup must be allowed in Supabase for new users to create accounts. Phone/SMS setup is separate.
-
-Local automated OAuth checks simulate provider responses without contacting Google or Apple. Real console configuration and sign-in must still be verified using your own connected project.
+The active internal application is in [internal-workspace](../internal-workspace/README.md). It uses ChatGPT identity and Sites access controls, D1 saved records/history and R2 CV originals. This standalone API is not its backend. Keep `AUTH_MODE=local` and `STORAGE_BACKEND=local` here. `ENVIRONMENT=production` is explicitly rejected rather than allowing an unsupported deployment of this local authentication prototype.
 
 ## User journey and API
 
@@ -104,7 +81,7 @@ All personal endpoints require `Authorization: Bearer <access_token>`. Paths bel
 
 | Stage | API | Behavior |
 | --- | --- | --- |
-| Create account / sign in | `/auth/capabilities`, `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me` | Email/password locally; Google, Apple and phone through configured Supabase Auth. Passwords use Argon2; local refresh tokens rotate and logout revokes sessions. |
+| Create account / sign in | `/auth/capabilities`, `/auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me` | Local email/password accounts only. Passwords use Argon2; local refresh tokens rotate and logout revokes sessions. |
 | Verify / recover | `/auth/email/request-verification`, `/auth/email/verify`, `/auth/password/request-reset`, `/auth/password/reset`, `/auth/password` | One-time verification/reset tokens; generic reset request response; password changes revoke local sessions. |
 | Confirm profile | `GET/PUT /profiles/me` | Skills, certifications, experience, education, links, clearance and work authorization. User confirmation is required before applications. |
 | Set job preferences | `GET/PUT /preferences/me` | Roles, locations, work mode, seniority, salary, keywords and excluded companies. Unknown eligibility details are surfaced. |
@@ -139,16 +116,6 @@ Explore right swipes explicitly queue the displayed job with `mode: automatic`, 
 5. Create a review application for a fictional job, let the worker prepare it, approve it and let the worker record the simulated confirmation. Alternatively opt into automatic mode after setting explicit preferences.
 
 Image-only PDFs require manual text/profile input. Parsing extracts document content; applicants must confirm facts before using them.
-
-## Google, Apple and phone authentication
-
-Set `AUTH_MODE=supabase`, `SUPABASE_URL` and `SUPABASE_ANON_KEY`. Enable and configure Google/Apple providers and the SMS provider in your own Supabase project. Add the future frontend callback to both the provider configuration and `OAUTH_REDIRECT_URLS`. Supabase may run locally with its own Docker-based stack or use a hosted development project.
-
-`POST /auth/oauth/{google|apple}/start` accepts an allowlisted `redirect_url` and PKCE `code_challenge`, then returns an authorization URL. The frontend will generate and retain a verifier, follow the provider flow, and pass the returned code and verifier to `/auth/oauth/exchange`. Phone uses `/auth/phone/request-code` and `/auth/phone/verify` with E.164 phone numbers. The backend validates issuer, audience, signature, role and expiry of provider-issued tokens; it does not impersonate these providers locally.
-
-Modern Supabase signing keys are read from JWKS and cached. `SUPABASE_JWT_SECRET` supports legacy HS256 projects. `SUPABASE_SERVICE_KEY` is only needed for private Supabase document storage and must stay server-side. Set `STORAGE_BACKEND=supabase` and create a **private** `SUPABASE_STORAGE_BUCKET` to use that adapter.
-
-Provider protocol behavior has automated tests. Live Google/Apple login, SMS delivery and Supabase storage require project credentials and have not been exercised on this computer. Existing local identities are not automatically merged into a new provider identity.
 
 ## Employer integrations
 
@@ -217,7 +184,7 @@ No real employer was contacted during implementation. The browser test intercept
 
 Mailbox access is separate from signing in with Google/Apple. OAuth-only mailbox environments need a provider mail OAuth integration; this version supports app passwords/provider-approved SMTP and IMAP credentials. SMTP does not supply universal delivery receipts: a timeout after sending is reported as `delivery_unknown`, with blind retries prevented. Sending drafts requires an `Idempotency-Key`. No real mail was sent during development.
 
-For local email registration/reset delivery, set `AUTH_EMAIL_MODE=smtp` and the server-side `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM`. Supabase mode uses the project's own authentication message configuration.
+For local email registration/reset delivery, set `AUTH_EMAIL_MODE=smtp` and the server-side `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD` and `SMTP_FROM`.
 
 ## Database, workers and containers
 
@@ -248,7 +215,7 @@ docker compose up --build -d
 
 Set `INSTALL_BROWSER=true` to include Chromium and Linux dependencies in the image when configured browser forms are needed. The default image does not download a browser. Compose applies migrations before the API starts and the worker waits for a healthy API.
 
-Docker is not installed on this computer; the stack has been structurally reviewed, but its PostgreSQL/Redis runtime has not been launched here. Production settings enforce PostgreSQL, configured Supabase authentication, HTTPS frontend origins, secret keys and non-captured authentication email. Production also requires deployment-specific backups, shared rate limiting at the reverse proxy and working provider credentials.
+Docker is not installed on this computer; the stack has been structurally reviewed, but its PostgreSQL/Redis runtime has not been launched here. This standalone prototype now explicitly rejects production mode. Use the internal ChatGPT Site for the current deployment; the container setup remains a local development option.
 
 ## Verification and frontend handoff
 

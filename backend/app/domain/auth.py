@@ -5,15 +5,11 @@ import ssl
 import time
 from datetime import timedelta
 from email.message import EmailMessage
-from urllib.parse import urlencode
-
-import httpx
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.errors import fail
@@ -52,7 +48,6 @@ class Login(Strict):
 
 
 class Refresh(Strict):
-    # Provider refresh tokens are opaque; Supabase can issue 12-character tokens.
     refresh_token: str = Field(min_length=1, max_length=4096)
 
 
@@ -69,52 +64,6 @@ class ResetPassword(TokenRequest):
     mfa_code: str | None = Field(default=None, max_length=64)
 
 
-class PhoneRequest(Strict):
-    phone: str = Field(pattern=r"^\+[1-9]\d{7,14}$")
-
-
-class PhoneVerify(PhoneRequest):
-    token: str = Field(pattern=r"^\d{6,10}$")
-
-
-class OAuthStart(Strict):
-    redirect_url: str = Field(max_length=2000)
-    code_challenge: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$")
-
-
-class OAuthExchange(Strict):
-    code: str = Field(min_length=10, max_length=4096)
-    code_verifier: str = Field(pattern=r"^[A-Za-z0-9._~-]{43,128}$")
-
-
-def provider_call(path: str, payload: dict | None = None, token: str | None = None, method="POST"):
-    settings = get_settings()
-    if settings.auth_mode != "supabase":
-        fail(503, "provider_unconfigured", "Configure Supabase to enable this sign-in method")
-    headers = {"apikey": settings.supabase_anon_key}
-    if token:
-        headers["Authorization"] = "Bearer " + token
-    try:
-        response = httpx.request(method, settings.supabase_url.rstrip("/") + "/auth/v1/" + path,
-                                 json=payload, headers=headers,
-                                 timeout=15, follow_redirects=False)
-        if response.status_code >= 500:
-            fail(503, "identity_provider_unavailable", "Authentication provider is unavailable")
-        if response.status_code >= 400:
-            fail(400 if response.status_code != 429 else 429, "authentication_failed",
-                 "Authentication could not be completed; check the information or try again")
-        if not 200 <= response.status_code < 300:
-            fail(503, "identity_provider_unavailable", "Authentication provider returned an unexpected response")
-        result = response.json() if response.content else {}
-        if not isinstance(result, dict):
-            fail(503, "identity_provider_unavailable", "Authentication provider returned an invalid response")
-        return result
-    except ValueError:
-        fail(503, "identity_provider_unavailable", "Authentication provider returned an invalid response")
-    except httpx.HTTPError:
-        fail(503, "identity_provider_unavailable", "Authentication provider is unavailable")
-
-
 def user_view(user: User):
     return {"id": user.id, "email": user.email, "phone": user.phone, "email_verified": user.email_verified}
 
@@ -123,12 +72,24 @@ def session_tokens(db: Session, user: User, assurance: int = 1, authenticated_at
     lock_active_user(db, user)
     raw = secrets.token_urlsafe(48)
     authenticated_at = authenticated_at or utcnow()
-    db.add(RefreshSession(user_id=user.id, token_hash=digest(raw), assurance=assurance,
-                          security_version=user.token_version, authenticated_at=authenticated_at,
-                          expires_at=utcnow() + timedelta(days=get_settings().refresh_token_days)))
+    db.add(
+        RefreshSession(
+            user_id=user.id,
+            token_hash=digest(raw),
+            assurance=assurance,
+            security_version=user.token_version,
+            authenticated_at=authenticated_at,
+            expires_at=utcnow() + timedelta(days=get_settings().refresh_token_days),
+        )
+    )
     db.commit()
-    return {"access_token": issue_access(user, assurance, authenticated_at), "refresh_token": raw, "token_type": "bearer",
-            "expires_in": get_settings().access_token_minutes * 60, "user": user_view(user)}
+    return {
+        "access_token": issue_access(user, assurance, authenticated_at),
+        "refresh_token": raw,
+        "token_type": "bearer",
+        "expires_in": get_settings().access_token_minutes * 60,
+        "user": user_view(user),
+    }
 
 
 def deliver_auth_email(user: User, purpose: str, raw: str):
@@ -137,18 +98,24 @@ def deliver_auth_email(user: User, purpose: str, raw: str):
     if settings.auth_email_mode == "capture":
         directory = settings.storage_dir.parent / "auth-outbox"
         directory.mkdir(parents=True, exist_ok=True)
-        # Private local developer artifact; never exposed through an API endpoint.
         (directory / (secrets.token_hex(16) + ".json")).write_text(
-            json.dumps({"user_id": user.id, "recipient": user.email, "purpose": purpose, "token": raw}), encoding="utf-8")
+            json.dumps({"user_id": user.id, "recipient": user.email, "purpose": purpose, "token": raw}),
+            encoding="utf-8",
+        )
         return
     if not settings.smtp_host or not settings.smtp_from:
         fail(503, "email_unconfigured", "Authentication email delivery is not configured")
     message = EmailMessage()
-    message["From"], message["To"], message["Subject"] = settings.smtp_from, user.email, "CyberApply " + purpose
+    message["From"], message["To"], message["Subject"] = (
+        settings.smtp_from,
+        user.email,
+        "CyberApply " + purpose,
+    )
     message.set_content(text)
     try:
-        with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port, timeout=15,
-                              context=ssl.create_default_context()) as smtp:
+        with smtplib.SMTP_SSL(
+            settings.smtp_host, settings.smtp_port, timeout=15, context=ssl.create_default_context()
+        ) as smtp:
             smtp.login(settings.smtp_username, settings.smtp_password)
             smtp.send_message(message)
     except (OSError, smtplib.SMTPException):
@@ -157,13 +124,21 @@ def deliver_auth_email(user: User, purpose: str, raw: str):
 
 def verification(db: Session, user: User, purpose: str):
     raw = secrets.token_urlsafe(48)
-    # Serialize requests and make only the newest verification/reset token usable.
     lock_active_user(db, user)
-    db.execute(update(VerificationToken).where(VerificationToken.user_id == user.id,
-                                               VerificationToken.purpose == purpose,
-                                               VerificationToken.used_at.is_(None)).values(used_at=utcnow()))
-    db.add(VerificationToken(user_id=user.id, purpose=purpose, token_hash=digest(raw),
-                             expires_at=utcnow() + timedelta(hours=1)))
+    db.execute(
+        update(VerificationToken)
+        .where(
+            VerificationToken.user_id == user.id,
+            VerificationToken.purpose == purpose,
+            VerificationToken.used_at.is_(None),
+        )
+        .values(used_at=utcnow())
+    )
+    db.add(
+        VerificationToken(
+            user_id=user.id, purpose=purpose, token_hash=digest(raw), expires_at=utcnow() + timedelta(hours=1)
+        )
+    )
     db.commit()
     lock_active_user(db, user)
     deliver_auth_email(user, purpose, raw)
@@ -171,41 +146,25 @@ def verification(db: Session, user: User, purpose: str):
 
 
 def provider_status():
-    """Read public provider flags; a configured project alone does not enable OAuth."""
-    settings = get_settings()
-    names = ("google", "apple", "phone")
-    if settings.auth_mode != "supabase" or not (settings.supabase_url and settings.supabase_anon_key):
-        return dict.fromkeys(names, "not_configured")
-    try:
-        response = httpx.request("GET", settings.supabase_url.rstrip("/") + "/auth/v1/settings",
-                                 headers={"apikey": settings.supabase_anon_key}, timeout=5, follow_redirects=False)
-        if response.status_code != 200:
-            return dict.fromkeys(names, "unavailable")
-        payload = response.json()
-        external = payload.get("external") if isinstance(payload, dict) else None
-        if not isinstance(external, dict):
-            return dict.fromkeys(names, "unavailable")
-        return {name: "ready" if external.get(name) is True else "disabled" if external.get(name) is False
-                else "unavailable" for name in names}
-    except (httpx.HTTPError, ValueError):
-        return dict.fromkeys(names, "unavailable")
+    return dict.fromkeys(("google", "apple", "phone"), "disabled")
 
 
 @router.get("/capabilities")
 def capabilities():
     settings = get_settings()
     providers = provider_status()
-    return {"auth_mode": settings.auth_mode, "email": True,
-            **{name: status == "ready" for name, status in providers.items()}, "providers": providers,
-            "external_provider_configuration_required": any(status in {"not_configured", "disabled"}
-                                                             for status in providers.values()),
-            "email_delivery": settings.auth_email_mode if settings.auth_mode == "local" else "provider"}
+    return {
+        "auth_mode": settings.auth_mode,
+        "email": True,
+        **{name: status == "ready" for name, status in providers.items()},
+        "providers": providers,
+        "external_provider_configuration_required": False,
+        "email_delivery": settings.auth_email_mode,
+    }
 
 
 @router.post("/register", status_code=201)
 def register(body: Credentials, db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        return provider_call("signup", body.model_dump(mode="json"))
     user = User(email=str(body.email), password_hash=password_hash.hash(body.password))
     db.add(user)
     try:
@@ -215,14 +174,15 @@ def register(body: Credentials, db: Session = Depends(get_db)):
         db.rollback()
         fail(409, "account_exists", "An account already exists with this email")
     verification(db, user, "verify_email")
-    return {"user": user_view(user), "verification_required": True,
-            "delivery": get_settings().auth_email_mode}
+    return {
+        "user": user_view(user),
+        "verification_required": True,
+        "delivery": get_settings().auth_email_mode,
+    }
 
 
 @router.post("/login")
 def login(body: Login, db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        return provider_call("token?grant_type=password", body.model_dump(mode="json"))
     user = db.scalar(select(User).where(User.email == str(body.email).casefold()))
     if user and user.active:
         lock_active_user(db, user)
@@ -234,11 +194,12 @@ def login(body: Login, db: Session = Depends(get_db)):
             valid = False
     else:
         password_hash.verify(body.password, DUMMY_PASSWORD)
-    if not valid or not user or not user.active:
+    if not valid or not user or (not user.active):
         fail(401, "invalid_credentials", "Email or password is incorrect")
     factor = db.get(MfaFactor, user.id)
     if factor and factor.enabled:
         from app.domain.mfa import login_challenge
+
         return login_challenge(db, user)
     return session_tokens(db, user)
 
@@ -248,8 +209,6 @@ DUMMY_PASSWORD = password_hash.hash(secrets.token_urlsafe(30))
 
 @router.post("/refresh")
 def refresh(body: Refresh, db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        return provider_call("token?grant_type=refresh_token", body.model_dump())
     now = utcnow()
     old = db.scalar(select(RefreshSession).where(RefreshSession.token_hash == digest(body.refresh_token)))
     if not old or old.expires_at <= now or old.revoked_at:
@@ -261,8 +220,11 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
     db.refresh(old)
     if old.revoked_at or old.expires_at <= now or old.security_version != user.token_version:
         fail(401, "invalid_refresh_token", "Refresh session has been revoked")
-    claimed = db.execute(update(RefreshSession).where(RefreshSession.id == old.id,
-                                                     RefreshSession.revoked_at.is_(None)).values(revoked_at=now))
+    claimed = db.execute(
+        update(RefreshSession)
+        .where(RefreshSession.id == old.id, RefreshSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    )
     if claimed.rowcount != 1:
         db.rollback()
         fail(401, "invalid_refresh_token", "Refresh token was already used")
@@ -270,7 +232,7 @@ def refresh(body: Refresh, db: Session = Depends(get_db)):
     if not user or not user.active:
         fail(401, "account_unavailable", "Account is unavailable")
     factor = db.get(MfaFactor, user.id)
-    if old.security_version != user.token_version or (factor and factor.enabled and old.assurance != 2):
+    if old.security_version != user.token_version or (factor and factor.enabled and (old.assurance != 2)):
         fail(401, "invalid_refresh_token", "Sign in again with two-factor authentication")
     return session_tokens(db, user, old.assurance, old.authenticated_at or old.created_at)
 
@@ -282,30 +244,32 @@ def me(user: User = Depends(get_current_user)):
 
 @router.post("/logout")
 def logout(request: Request, user: User = Depends(get_primary_user), db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        provider_call("logout?scope=global", token=request.headers["authorization"].split(" ", 1)[1])
     user.token_version += 1
     user.revoked_before = int(time.time())
     db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
-    db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id,
-                                            RefreshSession.revoked_at.is_(None)).values(revoked_at=utcnow()))
+    db.execute(
+        update(RefreshSession)
+        .where(RefreshSession.user_id == user.id, RefreshSession.revoked_at.is_(None))
+        .values(revoked_at=utcnow())
+    )
     db.commit()
-    return {"logged_out": True, "scope": "all_local_sessions" if get_settings().auth_mode == "local" else "provider_global"}
+    return {"logged_out": True, "scope": "all_local_sessions"}
 
 
 @router.post("/email/request-verification")
 def request_verification(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        provider_call("resend", {"type": "signup", "email": user.email})
-    elif not user.email_verified:
+    if not user.email_verified:
         verification(db, user, "verify_email")
     return {"message": "Verification instructions requested"}
 
 
 def consume_verification(db: Session, raw: str, purpose: str):
     now = utcnow()
-    row = db.scalar(select(VerificationToken).where(VerificationToken.token_hash == digest(raw),
-                                                    VerificationToken.purpose == purpose))
+    row = db.scalar(
+        select(VerificationToken).where(
+            VerificationToken.token_hash == digest(raw), VerificationToken.purpose == purpose
+        )
+    )
     if not row or row.used_at or row.expires_at <= now:
         fail(400, "invalid_verification_token", "Token is invalid or expired")
     owner = db.get(User, row.user_id)
@@ -315,8 +279,11 @@ def consume_verification(db: Session, raw: str, purpose: str):
     db.refresh(row)
     if row.used_at or row.expires_at <= utcnow():
         fail(400, "invalid_verification_token", "Token is invalid or expired")
-    changed = db.execute(update(VerificationToken).where(VerificationToken.id == row.id,
-                                                         VerificationToken.used_at.is_(None)).values(used_at=now))
+    changed = db.execute(
+        update(VerificationToken)
+        .where(VerificationToken.id == row.id, VerificationToken.used_at.is_(None))
+        .values(used_at=now)
+    )
     if changed.rowcount != 1:
         fail(400, "invalid_verification_token", "Token has already been used")
     return owner
@@ -324,8 +291,6 @@ def consume_verification(db: Session, raw: str, purpose: str):
 
 @router.post("/email/verify")
 def verify_email(body: TokenRequest, db: Session = Depends(get_db)):
-    if get_settings().auth_mode != "local":
-        fail(400, "provider_flow", "Use the provider email confirmation link")
     user = consume_verification(db, body.token, "verify_email")
     user.email_verified = True
     db.commit()
@@ -334,21 +299,22 @@ def verify_email(body: TokenRequest, db: Session = Depends(get_db)):
 
 @router.post("/password/request-reset")
 def request_reset(body: EmailRequest, db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        provider_call("recover", body.model_dump(mode="json"))
-    else:
-        user = db.scalar(select(User).where(User.email == str(body.email).casefold(), User.active.is_(True)))
-        if user:
-            verification(db, user, "reset_password")
+    user = db.scalar(select(User).where(User.email == str(body.email).casefold(), User.active.is_(True)))
+    if user:
+        verification(db, user, "reset_password")
     return {"message": "If the account exists, reset instructions have been requested"}
 
 
 @router.post("/password/reset")
 def reset_password(body: ResetPassword, db: Session = Depends(get_db)):
-    if get_settings().auth_mode != "local":
-        fail(400, "provider_flow", "Use the provider recovery session to update your password")
-    pending = db.scalar(select(VerificationToken).where(VerificationToken.token_hash == digest(body.token),
-        VerificationToken.purpose == "reset_password", VerificationToken.used_at.is_(None), VerificationToken.expires_at > utcnow()))
+    pending = db.scalar(
+        select(VerificationToken).where(
+            VerificationToken.token_hash == digest(body.token),
+            VerificationToken.purpose == "reset_password",
+            VerificationToken.used_at.is_(None),
+            VerificationToken.expires_at > utcnow(),
+        )
+    )
     account = db.get(User, pending.user_id) if pending else None
     if account:
         lock_active_user(db, account)
@@ -357,28 +323,24 @@ def reset_password(body: ResetPassword, db: Session = Depends(get_db)):
         if not body.mfa_code:
             fail(401, "mfa_code_required", "Enter an authenticator or recovery code to reset this password")
         from app.domain.mfa import verify_factor
+
         verify_factor(db, account, body.mfa_code)
     user = consume_verification(db, body.token, "reset_password")
     user.password_hash = password_hash.hash(body.password)
     user.token_version += 1
-    db.execute(update(VerificationToken).where(VerificationToken.user_id == user.id,
-                                               VerificationToken.purpose == "reset_password",
-                                               VerificationToken.used_at.is_(None)).values(used_at=utcnow()))
+    db.execute(
+        update(VerificationToken)
+        .where(
+            VerificationToken.user_id == user.id,
+            VerificationToken.purpose == "reset_password",
+            VerificationToken.used_at.is_(None),
+        )
+        .values(used_at=utcnow())
+    )
     db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked_at=utcnow()))
     db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
     db.commit()
     return {"password_updated": True}
-
-
-@router.post("/phone/request-code")
-def phone_code(body: PhoneRequest):
-    provider_call("otp", {"phone": body.phone, "create_user": True})
-    return {"message": "Verification code requested"}
-
-
-@router.post("/phone/verify")
-def phone_verify(body: PhoneVerify):
-    return provider_call("verify", {**body.model_dump(), "type": "sms"})
 
 
 class PasswordUpdate(Strict):
@@ -388,50 +350,28 @@ class PasswordUpdate(Strict):
 
 
 @router.put("/password")
-def update_password(body: PasswordUpdate, request: Request, user: User = Depends(get_current_user),
-                    db: Session = Depends(get_db)):
-    if get_settings().auth_mode == "supabase":
-        token = request.headers["authorization"].split(" ", 1)[1]
-        from app.domain.mfa import Proof, require_proof
-        require_proof(db, user, Proof(), request)
-        provider_call("user", {"password": body.password}, token=token, method="PUT")
-    else:
-        if not body.current_password or not user.password_hash or not password_hash.verify(body.current_password, user.password_hash):
-            fail(401, "invalid_credentials", "Current password is incorrect")
-        factor = db.get(MfaFactor, user.id)
-        if factor and factor.enabled:
-            if not body.mfa_code:
-                fail(401, "mfa_code_required", "Enter a new authenticator or recovery code")
-            from app.domain.mfa import verify_factor
-            verify_factor(db, user, body.mfa_code)
-        user.password_hash = password_hash.hash(body.password)
-        user.token_version += 1
-        db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked_at=utcnow()))
-        db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
-        db.commit()
+def update_password(
+    body: PasswordUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if (
+        not body.current_password
+        or not user.password_hash
+        or (not password_hash.verify(body.current_password, user.password_hash))
+    ):
+        fail(401, "invalid_credentials", "Current password is incorrect")
+    factor = db.get(MfaFactor, user.id)
+    if factor and factor.enabled:
+        if not body.mfa_code:
+            fail(401, "mfa_code_required", "Enter a new authenticator or recovery code")
+        from app.domain.mfa import verify_factor
+
+        verify_factor(db, user, body.mfa_code)
+    user.password_hash = password_hash.hash(body.password)
+    user.token_version += 1
+    db.execute(update(RefreshSession).where(RefreshSession.user_id == user.id).values(revoked_at=utcnow()))
+    db.execute(update(AuthChallenge).where(AuthChallenge.user_id == user.id).values(consumed_at=utcnow()))
+    db.commit()
     return {"password_updated": True}
-
-
-@router.post("/oauth/{provider}/start")
-def oauth_start(provider: str, body: OAuthStart):
-    settings = get_settings()
-    if provider not in {"google", "apple"}:
-        fail(400, "unsupported_provider", "Choose Google or Apple")
-    if settings.auth_mode != "supabase":
-        fail(503, "provider_unconfigured", "Configure Supabase to enable this sign-in method")
-    if body.redirect_url not in settings.oauth_redirect_urls:
-        fail(400, "invalid_redirect", "Redirect URL is not permitted")
-    status = provider_status()[provider]
-    if status == "disabled":
-        fail(503, "provider_disabled", f"{provider.title()} sign-in has not been enabled for this app")
-    if status != "ready":
-        fail(503, "identity_provider_unavailable", "Sign-in service is unavailable. Please try again")
-    query = urlencode({"provider": provider, "redirect_to": body.redirect_url,
-                       "code_challenge": body.code_challenge, "code_challenge_method": "s256"})
-    return {"authorization_url": settings.supabase_url.rstrip("/") + "/auth/v1/authorize?" + query,
-            "flow": "pkce", "provider": provider}
-
-
-@router.post("/oauth/exchange")
-def oauth_exchange(body: OAuthExchange):
-    return provider_call("token?grant_type=pkce", {"auth_code": body.code, "code_verifier": body.code_verifier})

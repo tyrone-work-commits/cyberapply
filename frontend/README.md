@@ -40,7 +40,7 @@ Backend setup and worker commands are in [the backend README](../backend/README.
 
 ## Features
 
-- Signup / sign-in with email, Google, Apple or phone; password visibility, local password recovery, provider callback and provider recovery session support.
+- Local email signup/sign-in, password visibility, authenticator MFA and local password recovery. Google, Apple and phone buttons remain visibly unavailable; old callback links cannot establish sessions.
 - Guided profile confirmation → job preferences → résumé upload or text creation → candidate fact review. Résumé versions, main selection, download and content analysis are connected to the API.
 - SORCE-inspired Explore deck: swipe left to pass, right to apply automatically with your selected reviewed résumé. Touch, mouse, keyboard arrows and Pass/Apply buttons are supported; vertical description scrolling and short/cancelled drags do not submit. Passed jobs can be restored; existing applications stay out of the deck.
 - Search and Saved/Passed collections with job cards, filters, company following, manual job entry and supported public job-board imports.
@@ -55,17 +55,13 @@ Backend setup and worker commands are in [the backend README](../backend/README.
 
 Choose **Explore the demo** to try fictional jobs, applications and messages without creating an account. Demo data is kept in this browser tab, separate from real accounts; it makes no employer or mailbox requests. Its PDF/DOCX upload preview requires manual text/fact entry. Actual account uploads use the backend parser. Demo application receipts and captured mail explicitly say they were not delivered.
 
-Local email authentication works with the current backend. Google and Apple account creation/sign-in require a Supabase project with each provider enabled. The app checks actual provider flags, shows immediate loading/error/retry feedback beside the buttons, and uses a short-lived browser-tab PKCE verifier. The callback exchanges a code once, checks provider MFA and fetches the canonical user before saving the session. Cancelled, expired and invalid attempts clear browser verifier state and credentials from the callback URL. The two buttons support both first-time signup and returning sign-in once configured.
-
-Follow [Google and Apple setup](../backend/README.md#connect-google-and-apple-sign-in) for the project, provider consoles, exact localhost/loopback callbacks, signing keys and existing local-account migration considerations. Default implicit email confirmation/recovery links are handled from the root or callback page. Custom email templates that deliver only `token_hash` need additional backend support. No real Google/Apple sign-in is claimed until the connected project passes live acceptance checks.
-
-`python frontend/tests/oauth.py --url http://localhost:3000` runs isolated browser checks with simulated providers. It covers Google/Apple redirects and PKCE exchange, canonical identity, cancellation, missing/expired/wrong-origin attempts, provider/API failure, retry and provider MFA, plus visible feedback at 320/390/1440px. No personal provider account is contacted.
+This standalone frontend uses the local backend's email accounts only. External identity, PKCE exchange, provider recovery and provider MFA have been removed. The old callback page strips credentials from the URL and browser verifier storage without exchanging or saving a session. The current hosted Covenda app is separate and uses ChatGPT sign-in.
 
 External application submission and live mailbox access follow the backend's connector settings. Public job imports do not create a universal submission connector. The current local setup captures mail and simulates demo submissions. Fit scores remain heuristic guidance.
 
 Right swipes create one `mode: automatic` application for the displayed job; they do not enable automatic discovery of other roles. The main reviewed résumé is selected initially and can be changed in Swipe application settings. Profile confirmation, résumé review, pause state and daily limits are checked before queueing. The backend also enforces fit, preferences, required answers and connector availability. The status panel polls the worker and shows sent only after a confirmation receipt; incomplete or unsupported applications wait for attention in Applications. Demo receipts explicitly say no employer was contacted. Duplicate clicks and retries use an idempotency key, and the backend enforces one application per user/job.
 
-Access/refresh tokens stay in session storage for the current tab. One expired access response triggers a coordinated refresh. OAuth/recovery credentials are removed from the URL before asynchronous work. Recovery tokens stay in memory and the user signs in again after a password change.
+Access/refresh tokens stay in session storage for the current tab. One expired access response triggers a coordinated refresh. Unsupported old callback credentials are discarded. Local reset tokens are entered in the email recovery form; the user signs in again after a password change.
 
 ## Checks
 

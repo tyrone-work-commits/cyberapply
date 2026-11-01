@@ -33,7 +33,7 @@ export type Resume = {
 type Page<T> = { items: T[]; total: number; limit?: number; offset?: number };
 type Analysis = { word_count: number; sections_detected: Record<string, boolean>; suggestions: { code: string; message: string }[]; limitations: string[] };
 type Automation = { mode: 'review' | 'automatic'; paused: boolean; daily_limit: number; min_match_score: number; used_today: number; remaining_today: number; quota_timezone: string };
-type Capabilities = { auth_mode: 'local' | 'supabase'; email_delivery: 'capture' | 'smtp' | 'provider' };
+type Capabilities = { auth_mode: 'local'; email_delivery: 'capture' | 'smtp' };
 type FAQ = { id: string; category: string; question: string; answer: string };
 type Problem = { id: string; description: string; status: 'open' | 'closed'; created_at: string };
 

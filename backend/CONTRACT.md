@@ -8,7 +8,7 @@ Core imports:
 - `app.core.security.get_current_user` dependency returns `app.models.User`; `SecretBox().encrypt(str)` / `.decrypt(str)` use Fernet.
 - `app.core.time.utcnow()` returns naive UTC datetime (DB dates are UTC).
 - `app.core.errors.fail(status, code, message)` raises HTTPException detail `{code,message}`.
-- `app.core.storage.Storage()` methods `put(key, bytes, content_type)`, `get(key)->bytes`, `delete(key)`; local private path or configured Supabase Storage. Key generated server-side. `.get` returns bytes, never expose paths.
+- `app.core.storage.Storage()` methods `put(key, bytes, content_type)`, `get(key)->bytes`, `delete(key)`; local private files only. Key generated server-side. `.get` returns bytes, never expose paths.
 
 IDs are UUID strings. JSON fields default dict/list and must be reassigned rather than mutated in place. No relationships needed. Owner checks return 404 for another user's IDs. All timestamps naive UTC. Finite bounded inputs, strict schemas (`extra='forbid'`), limit <=100, offset >=0. SQLAlchemy commit at route/service boundary. No secrets/internal paths in API outputs.
 
@@ -35,7 +35,7 @@ Models (root implements these exact names/fields; additional fields require coor
 - VerificationToken (root auth): id,user_id,purpose,token_hash(unique),expires_at,used_at(nullable),created_at
 
 Settings exact names available:
-`environment` local/test/production; `database_url`; `jwt_secret`; `jwt_issuer`; `access_token_minutes`; `refresh_token_days`; `encryption_key`; `storage_backend` local/supabase; `storage_dir`; `max_upload_bytes` 10485760; `supabase_url`, `supabase_anon_key`, `supabase_service_key`, `supabase_jwt_secret`, `supabase_storage_bucket`; `auth_mode` local/supabase; `frontend_origins` list; `oauth_redirect_urls` list; `redis_url`; `worker_backend` database/celery; `allow_external_submissions` false; `webhook_connector_url`, `webhook_connector_secret`; `connector_allowed_hosts` list; `mail_mode` demo/smtp; `mail_allowed_hosts` list; `mail_timeout_seconds` 15; `smtp_host`, `smtp_port` 465, `smtp_username`, `smtp_password`, `smtp_from`; `auth_email_mode` capture/smtp; `upload_allowed_types` list; `worker_lease_seconds` 300; `max_application_attempts` 3. Additional settings are defined in app/core/config.py.
+`environment` local/test (production mode is explicitly rejected); `database_url`; `jwt_secret`; `jwt_issuer`; `access_token_minutes`; `refresh_token_days`; `encryption_key`; `storage_backend` local; `storage_dir`; `max_upload_bytes` 10485760; `auth_mode` local; `frontend_origins` list; `redis_url`; `worker_backend` database/celery; `allow_external_submissions` false; `webhook_connector_url`, `webhook_connector_secret`; `connector_allowed_hosts` list; `mail_mode` demo/smtp; `mail_allowed_hosts` list; `mail_timeout_seconds` 15; `smtp_host`, `smtp_port` 465, `smtp_username`, `smtp_password`, `smtp_from`; `auth_email_mode` capture/smtp; `upload_allowed_types` list; `worker_lease_seconds` 300; `max_application_attempts` 3. Additional settings are defined in app/core/config.py.
 
 Domain response contracts flexible, document own APIs. `matching.compute_match(job, profile, preferences)` must exist and return a dict with `score` numeric, `eligible` bool, `matched_skills`, `missing_skills`, `missing_certifications`, `reasons`, `blockers`, `score_kind='heuristic_fit'`; arguments may be ORM Profile/Preferences or plain data dicts, support both. Automation should use this function and preserve result.
 
