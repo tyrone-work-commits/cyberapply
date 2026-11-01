@@ -207,3 +207,7 @@ Encountered noncredential questions, supported answers and their evidence appear
 The claim snapshot includes question memory; a profile-answer change invalidates stale worker authorization. Application-derived memory is removed with permanent application deletion, including historical copies; independently entered profile answers remain. Old uncertain requests are not requeued, rewritten or treated as delivered by this update. Applied still requires new employer confirmation.
 
 Verification: Python planning and intercepted browser fixtures cover automatic prose/cover-letter upload, saved-answer reuse and unchanged missing-fact/consent controls. Domain and real local Worker tests cover persistence, owner isolation, stale authorization and historical erasure. Live employer submission is not part of this release's verification.
+
+## Employer automation checks in Edit Profile — 1 November 2026
+
+Edit Profile includes a read-only reference for “Which of the following best describes you?” when the employer choices distinguish a human from AI/bot/automated form completion. No profile answer is selected or transmitted. Recognized encountered automation checks display as read-only; profile answer saving and agent answer planning reject attempts to turn a human-identification response into reusable automation permission. Ordinary factual questions remain separate. This adds no employer submission or retry.

@@ -417,3 +417,12 @@ def test_saved_profile_answer_reaches_exact_dropdown():
     assert result['status']=='applied' and len(posts)==1
     assert b'name="tool"\r\n\r\nYes' in posts[0]
     assert any(a.get('source')=='saved_profile' and a['value']=='Yes' for a in result['report']['answers'])
+
+def test_automation_identity_choice_pauses_even_with_confirmed_human_answer():
+    from application_agent.reasoning import build_plan
+    question='Which of the following best describes you?'
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':question,'value':'I am a human.'}]}
+    extra=f'<label>{question}<select required name="identity"><option>I am an AI, bot, or automated program.</option><option>I am a human.</option></select></label>'
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    assert any(q.get('source')=='verification' for q in result['report']['unresolved'])

@@ -10,7 +10,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from .profile_answers import profile_field, saved_profile_answer, place_key
 from .answer_drafts import experience_answer, narrative_draft
-from .answer_memory import remembered_answer
+from .answer_memory import remembered_answer, automation_check
 from html import unescape
 import re
 from urllib.parse import urlsplit
@@ -173,6 +173,9 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         normalized = re.sub(r"\s+", " ", question.lower()).strip(" *:?!")
         kind, value, source, proof = field.get("type", "text"), None, "cv", ""
         user_supplied, confirmed_value, confirmed_proof = _confirmed(payload, question, field)
+        if automation_check(question,[*(field.get('options') or []),confirmed_value or '']):
+            unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'verification','reason':'This employer question identifies human versus automated form completion. Complete this verification yourself; a profile answer cannot bypass it.'})
+            continue
         profile_key=profile_field(question)
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""

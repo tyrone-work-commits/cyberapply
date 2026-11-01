@@ -16,3 +16,12 @@ class AnswerMemoryTests(unittest.TestCase):
  def test_changed_choices_and_ambiguous_labels_do_not_inherit_old_answers(self):
   q='Have you worked with Kubernetes?';p=self.payload(q,'Yes','select');self.assertFalse(build_plan(p,[field(q,'select',options=['Experienced','New to this'])])['answers'])
   r=build_plan(p,[field(q,'select',options=['Yes','No']),field(q,'select',options=['Yes','No'])]);self.assertFalse(r['answers'])
+ def test_human_automation_verification_is_not_a_reusable_fact(self):
+  q='Which of the following best describes you?';choices=['I am an AI, bot, or automated program.','I am a human.']
+  for kind in ['select','combobox']:
+   p=self.payload(q,'I am a human.',kind);p['confirmedAnswers']=[{'question':q,'value':'I am a human.'}]
+   r=build_plan(p,[field(q,kind,options=choices)]);self.assertFalse(r['answers']);self.assertEqual(r['unresolved'][0]['source'],'verification')
+  p=self.payload(q,'I am a human.','combobox');r=build_plan(p,[field(q,'combobox')]);self.assertFalse(r['answers'])
+ def test_ai_experience_question_is_not_misclassified_as_human_verification(self):
+  from application_agent.answer_memory import automation_check
+  self.assertFalse(automation_check('Have you worked with AI tools?',['Yes','No']))
