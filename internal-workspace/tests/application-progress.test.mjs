@@ -48,3 +48,20 @@ test('displaying the journey never changes captured materials or invents interme
 });
 
 test('generated drafts are shown as approval needed, not applied',()=>{const progress=applicationProgress(request({status:'needs_attention',report:{unresolved:[{question:'Why this role?',source:'generated',suggested_value:'A draft awaiting review.'}]}}));assert.equal(progress.label,'Approval needed');assert.equal(progress.group,'needs_you');});
+
+test('recorded actions distinguish an unopened form from an actual Submit attempt without releasing uncertainty',()=>{
+ const item=request({status:'uncertain',report:{journey:{version:1,form_found:false,cv_attached:false,continue_click_attempts:0,submit_click_attempts:0}}});
+ const progress=applicationProgress(item,now);
+ assert.equal(progress.canQueue,false);assert.equal(progress.group,'check_outcome');
+ assert.ok(progress.actionEvidence.includes('Submit attempts: 0.'));
+ assert.ok(progress.actionEvidence.includes('Application form not recorded as located.'));
+ const submitted=applicationProgress(request({status:'uncertain',report:{journey:{version:1,form_found:true,cv_attached:true,continue_click_attempts:2,submit_click_attempts:1}}}),now);
+ assert.ok(submitted.actionEvidence.includes('Submit attempts: 1.'));assert.equal(submitted.canQueue,false);
+});
+
+test('legacy six-step reports explain missing evidence without rewriting saved status or enabling another application',()=>{
+ const item=request({status:'uncertain',result:{at,message:'This application exceeded the six-step limit. Please review it yourself.'}}),before=structuredClone(item);
+ const progress=applicationProgress(item,now);
+ assert.match(progress.description,/does not establish that Submit was clicked/);assert.equal(progress.canQueue,false);
+ assert.match(progress.actionEvidence[0],/older report/);assert.deepEqual(item,before);
+});

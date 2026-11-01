@@ -8,6 +8,7 @@ export type ApplicationProgress = {
   description:string;
   tone:'neutral'|'active'|'success'|'warning';
   canQueue:boolean;
+  actionEvidence:string[];
   steps:Step[];
   events:{label:string;at:string}[];
 };
@@ -26,6 +27,16 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   const expiresAt=Date.parse(application.claim?.expiresAt||'');
   const lostClaim=status==='processing'&&(!Number.isFinite(expiresAt)||expiresAt<=now);
   const checkOutcome=status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
+  const journey=application.report?.journey as Record<string,unknown>|undefined;
+  const recordedJourney=journey&&journey.version===1;
+  const count=(key:string)=>recordedJourney&&Number.isSafeInteger(journey[key])&&(journey[key] as number)>=0?journey[key] as number:null;
+  const actionEvidence:string[]=recordedJourney?[
+    journey.form_found===true?'Application form located.':'Application form not recorded as located.',
+    journey.cv_attached===true?'Chosen CV attached in the form.':'CV attachment not recorded.',
+    count('continue_click_attempts')!==null?`Continue attempts: ${count('continue_click_attempts')}.`:'Continue attempts not recorded.',
+    count('submit_click_attempts')!==null?`Submit attempts: ${count('submit_click_attempts')}.`:'Submit attempts not recorded.',
+    confirmed?'Employer confirmation recorded.':'Employer confirmation not recorded.',
+  ]:application.result?['This older report does not record each browser action. Its status alone does not prove that the form was filled or submitted.']:[];
   const canQueue=['needs_action','needs_attention','failed'].includes(status)&&!!application.cv?.fileId&&
     !['materials_changed','cv_required','candidate_review_required'].includes(application.reason);
   let group:ProgressGroup='needs_you',label='Needs you',description='Review this request, then queue the application agent when you are ready.';
@@ -37,6 +48,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or inbox before trying again.':
       status==='applied'?'This saved record has no confirmation evidence. Check the employer website or inbox to establish its outcome.':
       'The employer may have received all or part of this application. Check the employer website or inbox before trying again.';
+    if(/six-step limit/i.test(application.result?.message||''))description='The previous runner stopped at its form-navigation limit. This report does not establish that Submit was clicked. The outcome remains unverified; check the employer website or inbox before any retry.';
   }else if(status==='queued'){
     group='in_progress';label='Queued';tone='active';description='Waiting for your browser runner to pick up this request. Keep the runner open on your computer.';
   }else if(status==='processing'){
@@ -65,5 +77,5 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   add('Agent started',application.claim?.at);
   if(application.result)add(confirmed?'Employer confirmation recorded':checkOutcome?'Outcome needs checking':status==='needs_attention'?'Agent requested your input':'Agent update recorded',application.result.at);
   events.sort((first,second)=>Date.parse(first.at)-Date.parse(second.at));
-  return {group,label,description,tone,canQueue:!checkOutcome&&canQueue,steps,events};
+  return {group,label,description,tone,canQueue:!checkOutcome&&canQueue,actionEvidence,steps,events};
 }

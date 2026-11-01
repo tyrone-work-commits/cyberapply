@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, parse_qsl
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 from .uploads import GreenhouseUploads, UploadRejected, UPLOAD_HOST
+from .journey import Journey, greenhouse_source, matching_greenhouse_embed
 
 # Exact provider domains only: never trust lookalike suffixes or private DNS.
 # These aliases are part of one supported application service, so the user
@@ -29,12 +30,14 @@ APPLICATION_HOST_GROUPS = (
 
 def automatic_application_hosts(job):
     origins={(urlsplit(str(job.get(key) or '')).hostname or '').lower().rstrip('.') for key in ('url','applyUrl')}
-    return set().union(*(group for group in APPLICATION_HOST_GROUPS if origins.intersection(group)))
+    groups=[group for group in APPLICATION_HOST_GROUPS if origins.intersection(group)]
+    if greenhouse_source(job):groups.append(APPLICATION_HOST_GROUPS[0])
+    return set().union(*groups)
 
 
 def static_asset_hosts(job):
     origins={(urlsplit(str(job.get(key) or '')).hostname or '').lower().rstrip('.') for key in ('url','applyUrl')}
-    return {'job-boards.cdn.greenhouse.io'} if origins.intersection(set().union(*APPLICATION_HOST_GROUPS[:2])) else set()
+    return {'job-boards.cdn.greenhouse.io'} if origins.intersection(set().union(*APPLICATION_HOST_GROUPS[:2])) or greenhouse_source(job) else set()
 
 
 def allowed_static_asset(url,method,resource_type,asset_hosts):
@@ -175,10 +178,13 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         research_fn = fetch_research
     report = {"answers": [], "unresolved": [], "research": {}, "experience": {}, "cover_letter": ""}
     submitted = False
+    form_interaction = False
+    journey = Journey(report, time.monotonic)
     browser = None
     context = None
     session_active = False
     def finish(*args,**kwargs):
+        journey.data['possible_delivery'] = submitted
         if session_active and context and session_store:
             try:session_store.save(job,hosts,context.storage_state(),refresh=True)
             except Exception:pass
@@ -193,10 +199,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         job = payload.get("job") or {}
         url = job.get("applyUrl") or job.get("url") or ""
         original_host = validate_public_url(url, resolver=resolver)
+        feed_source = greenhouse_source(job)
+        application_host = 'job-boards.greenhouse.io' if feed_source else original_host
         automatic=automatic_application_hosts(job)
         asset_candidates=static_asset_hosts(job)
-        read_candidates={CITY_LOOKUP_HOST} if original_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
-        upload_candidates={UPLOAD_HOST} if original_host in APPLICATION_HOST_GROUPS[0] else set()
+        read_candidates={CITY_LOOKUP_HOST} if application_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
+        upload_candidates={UPLOAD_HOST} if application_host in APPLICATION_HOST_GROUPS[0] else set()
         requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
         assets=set()
@@ -231,7 +239,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             context = browser.new_context(accept_downloads=False, service_workers="block",**({'storage_state':saved_session} if saved_session else {}))
             def observe_city_lookup(response):
                 request=response.request
-                if not allowed_city_lookup(request.url,request.method,request.resource_type,original_host,payload.get('applicantProfile') or {}):return
+                if not allowed_city_lookup(request.url,request.method,request.resource_type,application_host,payload.get('applicantProfile') or {}):return
                 try:
                     status='unavailable';count=None
                     if response.status==200:
@@ -252,13 +260,16 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             def guard(route):
                 nonlocal submitted
                 req = route.request
-                if optional_tracking_request(req.url,req.method,req.resource_type,original_host):
+                if optional_tracking_request(req.url,req.method,req.resource_type,application_host):
                     diagnostics=report.setdefault('suppressed_background_requests',[])
                     entry={'host':'c.spl.greenhouse.io','method':req.method,'resource_type':req.resource_type,'reason':'Optional analytics blocked; not an application destination.'}
                     if entry not in diagnostics and len(diagnostics)<20:diagnostics.append(entry)
                     route.abort()
                     return
                 try:
+                    if (feed_source and req.resource_type=='document' and (urlsplit(req.url).hostname or '').lower() in APPLICATION_HOST_GROUPS[0]
+                            and urlsplit(req.url).path=='/embed/job_app' and not matching_greenhouse_embed(req.url,feed_source)):
+                        raise ApplicationAttention('The embedded form does not match the selected employer and vacancy.')
                     if (urlsplit(req.url).hostname or '').lower() in upload_hosts:
                         validate_public_url(req.url,upload_hosts,resolver)
                         if not submit:
@@ -272,7 +283,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         return
                     if (urlsplit(req.url).hostname or '').lower() in reads:
                         validate_public_url(req.url,reads,resolver)
-                        if not allowed_city_lookup(req.url,req.method,req.resource_type,original_host,payload.get('applicantProfile') or {}):
+                        if not allowed_city_lookup(req.url,req.method,req.resource_type,application_host,payload.get('applicantProfile') or {}):
                             raise ApplicationAttention('The city lookup cannot receive other application data.')
                         route.continue_()
                         return
@@ -290,6 +301,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         if not submit:
                             route.abort()  # Dry runs also block employer autosave POSTs.
                             return
+                        if not form_interaction:
+                            # No applicant fields have been touched. Do not send
+                            # marketing/bootstrap writes or confuse them with delivery.
+                            journey.data['preparation_writes_blocked']=journey.data.get('preparation_writes_blocked',0)+1
+                            route.abort()
+                            return
                         if before_submit is None or before_submit() is not True:
                             blocked.append(req.url.split('?')[0])
                             route.abort()
@@ -302,7 +319,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         # usable form. Missing essential data will still fail
                         # field inspection/selection. Navigation, writes and
                         # misuse of the static CDN remain hard blockers.
-                        if (submit and req.method not in ('GET','HEAD','OPTIONS')) or req.resource_type=='document' or (urlsplit(req.url).hostname or '').lower() in assets:
+                        if (submit and req.method not in ('GET','HEAD','OPTIONS')) or (req.resource_type=='document' and (req.is_navigation_request() and req.frame==page.main_frame or form_interaction)) or (urlsplit(req.url).hostname or '').lower() in assets:
                             blocked.append(req.url.split('?')[0])
                         # Explain the boundary without retaining URL paths, query
                         # strings, request bodies or applicant data in diagnostics.
@@ -323,9 +340,24 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     raise TransientFormError('The employer page is temporarily unavailable.')
             recovery.run('open_employer_page',open_initial_page)
             page.wait_for_timeout(700)
+            if feed_source and original_host not in APPLICATION_HOST_GROUPS[0]:
+                # Follow only an observed, exact board + vacancy embed. Keep its
+                # signed URL in memory, never in the report or a constructed URL.
+                embeds=[]
+                for _ in range(3):
+                    embeds=[src for src in page.locator('iframe[src]').evaluate_all("nodes=>nodes.map(n=>n.src)") if matching_greenhouse_embed(src,feed_source)]
+                    if embeds:break
+                    page.wait_for_timeout(300)
+                if len(set(embeds))==1 and not submitted:
+                    url=embeds[0]
+                    validate_public_url(url,hosts,resolver)
+                    journey.data['entry']='matching_greenhouse_embed'
+                    page.goto(url,wait_until='domcontentloaded',timeout=timeout*2)
+                    page.wait_for_timeout(700)
             seen_steps = set()
+            visited_links = set()
             login_attempted=False
-            for _step in range(6):
+            while journey.inspect():
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
                     raise ApplicationAttention("This employer form uses an unsupported application destination. Open its original page to continue manually.")
@@ -333,8 +365,18 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 for frame in page.frames:
                     if frame.url in ("about:blank", ""):
                         continue
+                    if (urlsplit(frame.url).hostname or '').lower() not in hosts:continue
+                    if feed_source and urlsplit(frame.url).path=='/embed/job_app' and not matching_greenhouse_embed(frame.url,feed_source):
+                        raise ApplicationAttention('The embedded form does not match the selected employer and vacancy.')
                     validate_public_url(frame.url, hosts, resolver)
                     frames.append(frame)
+                if journey.data['continue_click_attempts']:
+                    # Some employers label their final action Continue. Observe
+                    # its new receipt before searching for another form/button.
+                    for frame in frames:
+                        match=SUCCESS.search(frame.locator('body').inner_text())
+                        if match:
+                            return finish('applied','The employer displayed an application confirmation after Continue.',report,receipt=match.group(0),evidence={'url':frame.url,'text':match.group(0)})
                 fields, controls = [], {}
                 login_frame=next((frame for frame in frames if frame.locator('input[type="password"]:visible').count()),None)
                 if login_frame:
@@ -379,7 +421,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 def read_forms():
                     # An embedded application can appear after the shell page.
                     # Rediscover frames only before any controls are filled.
-                    frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','')]
+                    frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','') and (urlsplit(frame.url).hostname or '').lower() in hosts]
                     for frame in frames:
                         validate_public_url(frame.url,hosts,resolver)
                         if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
@@ -405,19 +447,33 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             from urllib.parse import urljoin
                             target = urljoin(page.url, href or '')
                             validate_public_url(target, hosts, resolver)
-                            page.goto(target, wait_until='domcontentloaded')
+                            from urllib.parse import urldefrag, unquote
+                            if target in visited_links:
+                                journey.data['stop_reason']='application_link_loop'
+                                raise ApplicationAttention('The Apply link did not reveal an application form. The agent stopped the navigation loop; Submit was not clicked.')
+                            visited_links.add(target)
+                            if urldefrag(target)[0]==urldefrag(page.url)[0]:
+                                anchor=unquote(urlsplit(target).fragment)
+                                if anchor:
+                                    page.locator('[id='+json.dumps(anchor)+']').scroll_into_view_if_needed(timeout=min(timeout,3000))
+                                journey.data['anchor_followed']=True
+                            else:
+                                page.goto(target, wait_until='domcontentloaded')
                             page.wait_for_timeout(500)
                             continue
                     raise ApplicationAttention("No supported application form was found, or it has too many fields to inspect reliably.")
+                journey.data['form_found']=True
                 signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
-                if signature in seen_steps:
+                step_identity=(tuple(frame.url for frame in frames),signature)
+                if step_identity in seen_steps:
                     raise ApplicationAttention("The employer form did not advance. Review its validation messages.")
-                seen_steps.add(signature)
+                seen_steps.add(step_identity)
                 plan = planner(payload, fields, report["research"])
                 report["experience"] = plan.get("experience", {})
                 report["cover_letter"] = plan.get("cover_letter", "")
                 unresolved = list(plan.get("unresolved") or [])
                 answers = {a["field_id"]: a for a in plan.get("answers", [])}
+                form_interaction = True
                 handled_confirmed = set()
                 expected_values = {}
                 def exact_confirmed(field, answer):
@@ -473,6 +529,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             uploads.arm('resume',name,cv.get('type') or 'application/octet-stream',cv_bytes)
                             control.set_input_files({"name":name,"mimeType":cv.get("type") or "application/octet-stream","buffer":cv_bytes})
                             expected_values[field['id']]=('file',{'name':name,'size':len(cv_bytes)})
+                            journey.data['cv_attached']=True
                         elif field["required"]:
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This required attachment is not the selected CV."})
                         continue
@@ -637,8 +694,27 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         raise ApplicationAttention("This request no longer has current authorization to advance the employer form.")
                     verify_expected()
                     submitted = True  # Some ATS save a partial application on Continue.
+                    journey.data['continue_click_attempts']+=1
                     button.click()
-                    page.wait_for_timeout(600)
+                    # Observe a transition without ever clicking Continue twice.
+                    # Slow receipt pages can be the final result of this action.
+                    transition_deadline=time.monotonic()+min(timeout*2,10000)/1000
+                    while True:
+                        page.wait_for_timeout(150)
+                        validate_public_url(page.url,hosts,resolver)
+                        if blocked:raise ApplicationAttention('The employer changed destination after Continue. Check its outcome before retrying.')
+                        current_frames=[f for f in page.frames if f.url not in ('about:blank','') and (urlsplit(f.url).hostname or '').lower() in hosts]
+                        current_fields=[]
+                        for idx,frame in enumerate(current_frames):
+                            validate_public_url(frame.url,hosts,resolver)
+                            match=SUCCESS.search(frame.locator('body').inner_text())
+                            if match:
+                                return finish('applied','The employer displayed an application confirmation after Continue.',report,receipt=match.group(0),evidence={'url':frame.url,'text':match.group(0)})
+                            current_fields.extend((f'{idx}:{f["id"]}',f['label'],f['type'],f['required']) for f in frame.evaluate(INSPECT))
+                        if current_fields and (tuple(f.url for f in current_frames),tuple(current_fields))!=step_identity:break
+                        if time.monotonic()>=transition_deadline:
+                            journey.data['stop_reason']='continue_did_not_advance'
+                            raise ApplicationAttention('Continue was clicked once, but the employer did not show a new step or confirmation. Check its outcome; the action was not replayed.')
                     continue
                 if not submit:
                     return finish("needs_attention", "Dry run complete: the form was filled but not submitted. Review the agent report before enabling submission.", report)
@@ -650,25 +726,29 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if frame.locator('input:invalid:visible, textarea:invalid:visible, select:invalid:visible').count():
                         raise ApplicationAttention("A required answer changed before submission. Review the form.")
                 submitted = True  # A timed-out click may still have delivered a POST.
-                report['confirmation_wait']={'max_wait_ms':min(timeout,20000),'submit_click_attempts':1,'outcome':'waiting'}
+                journey.data['submit_click_attempts']+=1
+                confirmation_ms=min(timeout*3,45000)
+                report['confirmation_wait']={'max_wait_ms':confirmation_ms,'submit_click_attempts':1,'outcome':'waiting'}
                 button.click()
-                deadline=time.monotonic()+min(timeout,20000)/1000
+                deadline=time.monotonic()+confirmation_ms/1000
                 while True:
                     page.wait_for_timeout(150)
                     validate_public_url(page.url, hosts, resolver)
                     if blocked:
                         report['confirmation_wait']['outcome']='blocked_redirect'
                         return finish("uncertain", "The employer may have received the application, but a redirect prevented confirmation. Check before retrying.", report)
-                    texts = [f.locator('body').inner_text() for f in page.frames if f.url not in ('about:blank','')]
-                    confirmation = next((SUCCESS.search(t) for t in texts if SUCCESS.search(t)), None)
-                    if confirmation:
-                        text = confirmation.group(0)
-                        report['confirmation_wait']['outcome']='confirmed'
-                        return finish("applied", "The employer displayed an application confirmation.", report, receipt=text, evidence={"url":page.url,"text":text})
+                    for frame in page.frames:
+                        if frame.url in ('about:blank','') or (urlsplit(frame.url).hostname or '').lower() not in hosts:continue
+                        validate_public_url(frame.url,hosts,resolver)
+                        confirmation=SUCCESS.search(frame.locator('body').inner_text())
+                        if confirmation:
+                            text=confirmation.group(0)
+                            report['confirmation_wait']['outcome']='confirmed'
+                            return finish('applied','The employer displayed an application confirmation.',report,receipt=text,evidence={'url':frame.url,'text':text})
                     if time.monotonic()>=deadline:break
                 report['confirmation_wait']['outcome']='not_confirmed'
                 return finish("uncertain", "Submit was clicked, but no explicit employer confirmation was found. Check the employer or inbox before retrying.", report)
-            raise ApplicationAttention("This application exceeded the six-step limit. Please review it yourself.")
+            raise ApplicationAttention('The employer form reached the bounded progress budget. The agent stopped without replaying Continue or Submit. Review the recorded actions and employer outcome.')
     except (ApplicationAttention,RecoveryStopped) as exc:
         return finish("uncertain" if submitted else "needs_attention", str(exc), report)
     except Exception:

@@ -83,7 +83,7 @@ export async function claim(request:Request){try{
         const object=await files().get(file.key);if(!object)throw new Error('missing');
         const bytes=new Uint8Array(await object.arrayBuffer()),extracted=await extractResume(bytes,file.name);
         item.cvSha256=await digest(bytes);
-        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:4,applicantProfile:item.applicantProfile,job:{title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
+        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:4,applicantProfile:item.applicantProfile,job:{title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
       }catch{item.status='needs_attention';item.result={at:new Date().toISOString(),message:'The chosen CV could not be read. Select a readable CV and update the request.'};}
     }
     try{await save(user,current.revision,current.state,'application_agent_claim');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
