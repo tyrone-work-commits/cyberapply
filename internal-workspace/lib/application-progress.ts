@@ -44,7 +44,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   if(confirmed){
     group='applied';label='Applied';tone='success';description='Employer confirmation is recorded. Review the confirmation details below.';
   }else if(checkOutcome){
-    group='check_outcome';label='Check outcome';tone='warning';
+    group='check_outcome';label='Awaiting confirmation';tone='neutral';
     description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or inbox before trying again.':
       status==='applied'?'This saved record has no confirmation evidence. Check the employer website or inbox to establish its outcome.':
       'The employer may have received all or part of this application. Check the employer website or inbox before trying again.';

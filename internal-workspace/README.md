@@ -10,6 +10,7 @@ This directory is the current deployed CyberApply app. It uses Sites/Vinext, Cha
 - Saved jobs and Applications with the chosen original CV, agent progress, employer questions, reviewed answers, outcome evidence and deletion controls.
 - CV upload, view, download, delete and deterministic ATS-style text quality guidance. This is not an employer ATS score or hiring prediction. Searchable PDF, DOCX and UTF-8 TXT are supported, with 5 MB/file and 20 saved files/account; scanned/image-only documents need a searchable export.
 - Related application mail from the signed-in user's connected Gmail, matched to their application employers. Gmail authorization is separate from ChatGPT sign-in. Mail is read on request and not persisted to workspace history; an email shown is not an automatic Applied transition.
+- Applications has opt-in automatic employer-receipt checking, about every two minutes while the page is open and visible, plus Check employer receipts. It reads full messages from the matching connected mailbox using the existing read-only connector. A receipt must acknowledge the exact role in its receipt paragraph and match employer, applicant email, timing and receiver-reported sender authentication; generic/forwarded/old/ambiguous messages cannot confirm a request. A verified match becomes Applied and keeps its Gmail link, short excerpt and prior browser result. Whole emails are not stored. Missing receipts remain Awaiting confirmation with duplicate protection; this is not always-on mailbox monitoring or a guarantee of employer success.
 - Activity/history, interactive tutorial replay, private account controls and ChatGPT workspace tools.
 
 Demo screens/data, public password/social-login setup, theme customization, the old Candidate Facts editor and the old local-agent bridge are retired. Compatibility routes intentionally return HTTP 410, and old-data migrations remain to protect saved history. CV-derived extraction is still needed for matching and the current agent.
@@ -33,10 +34,13 @@ The hosting manifest `.openai/hosting.json` declares the existing Site, D1/R2 bi
 ```powershell
 node node_modules/typescript/bin/tsc --noEmit
 node --test tests/domain.test.mjs tests/job-sources.test.mjs tests/swipe-queue.test.mjs tests/swipe-gesture.test.mjs tests/application-agent.test.mjs tests/application-progress.test.mjs tests/application-deletion.test.mjs tests/agent-presence.test.mjs tests/expected-salary.test.mjs tests/candidate-facts.test.mjs tests/resume-extraction.test.mjs tests/file-actions.test.mjs tests/job-inbox.test.mjs tests/search-cooldown.test.mjs
+node --test tests/employer-receipts.test.mjs
 npm run build
 ```
 
 Additional `*-http.test.mjs`, MCP, onboarding and live-workspace scripts need the compiled Worker and local fixtures; some job-source scripts perform read-only real-provider requests. Do not run every test file indiscriminately against production. Use the root Python environment for `python -m unittest discover -s application_agent/tests` from the repository root; the agent has its own Playwright dependency.
+
+`tests/receipt-http.test.mjs` requires the compiled loopback Worker without a Gmail binding and the current local migrations. It verifies owner isolation, same-origin checks, evidence-injection rejection, concurrent throttling, safe connector failure and receipt metadata cleanup. It never sends an employer application or accesses a real mailbox. Receipt checks are throttled per owner in the separate `cyber_receipt_checks` table; unchanged checks do not create workspace history revisions.
 
 ## Application agent
 

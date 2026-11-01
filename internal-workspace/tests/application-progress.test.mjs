@@ -34,7 +34,7 @@ test('legacy receipts and explicit employer evidence retain confirmed applicatio
  }
 });
 test('an uncertain result cannot be queued even when it contains a receipt-like string',()=>{
- const progress=applicationProgress(request({status:'uncertain',result:{at,message:'Unverified mail',receipt:'Possible receipt'}}),now);assert.equal(progress.group,'check_outcome');assert.equal(progress.canQueue,false);assert.equal(progress.events.at(-1).label,'Outcome needs checking');
+ const progress=applicationProgress(request({status:'uncertain',result:{at,message:'Unverified mail',receipt:'Possible receipt'}}),now);assert.equal(progress.group,'check_outcome');assert.equal(progress.label,'Awaiting confirmation');assert.equal(progress.canQueue,false);assert.equal(progress.events.at(-1).label,'Outcome needs checking');
 });
 test('known unsent work can queue only with its original CV and valid material state',()=>{
  for(const status of ['needs_action','needs_attention','failed'])assert.equal(applicationProgress(request({status}),now).canQueue,true);

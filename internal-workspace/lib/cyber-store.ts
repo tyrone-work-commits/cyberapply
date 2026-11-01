@@ -7,6 +7,7 @@ import { extractResume } from './resume-extraction';
 import { discover, mergeDiscovery } from './job-discovery';
 import { defaultSearch } from './job-catalog';
 import { liveSearchCooldown, type SearchCooldown } from './search-cooldown';
+import {verifyEmployerReceipts,applyVerifiedReceipts,type ReceiptMail} from './employer-receipts';
 
 export type Identity = { userId: string; email: string; displayName: string };
 export type Snapshot = { revision: number; updatedAt: string; state: State; searchCooldown:SearchCooldown };
@@ -48,6 +49,34 @@ export async function act(user: Identity, expected: number, input: unknown, sour
   if (current.revision !== expected) throw new DomainError('Your workspace changed. Reload before saving.', 409);
   const result = reduceAction(current.state, parsed.data, source);
   return {...await save(user, expected, result.state, parsed.data.type),message:result.message};
+}
+
+export async function setReceiptChecking(user:Identity,enabled:boolean){
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await load(user);if(!!current.state.receiptChecksEnabled===enabled)return current;
+  current.state.receiptChecksEnabled=enabled;
+  record(current.state,'receipt_check_settings',`Automatic employer receipt checks ${enabled?'enabled':'disabled'}.`,'interface');
+  try{return await save(user,current.revision,current.state,'receipt_check_settings');}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
+ }
+ throw new DomainError('Your workspace changed. Try the receipt-check setting again.',409);
+}
+export async function claimReceiptCheck(user:Identity,now=Date.now()){
+ const result=await db().prepare('INSERT INTO cyber_receipt_checks (owner_id,next_check_at) VALUES (?,?) ON CONFLICT(owner_id) DO UPDATE SET next_check_at=excluded.next_check_at WHERE cyber_receipt_checks.next_check_at<=?').bind(user.userId,now+120000,now).run();
+ if(result.meta.changes===1)return 0;
+ const row=await db().prepare('SELECT next_check_at FROM cyber_receipt_checks WHERE owner_id=?').bind(user.userId).first<{next_check_at:number}>();
+ return Math.max(1000,(row?.next_check_at||now+120000)-now);
+}
+export async function reconcileReceiptMessages(user:Identity,mailbox:string,messages:ReceiptMail[]){
+ if(mailbox.toLowerCase()!==user.email.toLowerCase())throw new DomainError('The connected mailbox must match your CyberApply sign-in.',403);
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await load(user),at=new Date().toISOString();
+  const matches=verifyEmployerReceipts(messages,current.state,mailbox,Date.parse(at));
+  const confirmed=applyVerifiedReceipts(current.state,matches,at);
+  if(!confirmed.length)return{...current,confirmed};
+  record(current.state,'employer_email_confirmation',`Verified ${confirmed.length} employer application receipt${confirmed.length===1?'':'s'} from the connected mailbox.`,'agent',at);
+  try{return{...await save(user,current.revision,current.state,'employer_email_confirmation'),confirmed};}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
+ }
+ throw new DomainError('Your workspace changed while checking receipts. No application will be retried.',409);
 }
 export async function permanentlyDeleteApplications(user:Identity,expected:number,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false){
  const current=await load(user);
@@ -134,6 +163,7 @@ export async function deleteAccount(user:Identity,expected:number){
   try{
     await db().batch([
       db().prepare('DELETE FROM cyber_agent_presence WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_receipt_checks WHERE owner_id=?').bind(user.userId),
     db().prepare('DELETE FROM cyber_revisions WHERE owner_id=?').bind(user.userId),
       db().prepare("DELETE FROM cyber_workspaces WHERE owner_id=? AND json_extract(payload,'$.__deleting')=1").bind(user.userId),
     ]);

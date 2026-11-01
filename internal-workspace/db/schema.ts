@@ -22,3 +22,8 @@ export const agentPresence=sqliteTable('cyber_agent_presence',{
   state:text('state').notNull(),
   seenAt:text('seen_at').notNull(),
 });
+
+export const receiptChecks=sqliteTable('cyber_receipt_checks',{
+  ownerId:text('owner_id').primaryKey(),
+  nextCheckAt:integer('next_check_at').notNull(),
+});
