@@ -1,13 +1,13 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
-import {Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
+import {ArrowLeft,Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
 type Recording={attempt:string;duration:number;startedAt:string;recordedAt:string;partial:boolean;reason:string;size:number};
-export function ApplicationRecording({requestId,onClose}:{requestId:string;onClose:()=>void}){
+export function ApplicationRecording({requestId,onClose}:{requestId:string;onClose?:()=>void}){
  const [items,setItems]=useState<Recording[]>([]),[attempt,setAttempt]=useState(''),[cursor,setCursor]=useState<string|null>(null),[message,setMessage]=useState('Loading your private recordings…'),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false),[refresh,setRefresh]=useState(0);
  const close=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null),generation=useRef(0);
  const base='/api/applications/recordings?requestId='+encodeURIComponent(requestId);
- useEffect(()=>{const query=matchMedia('(max-width:600px)'),update=()=>setMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[]);
+ useEffect(()=>{if(!onClose)return;const query=matchMedia('(max-width:600px)'),update=()=>setMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[onClose]);
  useEffect(()=>{
   if(!mobile)return;const overflow=document.body.style.overflow,shell=document.querySelector<HTMLElement>('.app-shell'),inert=shell?.inert;
   document.body.style.overflow='hidden';if(shell)shell.inert=true;close.current?.focus();
@@ -24,9 +24,9 @@ export function ApplicationRecording({requestId,onClose}:{requestId:string;onClo
  },[requestId,refresh,base]);
  async function older(){if(!cursor||busy)return;setBusy(true);try{const r=await fetch(base+'&cursor='+encodeURIComponent(cursor),{cache:'no-store'}),p=await r.json() as {items:Recording[];nextCursor:string|null;error?:string};if(!r.ok)throw Error(p.error||'Older recordings could not be loaded.');setItems(current=>[...current,...p.items.filter(item=>!current.some(old=>old.attempt===item.attempt))]);setCursor(p.nextCursor);}catch(error){setMessage((error as Error).message);}finally{setBusy(false);}}
  const chosen=items.find(item=>item.attempt===attempt);
- function keyboard(event:React.KeyboardEvent){if(event.key==='Escape'){event.preventDefault();onClose();}if(mobile&&event.key==='Tab'){const nodes=panel.current?.querySelectorAll<HTMLElement>('button,select,video[controls]');if(nodes?.length){const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}}
- const content=<section ref={panel} className={'application-live-view'+(mobile?' mobile-live-video':'')} role={mobile?'dialog':'region'} aria-modal={mobile||undefined} aria-label="Saved application recordings" onKeyDown={keyboard}>
-  <header className="agent-watch-header"><strong><Film size={19}/>Application recording</strong><button ref={close} type="button" className="button quiet" onClick={onClose}><X size={17}/>{mobile?'Close':'Hide'}</button></header>
+ function keyboard(event:React.KeyboardEvent){if(event.key==='Escape'&&onClose){event.preventDefault();onClose();}if(mobile&&event.key==='Tab'){const nodes=panel.current?.querySelectorAll<HTMLElement>('button,select,video[controls]');if(nodes?.length){const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}}
+ const content=<section ref={panel} className={onClose?'application-live-view'+(mobile?' mobile-live-video':''):'agent-watch-page'} role={mobile?'dialog':'region'} aria-modal={mobile||undefined} aria-label="Saved application recordings" onKeyDown={keyboard}>
+  <header className="agent-watch-header">{!onClose&&<a className="brand" href="/workspace">CyberApply</a>}<strong><Film size={19}/>Application recording</strong><>{onClose?<button ref={close} type="button" className="button quiet" onClick={onClose}><X size={17}/>{mobile?'Close':'Hide'}</button>:<a className="button quiet" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a>}</></header>
   <p className="subtle"><LockKeyhole size={15}/>Private to your account. Replaying never applies, submits or retries a job.</p>
   {message&&<p role="status">{message}</p>}
   {!!items.length&&<label>Recorded run<select value={attempt} onChange={event=>setAttempt(event.target.value)}>{items.map(item=><option value={item.attempt} key={item.attempt}>{new Date(item.startedAt).toLocaleString()} · {Math.round(item.duration)} seconds{item.partial?' · Partial recording':''}</option>)}</select></label>}

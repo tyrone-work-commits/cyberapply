@@ -242,3 +242,8 @@ The desktop runner encodes a seekable H.264 MP4 (960 × 540, 8 fps, no audio), c
 The outcome is posted once before the finalized video is uploaded. Two bounded, checksum-bound media-only upload attempts are allowed; these never requeue or resubmit the employer application. Temporary capture files are removed after the attempts. A capture/upload failure can leave no saved recording and does not change the application outcome. No credentials, cookies or browser controls are streamed to viewers. Keep the desktop agent updated, awake and online.
 
 Local checks: `python -m unittest application_agent.tests.test_recording`; with an isolated compiled Worker, `node tests/application-recording-http.test.mjs` checks owner isolation, checksums, idempotency, post-outcome upload, byte ranges, archive retention and permanent deletion using fictional data. Never run these fixtures against the hosted production Site.
+
+
+### Separate viewer tabs
+
+Watch live and Watch recording now open separate same-site tabs for the selected request. The original Applications page stays open. Both viewers retain ChatGPT sign-in and owner-only access; the recording viewer uses `mode=recording` on the existing application-watch route. Opening, refreshing or closing either viewer never queues, retries or submits an application.
