@@ -500,3 +500,11 @@ def test_employer_no_ai_question_pauses_before_an_automatic_draft_or_submit():
     assert result['status']=='needs_attention' and not posts
     assert any(item.get('source')=='employer_policy' for item in result['report']['unresolved'])
     assert not any(answer.get('source')=='cv_and_job' for answer in result['report']['answers'])
+
+
+def test_optional_no_ai_question_is_left_blank_without_an_unnecessary_pause():
+    from application_agent.reasoning import build_plan
+    q='Anything else? Please do not use AI or ChatGPT for your response.'
+    result,posts=run(FORM.replace('{extra}',f'<label>{q}<textarea name="extra"></textarea></label>'),planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert not any(answer.get('source')=='cv_and_job' for answer in result['report']['answers'])

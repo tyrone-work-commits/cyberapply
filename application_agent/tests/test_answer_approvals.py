@@ -75,4 +75,9 @@ class CommonProsePromptsTests(unittest.TestCase):
  def test_no_ai_policy_is_recognized_across_line_breaks(self):
   result=plan([field('Why this role? Please do not use\nAI or ChatGPT.','textarea')]);self.assertFalse(result['answers']);self.assertFalse(result['ai_drafting_allowed'])
 
+class OptionalRestrictedProseTests(unittest.TestCase):
+ def test_optional_no_ai_question_can_stay_blank(self):
+  result=plan([field('Anything else? Please do not use AI for your response.','textarea',required=False)])
+  self.assertFalse(result['answers']);self.assertFalse(result['unresolved']);self.assertFalse(result['ai_drafting_allowed'])
+
 if __name__=='__main__':unittest.main()

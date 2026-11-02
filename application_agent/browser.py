@@ -486,6 +486,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 report["cover_letter"] = plan.get("cover_letter", "")
                 unresolved = list(plan.get("unresolved") or [])
                 answers = {a["field_id"]: a for a in plan.get("answers", [])}
+                if plan.get('ai_drafting_allowed') is False and any(item.get('source')=='cv_and_job' for item in report['answers']):
+                    unresolved.append({'field_id':'employer-policy','question':'Employer application instructions','source':'employer_policy','reason':'A later page prohibits AI-written answers after an earlier page used a generated draft. Review the form yourself before continuing.'})
                 if plan.get('ai_drafting_allowed') is False and any(item.get('source')=='employer_policy' for item in unresolved):
                     report['unresolved']=unresolved;report['ai_drafting_allowed']=False
                     raise ApplicationAttention('This employer asks for no AI-written application answers. Add your own wording for the marked questions; no AI draft was used.')

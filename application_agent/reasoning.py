@@ -235,7 +235,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         policy_blocked=ai_restricted and (source=='cv_and_job' and value or employer_restricts_ai(question) and not value or kind=='file' and re.search(r'cover.?letter',question,re.I) and not user_supplied)
         if policy_blocked:
             value=None
-            unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'employer_policy','reason':'This employer asks for no AI-written application answers. Write this answer yourself; an automatic draft will not be used.'})
+            if field.get('required'):unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'employer_policy','reason':'This employer asks for no AI-written application answers. Write this answer yourself; an automatic draft will not be used.'})
             continue
         if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
