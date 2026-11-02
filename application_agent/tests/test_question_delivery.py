@@ -8,7 +8,7 @@ class QuestionDeliveryTests(unittest.TestCase):
   report={'questions':questions+[{'question':'Password','field_type':'password'}],'answers':[{'question':questions[-1]['question'],'value':'CV grounded answer','source':'cv','evidence':'Dated CV history'}]}
   calls=[]
   def call(site,token,path,data,**kwargs):
-   calls.append((path,data));self.assertLess(len(json.dumps(data)),65000)
+   calls.append((path,data));self.assertLess(len(json.dumps(data)),65000);self.assertLessEqual(kwargs['timeout'],4)
    if len(calls)==1:raise TimeoutError()
    return {'saved':len(data['questions']),'omitted':0}
   with patch('application_agent.runner.call_site',side_effect=call):result=deliver_questions('https://site.example','private',{'requestId':'one','claimId':'claim'},report)
@@ -35,3 +35,8 @@ class QuestionDeliveryTests(unittest.TestCase):
   self.assertEqual(paths.count('/api/application-agent/result'),1)
   self.assertLess(paths.index('/api/application-agent/questions'),paths.index('/api/application-agent/result'))
   self.assertEqual(result['report']['questionDelivery']['saved'],1)
+
+ def test_expired_claim_skips_question_bookkeeping_to_preserve_outcome_delivery(self):
+  with patch('application_agent.runner.call_site') as call:
+   result=deliver_questions('https://site.example','private',{'requestId':'one','claimId':'claim','expiresAt':'2000-01-01T00:00:00Z'},{'questions':[{'question':'City','field_type':'text'}]})
+  call.assert_not_called();self.assertEqual(result['deliveryFailed'],1)

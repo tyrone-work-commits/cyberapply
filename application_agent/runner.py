@@ -93,10 +93,20 @@ def deliver_questions(site,token,task,report,site_access_token=None):
         batch.append(row)
     if batch:batches.append(batch)
     saved=omitted=failed=0
-    for batch in batches:
+    # Question bookkeeping must leave time for the single, non-retried outcome POST.
+    allowance=20.0
+    if task.get('expiresAt'):
+        from datetime import datetime,timezone
+        try:allowance=min(allowance,max(0,(datetime.fromisoformat(task['expiresAt'].replace('Z','+00:00'))-datetime.now(timezone.utc)).total_seconds()-15))
+        except (TypeError,ValueError):allowance=0
+    deadline=time.monotonic()+allowance
+    for index,batch in enumerate(batches):
+        if time.monotonic()>=deadline:
+            failed+=sum(len(pending) for pending in batches[index:]);break
         for attempt in range(2):
+            if time.monotonic()>=deadline:failed+=len(batch);break
             try:
-                result=call_site(site,token,'/api/application-agent/questions',{'requestId':task['requestId'],'claimId':task['claimId'],'questions':batch},site_access_token=site_access_token)
+                result=call_site(site,token,'/api/application-agent/questions',{'requestId':task['requestId'],'claimId':task['claimId'],'questions':batch},site_access_token=site_access_token,timeout=max(.1,min(4,deadline-time.monotonic())))
                 saved+=result.get('saved',0);omitted+=result.get('omitted',0);break
             except Exception:
                 if attempt:failed+=len(batch)
