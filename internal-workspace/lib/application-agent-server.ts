@@ -113,7 +113,7 @@ export async function result(request:Request){try{
 // Metadata-only overflow delivery while the exact original claim is still active.
 // It never queues, submits, authorizes a form or changes an application outcome.
 export async function learnQuestions(request:Request){try{
- const user=await worker(request),body=claimBody.extend({questions:z.array(z.object({question:z.string().trim().min(1).max(4000),field_type:z.string().max(50),options:z.array(z.string().max(200)).max(15).optional(),value:z.string().max(2000).optional(),source:z.enum(['cv','cv_and_job','edit_profile','missing']).optional(),evidence:z.string().max(600).optional()}).strict()).max(100)}).strict().parse(await json(request));
+ const user=await worker(request),body=claimBody.extend({questions:z.array(z.object({question:z.string().trim().min(1).max(4000),field_type:z.string().max(50),options:z.array(z.string().max(200)).max(100).optional(),optionsTruncated:z.boolean().optional(),value:z.string().max(2000).optional(),source:z.enum(['cv','cv_and_job','edit_profile','missing']).optional(),evidence:z.string().max(600).optional()}).strict()).max(100)}).strict().parse(await json(request));
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,body.requestId,body.claimId);
   const report:Record<string,unknown>={questions:body.questions,answers:body.questions.filter(row=>row.value!==undefined)};

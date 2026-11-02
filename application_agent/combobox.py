@@ -123,6 +123,22 @@ def _options(popup):
     return controls, choices
 
 
+def capture_combobox_options(frame,control,timeout=750):
+    """Read a linked menu without typing, selecting, or triggering Continue."""
+    if control.get_attribute('aria-multiselectable')=='true' or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
+        return []
+    try:
+        _open_dropdown(control,timeout)
+        _,choices=_options(_popup(frame,control,timeout))
+        return [re.sub(r'\s+',' ',label).strip()[:200] for _,label in choices]
+    except Exception:
+        return []
+    finally:
+        try:
+            if control.get_attribute('aria-expanded')=='true':control.press('Escape',timeout=timeout)
+        except Exception:pass
+
+
 def select_combobox(frame, control, field, value, profile, timeout=3000):
     """Click a unique exact/explicit-country match, then verify its display.
 

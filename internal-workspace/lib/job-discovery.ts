@@ -37,7 +37,7 @@ export function normalizeJob(raw:Row,board:EmployerBoard,at:string):Job|null {
  const skills=skillWords.filter(skill=>new RegExp(`(^|[^a-z0-9])${skill.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}([^a-z0-9]|$)`,'i').test(rawDescription));
  return {id:`${boardKey(board)}:${externalId}`,title,company:greenhouse?plain(raw.company_name||board.company).slice(0,200):board.company,department,location,workMode,url,applyUrl,description,skills,sample:false,saved:false,disposition:'open',createdAt:at,source:{provider:board.provider,board:board.board,region:board.region,externalId,boardUrl:boardUrl(board),checkedAt:at,availability:'open',postedAt:timestamp(greenhouse?raw.first_published:raw.createdAt),descriptionTruncated:rawDescription.length>MAX_DESCRIPTION}};
 }
-async function jsonFeed(url:string,fetcher:typeof fetch,signal:AbortSignal){
+export async function jsonFeed(url:string,fetcher:typeof fetch,signal:AbortSignal){
  // Workers supports manual/follow. Reject redirects explicitly to keep requests on the fixed API host.
  const response=await fetcher(url,{method:'GET',headers:{Accept:'application/json'},redirect:'manual',signal});
  if(!response.ok){await response.body?.cancel();throw new Error(response.status===429?'The employer feed is rate limited. Try again later.':`Employer feed returned HTTP ${response.status}.`);}

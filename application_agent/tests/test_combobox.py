@@ -58,7 +58,8 @@ def test_duplicate_and_nonmatching_options_do_not_select_first_suggestion():
     for options in [['No','No'],['Not authorized','Maybe']]:
         result,posts=run(dropdowns([{'label':'Are you authorized to work in UK or Ireland?','options':options}]),payload={**PAYLOAD,'applicantProfile':{}},planner=build_plan)
         assert result['status']=='needs_attention' and not posts, result
-        assert any('unique offered option' in item['reason'] for item in result['report']['unresolved'])
+        assert any('offered option' in item['reason'] for item in result['report']['unresolved'])
+        assert next(q for q in result['report']['questions'] if q['question']=='Are you authorized to work in UK or Ireland?')['options']==options
 
 
 def test_unknown_city_and_ambiguous_same_country_city_pause():

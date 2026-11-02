@@ -8,6 +8,7 @@ import { extractCandidateFacts } from './candidate-facts';
 import { extractResume } from './resume-extraction';
 import { discover, mergeDiscovery } from './job-discovery';
 import { defaultSearch } from './job-catalog';
+import {fetchEmployerQuestions,mergeEmployerQuestionChoices} from './employer-question-options';
 import { liveSearchCooldown, type SearchCooldown } from './search-cooldown';
 import {verifyEmployerReceipts,applyVerifiedReceipts,type ReceiptMail} from './employer-receipts';
 
@@ -51,6 +52,17 @@ export async function act(user: Identity, expected: number, input: unknown, sour
   if (current.revision !== expected) throw new DomainError('Your workspace changed. Reload before saving.', 409);
   const result = reduceAction(current.state, parsed.data, source);
   return {...await save(user, expected, result.state, parsed.data.type),message:result.message};
+}
+
+export async function refreshEmployerQuestionChoices(user:Identity,expected:number,questionId:string){
+ const current=await load(user);
+ if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before refreshing choices.',409);
+ const question=current.state.accountProfile?.employerQuestions?.find(q=>q.id===questionId);
+ const job=current.state.jobs.find(j=>j.id===question?.jobId);
+ if(!question||!job)throw new DomainError('The original question and vacancy are no longer available.',404);
+ const rows=await fetchEmployerQuestions(job);
+ const message=mergeEmployerQuestionChoices(current.state,questionId,rows,new Date().toISOString());
+ return {...await save(user,expected,current.state,'refresh_employer_question_choices'),message};
 }
 
 export async function setReceiptChecking(user:Identity,enabled:boolean){

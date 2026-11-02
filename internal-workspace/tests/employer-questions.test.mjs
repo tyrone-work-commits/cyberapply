@@ -102,3 +102,22 @@ test('authorship declarations remain manual references, distinct from ordinary n
  let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Did you use AI for this application?',field_type:'select',options:['Yes','No']}]},at);
  s=reduceAction(s,{type:'save_employer_answer',questionId:s.accountProfile.employerQuestions[0].id,answer:'No'},'interface',at).state;assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'manual_only');
 });
+
+test('new options enrich a saved answer without replacing it or erasing choices on an empty report',()=>{
+ let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Which schedule suits you?',field_type:'combobox'}]},at);
+ const id=s.accountProfile.employerQuestions[0].id;s=reduceAction(s,{type:'save_employer_answer',questionId:id,answer:'Flexible'},'interface',at).state;
+ rememberEmployerQuestions(s,request,{questions:[{question:'Which schedule suits you?',field_type:'select',options:['Day','Night']}]},at);
+ assert.equal(s.accountProfile.employerQuestions.length,1);const q=s.accountProfile.employerQuestions[0];assert.equal(q.answer,'Flexible');assert.deepEqual(q.options,['Day','Night']);assert.equal(q.optionsCompany,'Fixture');
+ rememberEmployerQuestions(s,request,{questions:[{question:q.question,field_type:'combobox',options:[]}]},at);assert.deepEqual(s.accountProfile.employerQuestions[0].options,['Day','Night']);
+});
+
+test('captured automation choices classify a reference without asserting a human answer',()=>{
+ const s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Which best describes you?',field_type:'combobox',options:['I am an AI, bot, or automated program.','I am a human.']}]},at);
+ const q=s.accountProfile.employerQuestions[0];assert.equal(q.answer,'');assert.equal(q.reusePolicy,'manual_only');assert.equal(q.status,'needs_details');
+});
+
+test('metadata-only refresh preserves generated prose and application records',()=>{
+ let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'}],answers:[{question:'Why this role?',value:'My existing draft',source:'cv_and_job'}]},at);
+ const before=structuredClone(s);rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea',options:[]},{question:'Preferred shift?',field_type:'combobox',options:['Day','Night']}]},at,true);
+ assert.equal(s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?').answer,'My existing draft');assert.deepEqual(s.applications,before.applications);assert.equal(s.accountProfile.employerQuestions.find(q=>q.question==='Preferred shift?').answer,'');
+});

@@ -12,7 +12,7 @@ import re
 import socket
 import time
 from urllib.parse import urlsplit, parse_qsl
-from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
+from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection, capture_combobox_options
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 from .uploads import GreenhouseUploads, UploadRejected, UPLOAD_HOST
 from .journey import Journey, greenhouse_source, matching_greenhouse_embed
@@ -468,6 +468,16 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             continue
                     raise ApplicationAttention("No supported application form was found, or it has too many fields to inspect reliably.")
                 journey.data['form_found']=True
+                # Custom dropdown choices often exist only while their menu is open.
+                # Inspect bounded, explicitly linked menus without selecting an answer.
+                option_reads=0
+                for observed in fields:
+                    if observed['type']!='combobox' or observed.get('options') or observed.get('phoneCountry') or re.search(r'\b(?:city|country|location)\b',observed['label'],re.I):continue
+                    if option_reads>=20:break
+                    option_reads+=1
+                    frame=frames[int(observed['id'].split(':',1)[0])]
+                    choices=capture_combobox_options(frame,controls[observed['id']])
+                    if choices:observed.update(options=choices[:100],optionsTruncated=len(choices)>100)
                 signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
                 step_identity=(tuple(frame.url for frame in frames),signature)
                 if step_identity in seen_steps:
@@ -479,8 +489,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 for observed in fields:
                     label=str(observed.get('label','')).strip();kind=str(observed.get('type','text'))
                     if not label or kind in {'file','hidden','password'} or re.search(r'password|captcha|verification code|security code|unlabelled field',label,re.I):continue
+                    choices=(observed.get('options') or [])[:100]
                     if (label,kind) not in known:
-                        questions.append({'question':label,'field_type':kind,'options':(observed.get('options') or [])[:15]});known.add((label,kind))
+                        questions.append({'question':label,'field_type':kind,'options':choices,'optionsTruncated':bool(observed.get('optionsTruncated'))});known.add((label,kind))
+                    elif choices:
+                        next(q for q in questions if q['question']==label and q['field_type']==kind).update(options=choices,optionsTruncated=bool(observed.get('optionsTruncated')))
                 plan = planner(payload, fields, report["research"])
                 report["experience"] = plan.get("experience", {})
                 report["cover_letter"] = plan.get("cover_letter", "")
