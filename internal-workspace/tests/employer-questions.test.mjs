@@ -51,3 +51,21 @@ test('a full workspace retains old answers and reports new-question storage omis
  const s=state();rememberEmployerQuestions(s,request,report(),at);const before=structuredClone(s.accountProfile.employerQuestions);s.profile.resumeText='x'.repeat(1770000);
  const r={questions:[{question:'A new question?',field_type:'text'}]};rememberEmployerQuestions(s,request,r,at);assert.deepEqual(s.accountProfile.employerQuestions,before);assert.equal(r.answerMemory.omitted,1);
 });
+
+function draftState(){const s=state();s.selectedCvId='cv';s.attachments=[{id:'cv',name:'fixture.txt'}];s.resumeReview={source:{fileId:'cv'}};s.profile.resumeText='QA\nSOC Analyst 2023 - 2025\nInvestigated security alerts using Splunk.\nBuilt Python monitoring tools.';s.profile.skills=['Splunk','Python'];s.jobs=[{id:'one',title:'SOC Analyst',company:'Fixture',description:'Monitor Splunk alerts and investigate incidents.',skills:['Splunk']}];return s;}
+test('bulk drafts open-ended questions using chosen-CV evidence, preserving manual answers and facts',()=>{
+ let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'},{question:'Describe your strengths',field_type:'textarea'},{question:'City',field_type:'text'}]},at);
+ const manual=s.accountProfile.employerQuestions.find(q=>q.question==='Describe your strengths');s=reduceAction(s,{type:'save_employer_answer',questionId:manual.id,answer:'My own saved response'},'interface',at).state;
+ const result=reduceAction(s,actionSchema.parse({type:'draft_employer_answers'}),'interface',at);const draft=result.state.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');assert.equal(draft.aiDraft,true);assert.equal(draft.source,'cv_and_job');assert.match(draft.answer,/Splunk/);assert.match(draft.evidence,/Investigated/);assert.equal(result.state.accountProfile.employerQuestions.find(q=>q.id===manual.id).answer,'My own saved response');assert.equal(result.state.accountProfile.employerQuestions.find(q=>q.question==='City').answer,'');assert.equal(result.state.applications?.length||0,0);
+});
+test('no-AI employer questions are flagged for own wording, including clearing an earlier generated answer',()=>{
+ let s=draftState();const q='Why this role? Please do not use AI/ChatGPT for any part of this application.';rememberEmployerQuestions(s,request,{questions:[{question:q,field_type:'textarea'}],answers:[{question:q,value:'Old generated draft',source:'cv_and_job'}]},at);
+ s=reduceAction(s,{type:'draft_employer_answers'},'interface',at).state;const item=s.accountProfile.employerQuestions[0];assert.equal(item.answer,'');assert.match(item.generationNote,/own words/);assert.equal(item.status,'needs_details');
+});
+test('draft generation refuses a missing or mismatched selected CV',()=>{const s=draftState();s.resumeReview.source.fileId='another';assert.throws(()=>reduceAction(s,{type:'draft_employer_answers'},'interface',at),/Select and review/);});
+
+test('a generated draft retains its provenance when saved for reuse, and unsupported experience stays unanswered',()=>{
+ let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'},{question:'Describe your experience with Kubernetes',field_type:'textarea'}]},at);
+ s=reduceAction(s,{type:'draft_employer_answers'},'interface',at).state;const q=s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:q.answer},'interface',at).state;
+ assert.equal(s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?').aiDraft,true);assert.equal(s.accountProfile.employerQuestions.find(q=>q.question.includes('Kubernetes')).answer,'');
+});

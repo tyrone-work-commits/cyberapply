@@ -18,6 +18,9 @@ const report={questions:[{question:'Why this role?',field_type:'textarea'},{ques
 eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Missing a factual answer.',report}})).status,200);
 eq((await call('/api/application-agent/questions',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,questions:overflow}})).status,409);
 current=(await call('/api/workspace')).data;eq(current.state.accountProfile.employerQuestions.length,61);const learnedRevision=current.revision;
+const why=current.state.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');
+await act({type:'draft_employer_answers',questionId:why.id});
+const drafted=current.state.accountProfile.employerQuestions.find(q=>q.id===why.id);eq(drafted.aiDraft,true);eq(drafted.source,'cv_and_job');eq(drafted.answer.includes('Splunk'),true);eq(current.state.applications[0].status,'needs_attention');
 const q=current.state.accountProfile.employerQuestions.find(q=>q.question.includes('Kubernetes'));
 await act({type:'save_employer_answer',questionId:q.id,answer:'Yes'});
 eq(current.state.accountProfile.employerQuestions.find(item=>item.id===q.id).source,'user');
@@ -42,5 +45,7 @@ const secondJob=current.state.jobs.find(job=>job.company==='Different fixture em
 const different=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
 eq(different.job.id,secondJob.id);const globalAnswer=different.applicantProfile.employerQuestions.find(q=>q.question==='Do you require sponsorship for this role?');eq(globalAnswer.answer,'No');eq(globalAnswer.reusePolicy,'exact_question');eq(globalAnswer.jobSpecific,false);
 eq((await call('/api/application-agent/authorize',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId}})).status,200);
-eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId,status:'needs_attention',message:'Second fictional employer checked; no real submission.'}})).status,200);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId,status:'needs_attention',message:'Second fictional employer checked; no real submission.',report:{questions:[{question:'Why are you interested? Please do not use AI or ChatGPT for this application.',field_type:'textarea'}],answers:[{question:'Why are you interested? Please do not use AI or ChatGPT for this application.',value:'Earlier generated fixture text',source:'cv_and_job'}]}}})).status,200);
+current=(await call('/api/workspace')).data;await act({type:'draft_employer_answers'});
+const restricted=current.state.accountProfile.employerQuestions.find(q=>q.question.includes('Please do not use AI'));eq(restricted.answer,'');eq(restricted.generationNote.includes('own words'),true);eq(current.state.applications[0].status,'needs_attention');
 console.log(`PASS ${count} question-memory HTTP checks: learning, persistence, manual fact reuse, profile saves, owner isolation, claim snapshots, stale-answer revocation and historical erasure.`);

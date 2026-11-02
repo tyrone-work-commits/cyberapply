@@ -3,7 +3,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
 import { CANDIDATE_FACTS_ENABLED } from './features';
-import {manualAnswerOnly,employerQuestionKey,answerControlGroup,type EmployerQuestion} from './employer-questions';
+import {manualAnswerOnly,employerQuestionKey,answerControlGroup,draftEmployerProse,openEndedQuestion,employerRestrictsAi,type EmployerQuestion} from './employer-questions';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -62,6 +62,7 @@ const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.str
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
+  z.object({type:z.literal('draft_employer_answers'),questionId:id.optional()}).strict(),
   z.object({type:z.literal('save_employer_answer'),questionId:id,answer:z.string().trim().max(2000)}).strict(),
   z.object({ type: z.literal('complete_tutorial') }).strict(),
   z.object({ type:z.literal('clear_applications'), confirmation:z.literal('CLEAR_APPLICATIONS') }).strict(),
@@ -131,6 +132,23 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const {type:_,...details}=action;
     state.accountProfile = {...state.accountProfile,...details,completedAt:at};
     message = 'Your account profile is saved. Open your workspace to review your CV and explore jobs.';
+  } else if(action.type==='draft_employer_answers'){
+    const cv=selectedCv(state),questions=state.accountProfile?.employerQuestions||[];
+    if(!cv||state.resumeReview?.source?.fileId!==cv.id||!state.profile.resumeText.trim())throw new DomainError('Select and review a readable CV before generating answers.',409);
+    if(action.questionId&&!questions.some(q=>q.id===action.questionId))throw new DomainError('That saved question is no longer available.',404);
+    let generated=0,needsYou=0,preserved=0;
+    for(const item of questions){
+      if(action.questionId&&item.id!==action.questionId||!openEndedQuestion(item.question,item.fieldType))continue;
+      if(item.source==='user'){preserved++;continue;}
+      const job=state.jobs.find(job=>job.id===item.jobId);
+      const context=job||{title:state.accountProfile?.targetRole||'advertised',company:'',description:'',skills:state.profile.skills};
+      const policy=[context.description,...questions.filter(q=>q.jobId===item.jobId).map(q=>q.question)].filter(employerRestrictsAi).join(' ');
+      const drafted=draftEmployerProse(item.question,item.fieldType,state.profile.resumeText,context,policy);
+      item.generationNote=drafted.reason;item.updatedAt=at;
+      if(!drafted.answer){needsYou++;if(item.source==='cv_and_job'){item.answer='';item.status='needs_details';item.source='missing';}continue;}
+      item.answer=drafted.answer;item.evidence=drafted.evidence;item.source='cv_and_job';item.status='answered';item.aiDraft=true;item.jobSpecific=true;item.reusePolicy='job_only';generated++;
+    }
+    message=`Generated ${generated} CV-grounded draft${generated===1?'':'s'}. ${preserved} saved answer${preserved===1?' was':'s were'} kept. ${needsYou} question${needsYou===1?' needs':'s need'} your own wording or more CV evidence. No application was queued or submitted.`;
   } else if(action.type==='save_employer_answer'){
     const item=state.accountProfile?.employerQuestions?.find(q=>q.id===action.questionId);
     if(!item)throw new DomainError('That saved question is no longer available.',404);
@@ -138,7 +156,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const reference=manualAnswerOnly(item.question,[...matches.flatMap(row=>row.options),action.answer]);
     for(const row of matches){
       row.jobSpecific=false;row.reusePolicy=reference?'manual_only':'exact_question';
-      row.answer=action.answer;row.source='user';row.status=action.answer?'answered':'needs_details';
+      row.aiDraft=row.aiDraft||row.source==='cv_and_job';row.answer=action.answer;row.source='user';row.status=action.answer?'answered':'needs_details';
       row.evidence=reference?'Personal reference supplied in Account Profile; not automatic verification or employer consent.':'Answer supplied directly in Account Profile for this question across employers.';
       row.updatedAt=at;delete row.originRequestId;
     }

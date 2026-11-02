@@ -486,6 +486,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 report["cover_letter"] = plan.get("cover_letter", "")
                 unresolved = list(plan.get("unresolved") or [])
                 answers = {a["field_id"]: a for a in plan.get("answers", [])}
+                if plan.get('ai_drafting_allowed') is False and any(item.get('source')=='employer_policy' for item in unresolved):
+                    report['unresolved']=unresolved;report['ai_drafting_allowed']=False
+                    raise ApplicationAttention('This employer asks for no AI-written application answers. Add your own wording for the marked questions; no AI draft was used.')
                 form_interaction = True
                 handled_confirmed = set()
                 expected_values = {}

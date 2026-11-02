@@ -110,7 +110,7 @@ def test_generated_answer_is_filled_automatically_without_approval():
     from application_agent.reasoning import build_plan
     question='Why are you interested in this role?'
     html=FORM.replace('{extra}',f'<label>{question}<textarea name="motivation" required></textarea></label>')
-    result,posts=run(html,planner=build_plan)
+    result,posts=run(html,planner=build_plan,payload={**PAYLOAD,'cv':{**PAYLOAD['cv'],'text':PAYLOAD['cv']['text']+'\nInvestigated SIEM alerts using Splunk.'}})
     assert result['status']=='applied' and len(posts)==1,result
     answer=next(a for a in result['report']['answers'] if a.get('source')=='cv_and_job')
     assert answer['automatic'] and answer['value'].encode() in posts[0]
@@ -491,3 +491,12 @@ def test_an_earlier_employers_saved_answer_fills_the_next_employers_dropdown():
     assert result['status']=='applied' and len(posts)==1
     assert b'name="tool"\r\n\r\nYes' in posts[0]
     assert any(a['source']=='saved_profile' and a['value']=='Yes' for a in result['report']['answers'])
+
+
+def test_employer_no_ai_question_pauses_before_an_automatic_draft_or_submit():
+    from application_agent.reasoning import build_plan
+    q='Why are you interested? Please do not use AI or ChatGPT for any part of this application.'
+    result,posts=run(FORM.replace('{extra}',f'<label>{q}<textarea name="why" required></textarea></label>'),planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    assert any(item.get('source')=='employer_policy' for item in result['report']['unresolved'])
+    assert not any(answer.get('source')=='cv_and_job' for answer in result['report']['answers'])

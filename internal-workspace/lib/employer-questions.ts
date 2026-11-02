@@ -1,5 +1,5 @@
 import type {State,ApplicationRequest} from './cyber-domain';
-export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;options:string[];jobTitle?:string;company?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
+export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;options:string[];jobTitle?:string;company?:string;aiDraft?:boolean;generationNote?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
 export const isAutomationCheck=(question:string,choices:string[]=[])=>[question,...choices].some(text=>/\b(?:are you (?:a |an )?(?:human|robot|bot)|i am (?:a |an )?(?:human|ai|robot|bot|automated program)|(?:verify|confirm|prove) (?:that )?you(?: are|'re) (?:a )?human|captcha)\b/i.test(text));
 export const questionNeedsDirectFacts=(q:string)=>/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|authori[sz]|visa|sponsor|citizen|nationality|right to work|salary|compensation|wage|clearance|criminal|convict|gender|race|ethnic|religion|disabil|veteran|birth|age|password|captcha|verification|security code)\w*\b/i.test(q);
 export const manualAnswerOnly=(question:string,choices:string[]=[])=>isAutomationCheck(question,choices)||/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|password|captcha|verification|security code)\w*\b/i.test(question)||/\bauthori[sz]\w*\b.*\b(?:process|store|share|collect|retain|contact|personal data)\b/i.test(question);
@@ -25,7 +25,7 @@ export function rememberEmployerQuestions(state:State,request:ApplicationRequest
   const answer=answers.find(a=>key(String(a.question||''))===key(question));
   const source=answer&&['cv','cv_and_job','edit_profile'].includes(String(answer.source))?answer.source as EmployerQuestion['source']:'missing';
   const value=answer&&typeof answer.value==='string'?answer.value.slice(0,2000):'';
-  const item:EmployerQuestion={id:old?.id||crypto.randomUUID(),question,fieldType,answer:value,source,evidence:answer?String(answer.evidence||'').slice(0,600):'Not established by the chosen CV or Account Profile.',status:value?'answered':'needs_details',jobSpecific:scoped,jobId:request.jobId,jobTitle:job?.title,company:job?.company,originRequestId:request.id,cvSha256:request.cvSha256,updatedAt:at,options:Array.isArray(row.options)?row.options.filter((v):v is string=>typeof v==='string').slice(0,15).map(v=>v.slice(0,200)):[]};
+  const item:EmployerQuestion={id:old?.id||crypto.randomUUID(),question,fieldType,answer:value,source,evidence:answer?String(answer.evidence||'').slice(0,600):'Not established by the chosen CV or Account Profile.',status:value?'answered':'needs_details',aiDraft:source==='cv_and_job',jobSpecific:scoped,jobId:request.jobId,jobTitle:job?.title,company:job?.company,originRequestId:request.id,cvSha256:request.cvSha256,updatedAt:at,options:Array.isArray(row.options)?row.options.filter((v):v is string=>typeof v==='string').slice(0,15).map(v=>v.slice(0,200)):[]};
   const size=used-(old?bytes(old):0)+bytes(item)+(!old&&bank.length?1:0);
   if(size>budget){omitted++;continue;}
   if(old)bank.splice(bank.indexOf(old),1);
@@ -33,4 +33,29 @@ export function rememberEmployerQuestions(state:State,request:ApplicationRequest
  }
  state.accountProfile.employerQuestions=bank;
  report.answerMemory={saved,omitted};
+}
+
+export const employerRestrictsAi=(text:string)=>/\b(?:do not|don['’]t|must not|avoid)\s+(?:use|using|submit|submitting|include|generate)\b.{0,100}\b(?:AI|ChatGPT|language models?)\b|\bwithout\s+(?:any\s+)?(?:AI|ChatGPT)\b|\bno\s+(?:AI|ChatGPT)[-\s]+(?:written|generated|assisted|content|answers?)\b|\b(?:AI|ChatGPT)\b.{0,70}\b(?:prohibited|not allowed|not permitted)\b/i.test(text.replace(/\s+/g,' '));
+export function openEndedQuestion(question:string,kind:string){
+ if(!['text','textarea'].includes(kind)||manualAnswerOnly(question)||questionNeedsDirectFacts(question)||/\b(?:email|phone|address|location|city|country|postal|zip|salary|compensation|github|linkedin|portfolio|date|years?|months?|how many|referr(?:al|ed)|hear about|heard about|favo(?:u)?rite|hobb(?:y|ies))\b/i.test(question))return false;
+ return /\b(?:why|describe|explain|tell|summari[sz]e|outline|approach|contribut|interested|interest|strength|challenge|motivat|anything else|work experience|relevant experience|professional summary|about (?:you|yourself)|personal statement|additional (?:information|info)|what|how)\w*\b/i.test(question);
+}
+export function draftEmployerProse(question:string,kind:string,cv:string,job:{title:string;company:string;description:string;skills:string[]},policyText=''){
+ if(!openEndedQuestion(question,kind))return {answer:'',evidence:'',reason:'Use your saved personal facts or your own factual answer for this question.'};
+ if(employerRestrictsAi(question+' '+policyText))return {answer:'',evidence:'',reason:'This employer asks you not to use AI-written application answers. Write and save this answer in your own words.'};
+ const lines=cv.split(/\r?\n/).map(line=>line.replace(/\s+/g,' ').trim().replace(/^[-•*]\s*/,''));
+ const evidence=lines.filter(line=>line.length>=20&&line.length<=500&&/\b(?:built|developed|configured|monitored|investigated|analy[sz]ed|managed|deployed|used|performed|conducted|secured|audited|supported|responded|triaged|tested|implemented|automated|assessed|designed|documented)\b/i.test(line)&&!/\b(?:no experience|never used|wish to|want to|learning to)\b/i.test(line));
+ if(!evidence.length)return {answer:'',evidence:'',reason:'The selected CV does not contain enough work evidence to draft a reliable answer.'};
+ const topic=/\bexperience\s+(?:with|in|using|as)\s+(.+?)[?.!]*$/i.exec(question)?.[1]?.trim();
+ if(topic&&!evidence.some(line=>line.toLowerCase().includes(topic.toLowerCase())))return {answer:'',evidence:'',reason:'The selected CV does not establish the specific experience this question asks about. Add your own accurate answer.'};
+ const words=new Set((question+' '+job.description).toLowerCase().match(/[a-z]{4,}/g)||[]);
+ const ranked=[...evidence].sort((a,b)=>(b.toLowerCase().match(/[a-z]{4,}/g)||[]).filter(w=>words.has(w)).length-(a.toLowerCase().match(/[a-z]{4,}/g)||[]).filter(w=>words.has(w)).length).slice(0,2);
+ const title=job.title.replace(/\s+/g,' ').slice(0,180),company=job.company.replace(/\s+/g,' ').slice(0,150);
+ const normalizedCv=' '+cv.toLowerCase().replace(/[^a-z0-9#+.]+/g,' ')+' ';
+ const skills=job.skills.filter(skill=>normalizedCv.includes(' '+skill.toLowerCase().replace(/[^a-z0-9#+.]+/g,' ').trim()+' ')).slice(0,4);
+ const focus=skills.length?skills.join(', '):'the responsibilities in the job posting';
+ const why=/\b(?:why|interest|motivat)\w*\b/i.test(question);
+ const intro=why?`I am interested in the ${title} role${company?' at '+company:''} because it connects my documented background with ${focus}.`:/\bhow (?:would|could|will)\b/i.test(question)?`For the ${title} role, I would start by understanding the team's priorities, reviewing the available evidence and agreeing on practical next steps.`:`A relevant part of my background for the ${title} role is the work described in my CV.`;
+ const ending=why?'I would bring that experience to the team, learn its operating procedures and use the role’s priorities to guide where I can contribute.':'I would use that documented experience to guide my approach, validate assumptions with the team and communicate the work clearly.';
+ return {answer:(intro+' My CV records: '+ranked.join(' ')+' '+ending).slice(0,2000),evidence:ranked.join('; ').slice(0,600),reason:''};
 }
