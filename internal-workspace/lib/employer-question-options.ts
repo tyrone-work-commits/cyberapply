@@ -1,5 +1,5 @@
 import {DomainError,record,type State,type Job} from './cyber-domain';
-import {rememberEmployerQuestions} from './employer-questions';
+import {rememberEmployerQuestions,employerQuestionKey} from './employer-questions';
 import {jsonFeed} from './job-discovery';
 
 export async function fetchEmployerQuestions(job:Job,fetcher:typeof fetch=fetch){
@@ -15,7 +15,7 @@ export async function fetchEmployerQuestions(job:Job,fetcher:typeof fetch=fetch)
   const field=q.fields.find((f:Record<string,unknown>)=>['input_text','textarea','multi_value_single_select','multi_value_multi_select'].includes(String(f?.type)));
   if(!field)continue;
   const values=Array.isArray(field.values)?field.values:[];
-  rows.push({question:q.label.trim().slice(0,4000),field_type:field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':field.type==='multi_value_multi_select'?'checkbox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label),optionsTruncated:values.length>100});
+  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':field.type==='multi_value_multi_select'?'checkbox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label),optionsTruncated:values.length>100});
  }
  return rows;
 }
@@ -27,6 +27,10 @@ export function mergeEmployerQuestionChoices(state:State,questionId:string,rows:
  if(!request)throw new DomainError('The original application is no longer available.',404);
  const report:Record<string,unknown>={questions:rows};
  rememberEmployerQuestions(state,request,report,at,true);
+ // The public feed may describe a phone input as plain text while the browser
+ // reports it as tel. Retain an established answer instead of an empty duplicate.
+ const bank=state.accountProfile!.employerQuestions!,freeText=(kind:string)=>['text','textarea','tel','email','url'].includes(kind);
+ for(let i=bank.length-1;i>=0;i--){const q=bank[i];if(q.source==='missing'&&!q.answer&&!q.options.length&&freeText(q.fieldType)&&bank.some(other=>other.id!==q.id&&other.jobId===q.jobId&&!!other.answer&&freeText(other.fieldType)&&employerQuestionKey(other.question)===employerQuestionKey(q.question)))bank.splice(i,1);}
  const counts=report.answerMemory as {saved:number;omitted:number};
  const message=`Refreshed employer questions and choices in Edit Profile (${counts.saved} updated${counts.omitted?`, ${counts.omitted} could not fit`:''}). Your existing answers are unchanged. No application was queued or submitted.`;
  record(state,'refresh_employer_question_choices',message,'interface',at);

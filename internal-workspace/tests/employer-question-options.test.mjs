@@ -19,3 +19,10 @@ test('merging a supported refresh preserves answers, outcomes and selected CV an
  assert.equal(s.accountProfile.employerQuestions[0].answer,'');assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'manual_only');assert.equal(s.accountProfile.employerQuestions[0].options.length,2);assert.deepEqual(s.applications,before);assert.equal(s.selectedCvId,'chosen');
  assert.throws(()=>mergeEmployerQuestionChoices(s,'other',[],'now'),/no longer available/);
 });
+
+test('public phone fields keep their control type and an empty text duplicate cannot shadow a saved phone answer',async()=>{
+ const rows=await fetchEmployerQuestions(job,async()=>Response.json({id:123,questions:[{label:'Phone',fields:[{name:'phone',type:'input_text'}]}]}));assert.equal(rows[0].field_type,'tel');
+ const s=emptyState(),base={question:'Phone*',source:'edit_profile',evidence:'Saved phone',status:'answered',jobSpecific:false,jobId:'job',options:[],updatedAt:'old'};
+ s.accountProfile={fullName:'QA',headline:'',targetRole:'Security',completedAt:'now',employerQuestions:[{...base,id:'saved',fieldType:'tel',answer:'+12345678901'},{...base,id:'empty',question:'Phone',fieldType:'text',source:'missing',answer:'',status:'needs_details'}]};s.jobs=[job];s.applications=[{id:'request',jobId:'job',status:'needs_attention'}];
+ mergeEmployerQuestionChoices(s,'saved',rows,'now');assert.deepEqual(s.accountProfile.employerQuestions.map(q=>q.id),['saved']);assert.equal(s.accountProfile.employerQuestions[0].answer,'+12345678901');
+});
