@@ -180,7 +180,9 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
-        if profile_key and kind not in {"password","hidden","file"}:
+        if remembered:
+            value,proof=remembered;source='saved_profile'
+        elif profile_key and kind not in {"password","hidden","file"}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)
             source="edit_profile"
         elif profile_key:
@@ -190,8 +192,6 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             source='cv';proof='LinkedIn profile URL extracted from the exact chosen CV.'
         elif user_supplied:
             value, source, proof = confirmed_value, "user_confirmed", confirmed_proof
-        elif remembered:
-            value,proof=remembered;source='saved_profile'
         elif kind not in {"password","hidden","file"} and not _UNSUPPORTED.search(question) and (match:=experience_answer(question,text,kind)):
             value,proof,generated=match
             source="cv_and_job" if generated else "cv"

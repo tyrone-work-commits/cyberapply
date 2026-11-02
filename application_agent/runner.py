@@ -71,6 +71,38 @@ def call_site(site, token, path, data=None, binary=False, site_access_token=None
         return raw if binary else json.loads(raw)
 
 
+def deliver_questions(site,token,task,report,site_access_token=None):
+    """Save the full question catalog before an oversized diagnostic is abbreviated.
+
+    Only metadata calls are retried. This never retries an employer or result POST.
+    """
+    answers={str(row.get('question','')).strip().casefold():row for row in report.get('answers',[]) if isinstance(row,dict)}
+    rows=[]
+    for question in report.get('questions',[]):
+        if not isinstance(question,dict):continue
+        label=str(question.get('question','')).strip();kind=str(question.get('field_type','text'))
+        if not label or len(label)>4000 or kind in {'file','password','hidden'} or re.search(r'password|captcha|verification code|security code|unlabelled field',label,re.I):continue
+        row={'question':label,'field_type':kind[:50],'options':[str(v)[:200] for v in question.get('options',[])[:15]]}
+        answer=answers.get(label.casefold(),{})
+        if answer.get('source') in {'cv','cv_and_job','edit_profile'} and isinstance(answer.get('value'),str):
+            row.update(value=answer['value'][:2000],source=answer['source'],evidence=str(answer.get('evidence',''))[:600])
+        rows.append(row)
+    batches=[];batch=[]
+    for row in rows:
+        if batch and (len(batch)>=100 or len(json.dumps(batch+[row]))>40000):batches.append(batch);batch=[]
+        batch.append(row)
+    if batch:batches.append(batch)
+    saved=omitted=failed=0
+    for batch in batches:
+        for attempt in range(2):
+            try:
+                result=call_site(site,token,'/api/application-agent/questions',{'requestId':task['requestId'],'claimId':task['claimId'],'questions':batch},site_access_token=site_access_token)
+                saved+=result.get('saved',0);omitted+=result.get('omitted',0);break
+            except Exception:
+                if attempt:failed+=len(batch)
+    return {'saved':saved,'omitted':omitted,'deliveryFailed':failed}
+
+
 def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None):
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
@@ -108,12 +140,14 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
     # This result POST is never automatically retried: retain the claim if delivery is uncertain.
     if len(json.dumps(result.get('report',{}))) > 55000:
         report=result['report']
+        memory=deliver_questions(site,token,task,report,site_access_token)
         result['report']={"experience":report.get('experience',{}),"unresolved":report.get('unresolved',[])[:30],
                           "cover_letter":str(report.get('cover_letter',''))[:12000],"answers":report.get('answers',[])[:10],
                           "recovery":report.get('recovery',{}),
                           "research":{"note":"Report abbreviated to fit the saved record; no additional answers were invented."}}
         if len(json.dumps(result['report'])) > 55000:
             result['report']={"note":"Detailed report exceeded the saved record limit.","experience":report.get('experience',{}),"recovery":report.get('recovery',{})}
+    if 'memory' in locals():result['report']['questionDelivery']=memory
     info=watch.recording_info if watch else None
     result.setdefault('report',{})['recording']={'capture':'ready' if info else 'unavailable',**({'durationSeconds':round(watch.recording.frames/8,3) if getattr(watch,'recording',None) else info['duration'],'parts':watch.recording.parts if getattr(watch,'recording',None) else 1,'partial':watch.recording.partial if getattr(watch,'recording',None) else info['partial']} if info else {})}
     try:

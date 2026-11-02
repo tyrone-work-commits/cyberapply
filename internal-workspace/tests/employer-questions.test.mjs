@@ -7,14 +7,38 @@ function state(){const s=emptyState();s.accountProfile={fullName:'QA',headline:'
 const report=()=>({questions:[{question:'Why this role?',field_type:'textarea'},{question:'Have you worked with Kubernetes?',field_type:'select',options:['Yes','No']}],answers:[{question:'Why this role?',field_type:'textarea',value:'I would use the incident response work in my CV.',source:'cv_and_job',evidence:'Investigated security alerts.'}],unresolved:[{question:'Have you worked with Kubernetes?'}]});
 test('encountered questions persist both grounded answers and missing facts with source evidence',()=>{const s=state(),r=report();rememberEmployerQuestions(s,request,r,at);assert.equal(s.accountProfile.employerQuestions.length,2);const prose=s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');assert.equal(prose.source,'cv_and_job');assert.equal(prose.jobSpecific,true);assert.equal(s.accountProfile.employerQuestions[0].status,'needs_details');assert.deepEqual(applicationProfile(s).employerQuestions,s.accountProfile.employerQuestions);});
 test('an explicit profile answer is reusable and not overwritten by later automatic reports',()=>{let s=state();rememberEmployerQuestions(s,request,report(),at);const q=s.accountProfile.employerQuestions[0];s=reduceAction(s,actionSchema.parse({type:'save_employer_answer',questionId:q.id,answer:'Yes'}),'interface',at).state;rememberEmployerQuestions(s,{...request,id:'later'},report(),at);const saved=s.accountProfile.employerQuestions.find(x=>x.id===q.id);assert.equal(saved.source,'user');assert.equal(saved.answer,'Yes');assert.equal(saved.originRequestId,undefined);});
-test('consent cannot be blanket-authorized through the profile question editor',()=>{const s=state();rememberEmployerQuestions(s,request,{questions:[{question:'I agree to privacy terms',field_type:'checkbox'}]},at);assert.throws(()=>reduceAction(s,{type:'save_employer_answer',questionId:s.accountProfile.employerQuestions[0].id,answer:'Yes'},'interface',at),/dedicated profile fields|consent/);});
+test('consent answers can be edited as references without authorizing employer consent',()=>{let s=state();rememberEmployerQuestions(s,request,{questions:[{question:'I agree to privacy terms',field_type:'checkbox'}]},at);s=reduceAction(s,{type:'save_employer_answer',questionId:s.accountProfile.employerQuestions[0].id,answer:'Yes'},'interface',at).state;assert.equal(s.accountProfile.employerQuestions[0].answer,'Yes');assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'manual_only');});
 test('credentials and unlabelled helper inputs are not saved; oversized memory cannot lose an application result',()=>{const s=state();rememberEmployerQuestions(s,request,{questions:[{question:'Password',field_type:'password'},{question:'Unlabelled field',field_type:'text'}]},at);assert.equal(s.accountProfile.employerQuestions.length,0);s.profile.resumeText='x'.repeat(1770000);const r=report();rememberEmployerQuestions(s,request,r,at);assert.ok(r.answerMemory.omitted>0);});
 test('history deletion removes learned copies but preserves independent user answers and missing-profile shape',async()=>{const {DatabaseSync}=await import('node:sqlite');const db=new DatabaseSync(':memory:');db.exec('CREATE TABLE test(payload TEXT)');const s=state();rememberEmployerQuestions(s,request,report(),at);s.accountProfile.employerQuestions.push({...s.accountProfile.employerQuestions[0],id:'user',source:'user',originRequestId:undefined});db.prepare('INSERT INTO test VALUES (?)').run(JSON.stringify(s));const q=deletionHistoryExpression(['request-one'],[],false);const row=db.prepare(`SELECT ${q.expression} AS value FROM test`).get(...q.params);assert.deepEqual(JSON.parse(row.value).accountProfile.employerQuestions.map(q=>q.id),['user']);db.prepare('UPDATE test SET payload=?').run(JSON.stringify(emptyState()));const noProfile=db.prepare(`SELECT ${q.expression} AS value FROM test`).get(...q.params);assert.equal(JSON.parse(noProfile.value).accountProfile,undefined);db.close();});
 
-test('automation checks stay visible but cannot become reusable human-identity answers',()=>{
- const s=state();const question='Which of the following best describes you?';
+test('automation reference answers remain editable but cannot become automatic verification',()=>{
+ let s=state();const question='Which of the following best describes you?';
  rememberEmployerQuestions(s,request,{questions:[{question,field_type:'combobox',options:['I am an AI, bot, or automated program.','I am a human.']}]},at);
- const q=s.accountProfile.employerQuestions[0];assert.equal(q.question,question);
- assert.throws(()=>reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:'I am a human.'},'interface',at),/automation verification/);
- q.options=[];assert.throws(()=>reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:'I am a human.'},'interface',at),/automation verification/);
+ const q=s.accountProfile.employerQuestions[0];s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:'I am a human.'},'interface',at).state;
+ assert.equal(s.accountProfile.employerQuestions[0].answer,'I am a human.');assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'manual_only');
+});
+test('all saved factual sources are editable without altering general profile values',()=>{
+ let s=state();s.accountProfile.city='Abuja';rememberEmployerQuestions(s,request,{questions:[{question:'City',field_type:'text'}],answers:[{question:'City',value:'Abuja',source:'edit_profile',evidence:'Saved city'}]},at);
+ const q=s.accountProfile.employerQuestions[0];s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:'Lagos'},'interface',at).state;
+ assert.equal(s.accountProfile.employerQuestions[0].answer,'Lagos');assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'exact_question');assert.equal(s.accountProfile.city,'Abuja');
+});
+test('salary and contextual eligibility answers are scoped to the original job',()=>{
+ let s=state();rememberEmployerQuestions(s,request,{questions:[{question:'Expected yearly salary USD',field_type:'number'},{question:'Do you need sponsorship for this role?',field_type:'select'}]},at);
+ for(const item of [...s.accountProfile.employerQuestions]){s=reduceAction(s,{type:'save_employer_answer',questionId:item.id,answer:item.fieldType==='number'?'90000':'No'},'interface',at).state;assert.equal(s.accountProfile.employerQuestions.find(q=>q.id===item.id).reusePolicy,'job_only');}
+});
+
+test('more than forty questions remain available and earlier user edits survive new reports',()=>{
+ let s=state();const rows=Array.from({length:85},(_,i)=>({question:`Optional employer question ${i}?`,field_type:'text'}));
+ rememberEmployerQuestions(s,request,{questions:rows},at);assert.equal(s.accountProfile.employerQuestions.length,85);
+ const first=s.accountProfile.employerQuestions.find(q=>q.question===rows[0].question);s=reduceAction(s,{type:'save_employer_answer',questionId:first.id,answer:'My edited answer'},'interface',at).state;
+ rememberEmployerQuestions(s,request,{questions:[...rows,{question:'Another optional question?',field_type:'text'}]},at);
+ assert.equal(s.accountProfile.employerQuestions.length,86);assert.equal(s.accountProfile.employerQuestions.find(q=>q.id===first.id).answer,'My edited answer');
+});
+test('the same job-specific question retains a separate answer for each job',()=>{
+ let s=state();for(const jobId of ['one','two']){rememberEmployerQuestions(s,{...request,jobId},{questions:[{question:'Why this role?',field_type:'textarea'}]},at);const q=s.accountProfile.employerQuestions.find(q=>q.jobId===jobId);s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:`Because of job ${jobId}`},'interface',at).state;}
+ assert.equal(s.accountProfile.employerQuestions.length,2);assert.deepEqual(new Set(s.accountProfile.employerQuestions.map(q=>q.answer)),new Set(['Because of job one','Because of job two']));
+});
+test('a full workspace retains old answers and reports new-question storage omissions',()=>{
+ const s=state();rememberEmployerQuestions(s,request,report(),at);const before=structuredClone(s.accountProfile.employerQuestions);s.profile.resumeText='x'.repeat(1770000);
+ const r={questions:[{question:'A new question?',field_type:'text'}]};rememberEmployerQuestions(s,request,r,at);assert.deepEqual(s.accountProfile.employerQuestions,before);assert.equal(r.answerMemory.omitted,1);
 });

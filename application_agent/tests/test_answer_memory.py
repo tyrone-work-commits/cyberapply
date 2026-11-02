@@ -10,9 +10,22 @@ class AnswerMemoryTests(unittest.TestCase):
  def test_generated_memory_is_not_a_new_fact_and_job_specific_text_does_not_transfer(self):
   q='Have you worked with Kubernetes?';p=self.payload(q,'Yes','select');p['applicantProfile']['employerQuestions'][0]['source']='cv_and_job';self.assertFalse(build_plan(p,[field(q,'select',options=['Yes','No'])])['answers'])
   q='Tell us your motivation';p=self.payload(q,'I would work for Company One.','textarea',jobSpecific=True,jobId='other');r=build_plan(p,[field(q,'textarea')]);self.assertTrue(all('Company One' not in a['value'] for a in r['answers']))
- def test_consent_and_work_permission_cannot_be_learned_from_generic_memory(self):
-  for q,kind in [('I agree to these privacy terms','checkbox'),('Are you authorized to work in USA?','select')]:
-   r=build_plan(self.payload(q,'Yes',kind),[field(q,kind,options=['Yes','No'])]);self.assertFalse(r['answers'])
+ def test_consent_remains_manual_but_explicit_eligibility_answers_are_reusable(self):
+  q='I agree to these privacy terms';r=build_plan(self.payload(q,'Yes','checkbox'),[field(q,'checkbox')]);self.assertFalse(r['answers'])
+  q='Are you authorized to work in USA?';r=build_plan(self.payload(q,'Yes','select'),[field(q,'select',options=['Yes','No'])]);self.assertEqual(r['answers'][0]['source'],'saved_profile');self.assertEqual(r['answers'][0]['value'],'Yes')
+ def test_edited_short_profile_answer_overrides_only_the_exact_question(self):
+  p=self.payload('City','Lagos');p['applicantProfile']['city']='Abuja'
+  r=build_plan(p,[field('City'),field('Location (City)')]);answers={a['field_id']:a for a in r['answers']}
+  self.assertEqual(answers['City']['value'],'Lagos');self.assertEqual(answers['City']['source'],'saved_profile');self.assertEqual(answers['Location (City)']['value'],'Abuja')
+ def test_salary_edits_stay_bound_to_the_original_job(self):
+  q='Expected yearly salary USD';p=self.payload(q,'90000','number',jobId='one',reusePolicy='job_only')
+  self.assertEqual(build_plan(p,[field(q,'number')])['answers'][0]['value'],'90000')
+  p['job']['id']='other';self.assertFalse(build_plan(p,[field(q,'number')])['answers'])
+ def test_manual_reference_is_never_used_as_an_automatic_answer(self):
+  q='Do you require sponsorship for this role?';p=self.payload(q,'No','select',reusePolicy='manual_only')
+  self.assertFalse(build_plan(p,[field(q,'select',options=['Yes','No'])])['answers'])
+ def test_case_insensitive_explicit_choice_matches_the_actual_dropdown(self):
+  q='Are you authorized to work in USA?';r=build_plan(self.payload(q,'yes','select'),[field(q,'select',options=['Yes','No'])]);self.assertEqual(r['answers'][0]['value'],'Yes')
  def test_changed_choices_and_ambiguous_labels_do_not_inherit_old_answers(self):
   q='Have you worked with Kubernetes?';p=self.payload(q,'Yes','select');self.assertFalse(build_plan(p,[field(q,'select',options=['Experienced','New to this'])])['answers'])
   r=build_plan(p,[field(q,'select',options=['Yes','No']),field(q,'select',options=['Yes','No'])]);self.assertFalse(r['answers'])
@@ -25,3 +38,14 @@ class AnswerMemoryTests(unittest.TestCase):
  def test_ai_experience_question_is_not_misclassified_as_human_verification(self):
   from application_agent.answer_memory import automation_check
   self.assertFalse(automation_check('Have you worked with AI tools?',['Yes','No']))
+
+ def test_answers_beyond_forty_are_reused_and_job_scopes_disambiguate(self):
+  q='Expected yearly salary USD';p=self.payload(q,'90000','number',jobId='one',reusePolicy='job_only')
+  row=p['applicantProfile']['employerQuestions'][0]
+  p['applicantProfile']['employerQuestions']=[{**row,'question':f'Other question {i}'} for i in range(60)]+[{**row,'jobId':'two','answer':'80000'},row]
+  self.assertEqual(build_plan(p,[field(q,'number')])['answers'][0]['value'],'90000')
+
+ def test_same_question_in_other_control_does_not_hide_a_compatible_saved_answer(self):
+  q='Have you worked with Kubernetes?';p=self.payload(q,'Yes','select')
+  p['applicantProfile']['employerQuestions'].append({'question':q,'answer':'Different text answer','source':'user','fieldType':'textarea'})
+  self.assertEqual(build_plan(p,[field(q,'select',options=['Yes','No'])])['answers'][0]['value'],'Yes')

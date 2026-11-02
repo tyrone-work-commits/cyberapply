@@ -3,7 +3,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
 import { CANDIDATE_FACTS_ENABLED } from './features';
-import type {EmployerQuestion} from './employer-questions';
+import {manualAnswerOnly,jobBoundAnswer,type EmployerQuestion} from './employer-questions';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -134,10 +134,13 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if(action.type==='save_employer_answer'){
     const item=state.accountProfile?.employerQuestions?.find(q=>q.id===action.questionId);
     if(!item)throw new DomainError('That saved question is no longer available.',404);
-    if([item.question,...item.options,action.answer].some(text=>/\b(?:are you (?:a |an )?(?:human|robot|bot)|i am (?:a |an )?(?:human|ai|robot|bot|automated program)|(?:verify|confirm|prove) (?:that )?you(?: are|'re) (?:a )?human|captcha)\b/i.test(text)))throw new DomainError('Employer automation verification cannot be saved as a reusable answer. Complete the employer check yourself.');
-    if(/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|authori[sz]|visa|sponsor|citizen|nationality|right to work|salary|compensation|wage|clearance|criminal|convict|gender|race|ethnic|religion|disabil|veteran|birth|age|password|captcha|verification|security code)\w*\b/i.test(item.question)||item.source==='edit_profile')throw new DomainError('Use the dedicated profile fields or the employer-specific consent step for this question.');
-    item.answer=action.answer;item.source='user';item.status=action.answer?'answered':'needs_details';item.evidence='Answer supplied directly in Account Profile.';item.updatedAt=at;delete item.originRequestId;
-    message='Answer saved for reuse with this exact question. Job-specific answers remain scoped to their original job.';
+    const reference=manualAnswerOnly(item.question,[...item.options,action.answer]);
+    item.jobSpecific=item.jobSpecific||jobBoundAnswer(item.question);
+    item.reusePolicy=reference?'manual_only':item.jobSpecific?'job_only':'exact_question';
+    item.answer=action.answer;item.source='user';item.status=action.answer?'answered':'needs_details';
+    item.evidence=reference?'Personal reference supplied in Account Profile; not automatic verification or employer consent.':'Answer supplied directly in Account Profile for this exact question.';
+    item.updatedAt=at;delete item.originRequestId;
+    message=reference?'Reference answer saved. The agent still pauses for employer verification or consent.':item.jobSpecific?'Answer saved for this exact question in its original job.':'Answer saved. The agent will use it for this exact question when its control and offered choices match.';
   } else if (action.type === 'complete_tutorial') {
     state.tutorialCompletedAt ||= at;
     message = 'Tutorial saved. You can replay it from Settings.';

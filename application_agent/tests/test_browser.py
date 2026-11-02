@@ -449,3 +449,34 @@ def test_private_live_video_captures_actual_browser_without_extra_submission():
         assert base64.b64decode(videos[0]['data'])[4:8]==b'ftyp'
         assert any(base64.b64decode(item['data'])[4:8]==b'moof' for item in videos if item['kind']=='segment')
     finally:watch.close()
+
+
+def test_edited_employer_answers_override_the_exact_real_form_controls():
+    from application_agent.reasoning import build_plan
+    rights='Are you authorized to work in USA?'
+    profile={'city':'Abuja','usaRightToWork':False,'employerQuestions':[
+        {'question':'City','answer':'Lagos','source':'user','fieldType':'text','reusePolicy':'exact_question'},
+        {'question':rights,'answer':'Yes','source':'user','fieldType':'select','options':['Yes','No'],'reusePolicy':'exact_question'}]}
+    payload={**PAYLOAD,'applicantProfile':profile}
+    html=FORM.replace('{extra}',f'<label>City<input name="city" required></label><label>{rights}<select name="rights" required><option value="">Select</option><option>Yes</option><option>No</option></select></label>')
+    result,posts=run(html,payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert b'Lagos' in posts[0] and b'Yes' in posts[0]
+    assert profile['city']=='Abuja' and profile['usaRightToWork'] is False
+    assert all(a['source']=='saved_profile' for a in result['report']['answers'] if a['question'] in {'City',rights})
+
+
+def test_manual_reference_consent_does_not_submit_an_employer_opt_in():
+    from application_agent.reasoning import build_plan
+    q='I agree to these privacy terms'
+    payload={**PAYLOAD,'applicantProfile':{'employerQuestions':[{'question':q,'answer':'Yes','source':'user','fieldType':'checkbox','reusePolicy':'manual_only'}]}}
+    result,posts=run(FORM.replace('{extra}',f'<label><input name="consent" type="checkbox" required>{q}</label>'),payload=payload,planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+
+
+def test_optional_unanswered_questions_are_in_the_saved_question_catalog():
+    from application_agent.reasoning import build_plan
+    question='What optional training would you like to discuss?'
+    result,posts=run(FORM.replace('{extra}',f'<label>{question}<input name="training"></label>'),planner=build_plan)
+    assert len(posts)==1
+    assert any(q['question']==question and q['field_type']=='text' for q in result['report']['questions'])

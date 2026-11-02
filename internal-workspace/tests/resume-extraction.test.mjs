@@ -5,7 +5,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {zipSync,strToU8} from 'fflate';
 import {strongCV,pdfCV,docxCV} from './resume-fixtures.mjs';
 await mkdir('.sites-runtime/resume-tests',{recursive:true});
-for(const name of ['features','candidate-facts','cover-letter','cyber-domain','resume-extraction']){
+for(const name of ['employer-questions','features','candidate-facts','cover-letter','cyber-domain','resume-extraction']){
  const source=(await readFile(`lib/${name}.ts`,'utf8')).replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'");
  await writeFile(`.sites-runtime/resume-tests/${name}.mjs`,ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
 }

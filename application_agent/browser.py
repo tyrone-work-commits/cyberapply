@@ -468,15 +468,19 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             continue
                     raise ApplicationAttention("No supported application form was found, or it has too many fields to inspect reliably.")
                 journey.data['form_found']=True
-                known=report.setdefault('questions',[])
-                for field in fields:
-                    if field['type'] not in {'password','hidden'} and not any(q['question']==field['label'] and q['field_type']==field['type'] for q in known) and len(known)<100:
-                        known.append({'question':field['label'],'field_type':field['type'],'options':field.get('options',[])[:20]})
                 signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
                 step_identity=(tuple(frame.url for frame in frames),signature)
                 if step_identity in seen_steps:
                     raise ApplicationAttention("The employer form did not advance. Review its validation messages.")
                 seen_steps.add(step_identity)
+                # Include optional/unanswered labelled questions, not only filled controls.
+                questions=report.setdefault('questions',[])
+                known={(row['question'],row['field_type']) for row in questions}
+                for observed in fields:
+                    label=str(observed.get('label','')).strip();kind=str(observed.get('type','text'))
+                    if not label or kind in {'file','hidden','password'} or re.search(r'password|captcha|verification code|security code|unlabelled field',label,re.I):continue
+                    if (label,kind) not in known:
+                        questions.append({'question':label,'field_type':kind,'options':(observed.get('options') or [])[:15]});known.add((label,kind))
                 plan = planner(payload, fields, report["research"])
                 report["experience"] = plan.get("experience", {})
                 report["cover_letter"] = plan.get("cover_letter", "")
