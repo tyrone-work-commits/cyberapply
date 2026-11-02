@@ -10,7 +10,7 @@ def narrative_evidence(text):
         line=re.sub(r'\s+',' ',raw).strip()
         bullet=bool(re.match(r'^[-•*]\s+',line))
         line=re.sub(r'^[-•*]\s+','',line)
-        if not line or re.fullmatch(r'[A-Z\s&/()-]+',line) or re.match(r'^(?:github|linkedin|technologies|portfolio|livesite|key achievements)\s*:',line,re.I):
+        if not line or re.fullmatch(r'[A-Z\s&/()-]+',line) or (not bullet and re.match(r'^[^:.!?]{1,70}:\s',line)):
             if pending:statements.append(pending)
             pending=''
             continue

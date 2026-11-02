@@ -19,6 +19,10 @@ class WrappedCvDraftTests(unittest.TestCase):
     def test_dangling_fragment_is_not_a_work_claim(self):
         self.assertEqual(narrative_evidence('Built secure applications with'), [])
 
+    def test_skills_metadata_is_not_an_experience_claim(self):
+        cv = 'Managed Platforms: GitHub, Vercel\nBuilt Python applications.\n'
+        self.assertEqual(narrative_evidence(cv), ['Built Python applications.'])
+
 
 if __name__ == '__main__':
     unittest.main()

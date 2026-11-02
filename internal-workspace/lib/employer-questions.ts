@@ -48,7 +48,7 @@ function cvEvidenceStatements(cv:string){
  const flush=()=>{if(pending)statements.push(pending);pending='';};
  for(const raw of cv.split(/\r?\n/)){
   const line=raw.replace(/\s+/g,' ').trim(),bullet=/^[-•*]\s+/.test(line),text=line.replace(/^[-•*]\s+/,'');
-  if(!text||/^[A-Z\s&/()-]+$/.test(text)||/^(?:github|linkedin|technologies|portfolio|livesite|key achievements)\s*:/i.test(text)){flush();continue;}
+  if(!text||/^[A-Z\s&/()-]+$/.test(text)||(!bullet&&/^[^:.!?]{1,70}:\s/.test(text))){flush();continue;}
   if(bullet||(!pending&&action.test(text))||action.exec(text)?.index===0){flush();pending=text;}
   else if(pending)pending+=(pending.endsWith('-')?'':' ')+text;
   if(/[.!?]$/.test(pending))flush();

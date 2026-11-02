@@ -20,6 +20,12 @@ test('a dangling CV fragment is not promoted into a completed work claim',()=>{
  const r=draftEmployerProse('Why this role?','textarea','Built a secure service with',{title:'Security Engineer',company:'Fixture',description:'Security',skills:[]});
  assert.equal(r.answer,'');assert.match(r.reason,/enough work evidence/);
 });
+
+test('action words in skills metadata are not converted into work claims',()=>{
+ const cv='TECHNICAL SKILLS\nSecured Frameworks: Django, FastAPI, React\nDatabases & Data Security: PostgreSQL (secure\nconfigurations, parameterized queries)\nManaged Platforms: GitHub, Vercel\nEXPERIENCE\n• Built secure Python applications.\n• Implemented role-based access control.';
+ const r=draftEmployerProse('Why this role?','textarea',cv,{title:'Engineer',company:'Fixture',description:'Secured frameworks databases security managed platforms Python access control',skills:['Python']});
+ assert.match(r.answer,/I built secure Python applications\./);assert.doesNotMatch(r.answer,/I secured Frameworks|Databases &|I managed Platforms|parameterized queries/);
+});
 function state(){const s=emptyState();s.accountProfile={fullName:'QA',headline:'',targetRole:'SOC',completedAt:at};return s;}
 const report=()=>({questions:[{question:'Why this role?',field_type:'textarea'},{question:'Have you worked with Kubernetes?',field_type:'select',options:['Yes','No']}],answers:[{question:'Why this role?',field_type:'textarea',value:'I would use the incident response work in my CV.',source:'cv_and_job',evidence:'Investigated security alerts.'}],unresolved:[{question:'Have you worked with Kubernetes?'}]});
 test('encountered questions persist both grounded answers and missing facts with source evidence',()=>{const s=state(),r=report();rememberEmployerQuestions(s,request,r,at);assert.equal(s.accountProfile.employerQuestions.length,2);const prose=s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');assert.equal(prose.source,'cv_and_job');assert.equal(prose.jobSpecific,true);assert.equal(s.accountProfile.employerQuestions[0].status,'needs_details');assert.deepEqual(applicationProfile(s).employerQuestions,s.accountProfile.employerQuestions);});
