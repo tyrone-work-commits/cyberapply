@@ -21,7 +21,7 @@ current=(await call('/api/workspace')).data;eq(current.state.accountProfile.empl
 const q=current.state.accountProfile.employerQuestions.find(q=>q.question.includes('Kubernetes'));
 await act({type:'save_employer_answer',questionId:q.id,answer:'Yes'});
 eq(current.state.accountProfile.employerQuestions.find(item=>item.id===q.id).source,'user');
-for(const [question,answer,policy] of [['City','Lagos','exact_question'],['Do you require sponsorship for this role?','No','job_only'],['I agree to privacy terms','Yes','manual_only'],['Which of the following best describes you?','I am a human.','manual_only']]){
+for(const [question,answer,policy] of [['City','Lagos','exact_question'],['Do you require sponsorship for this role?','No','exact_question'],['I agree to privacy terms','Yes','manual_only'],['Which of the following best describes you?','I am a human.','manual_only']]){
  const row=current.state.accountProfile.employerQuestions.find(q=>q.question===question);
  await act({type:'save_employer_answer',questionId:row.id,answer});eq(current.state.accountProfile.employerQuestions.find(q=>q.id===row.id).reusePolicy,policy);
 }
@@ -37,4 +37,10 @@ eq((await call('/api/application-agent/result',{method:'POST',headers:worker,bod
 eq((await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'application',applicationId:task.requestId,confirmation:'PERMANENTLY DELETE'}})).status,200);
 current=(await call('/api/workspace')).data;eq(current.state.accountProfile.employerQuestions.length,5);eq(current.state.accountProfile.employerQuestions[0].source,'user');
 const old=(await call('/api/history?revision='+learnedRevision)).data;eq(old.state.accountProfile.employerQuestions.length,0);
+await act({type:'add_job',title:'Second SOC Analyst',company:'Different fixture employer',location:'Remote',workMode:'Remote',url:'https://another-fixture.example/'+owner,description:'A second fictional employer verifies global saved answers. No employer is contacted.',skills:['Splunk']});
+const secondJob=current.state.jobs.find(job=>job.company==='Different fixture employer');await act({type:'decide_job',jobId:secondJob.id,decision:'apply'});
+const different=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+eq(different.job.id,secondJob.id);const globalAnswer=different.applicantProfile.employerQuestions.find(q=>q.question==='Do you require sponsorship for this role?');eq(globalAnswer.answer,'No');eq(globalAnswer.reusePolicy,'exact_question');eq(globalAnswer.jobSpecific,false);
+eq((await call('/api/application-agent/authorize',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId}})).status,200);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId,status:'needs_attention',message:'Second fictional employer checked; no real submission.'}})).status,200);
 console.log(`PASS ${count} question-memory HTTP checks: learning, persistence, manual fact reuse, profile saves, owner isolation, claim snapshots, stale-answer revocation and historical erasure.`);

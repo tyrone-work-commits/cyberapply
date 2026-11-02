@@ -3,7 +3,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
 import { CANDIDATE_FACTS_ENABLED } from './features';
-import {manualAnswerOnly,jobBoundAnswer,type EmployerQuestion} from './employer-questions';
+import {manualAnswerOnly,employerQuestionKey,answerControlGroup,type EmployerQuestion} from './employer-questions';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -134,13 +134,15 @@ export function reduceAction(before: State, action: Action, source: Activity['so
   } else if(action.type==='save_employer_answer'){
     const item=state.accountProfile?.employerQuestions?.find(q=>q.id===action.questionId);
     if(!item)throw new DomainError('That saved question is no longer available.',404);
-    const reference=manualAnswerOnly(item.question,[...item.options,action.answer]);
-    item.jobSpecific=item.jobSpecific||jobBoundAnswer(item.question);
-    item.reusePolicy=reference?'manual_only':item.jobSpecific?'job_only':'exact_question';
-    item.answer=action.answer;item.source='user';item.status=action.answer?'answered':'needs_details';
-    item.evidence=reference?'Personal reference supplied in Account Profile; not automatic verification or employer consent.':'Answer supplied directly in Account Profile for this exact question.';
-    item.updatedAt=at;delete item.originRequestId;
-    message=reference?'Reference answer saved. The agent still pauses for employer verification or consent.':item.jobSpecific?'Answer saved for this exact question in its original job.':'Answer saved. The agent will use it for this exact question when its control and offered choices match.';
+    const matches=state.accountProfile!.employerQuestions!.filter(row=>employerQuestionKey(row.question)===employerQuestionKey(item.question)&&answerControlGroup(row.fieldType)===answerControlGroup(item.fieldType));
+    const reference=manualAnswerOnly(item.question,[...matches.flatMap(row=>row.options),action.answer]);
+    for(const row of matches){
+      row.jobSpecific=false;row.reusePolicy=reference?'manual_only':'exact_question';
+      row.answer=action.answer;row.source='user';row.status=action.answer?'answered':'needs_details';
+      row.evidence=reference?'Personal reference supplied in Account Profile; not automatic verification or employer consent.':'Answer supplied directly in Account Profile for this question across employers.';
+      row.updatedAt=at;delete row.originRequestId;
+    }
+    message=reference?'Reference answer saved. The agent still pauses for employer verification or consent.':'Answer saved for all employers. The agent will reuse it wherever this question appears and the offered choices match.';
   } else if (action.type === 'complete_tutorial') {
     state.tutorialCompletedAt ||= at;
     message = 'Tutorial saved. You can replay it from Settings.';

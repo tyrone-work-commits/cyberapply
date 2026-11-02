@@ -480,3 +480,14 @@ def test_optional_unanswered_questions_are_in_the_saved_question_catalog():
     result,posts=run(FORM.replace('{extra}',f'<label>{question}<input name="training"></label>'),planner=build_plan)
     assert len(posts)==1
     assert any(q['question']==question and q['field_type']=='text' for q in result['report']['questions'])
+
+
+def test_an_earlier_employers_saved_answer_fills_the_next_employers_dropdown():
+    from application_agent.reasoning import build_plan
+    question='Have you used Kubernetes professionally?'
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'id':'new-employer'},'applicantProfile':{'employerQuestions':[{'question':question,'answer':'Yes','source':'user','fieldType':'radio','jobSpecific':True,'jobId':'previous-employer','reusePolicy':'job_only'}]}}
+    extra=f'<label>{question}*<select name="tool" required><option value="">Choose</option><option>Yes</option><option>No</option></select></label>'
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1
+    assert b'name="tool"\r\n\r\nYes' in posts[0]
+    assert any(a['source']=='saved_profile' and a['value']=='Yes' for a in result['report']['answers'])

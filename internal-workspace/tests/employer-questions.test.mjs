@@ -22,9 +22,9 @@ test('all saved factual sources are editable without altering general profile va
  const q=s.accountProfile.employerQuestions[0];s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:'Lagos'},'interface',at).state;
  assert.equal(s.accountProfile.employerQuestions[0].answer,'Lagos');assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'exact_question');assert.equal(s.accountProfile.city,'Abuja');
 });
-test('salary and contextual eligibility answers are scoped to the original job',()=>{
+test('saved salary and contextual eligibility answers are reusable across employers',()=>{
  let s=state();rememberEmployerQuestions(s,request,{questions:[{question:'Expected yearly salary USD',field_type:'number'},{question:'Do you need sponsorship for this role?',field_type:'select'}]},at);
- for(const item of [...s.accountProfile.employerQuestions]){s=reduceAction(s,{type:'save_employer_answer',questionId:item.id,answer:item.fieldType==='number'?'90000':'No'},'interface',at).state;assert.equal(s.accountProfile.employerQuestions.find(q=>q.id===item.id).reusePolicy,'job_only');}
+ for(const item of [...s.accountProfile.employerQuestions]){s=reduceAction(s,{type:'save_employer_answer',questionId:item.id,answer:item.fieldType==='number'?'90000':'No'},'interface',at).state;assert.equal(s.accountProfile.employerQuestions.find(q=>q.id===item.id).reusePolicy,'exact_question');}
 });
 
 test('more than forty questions remain available and earlier user edits survive new reports',()=>{
@@ -34,9 +34,18 @@ test('more than forty questions remain available and earlier user edits survive 
  rememberEmployerQuestions(s,request,{questions:[...rows,{question:'Another optional question?',field_type:'text'}]},at);
  assert.equal(s.accountProfile.employerQuestions.length,86);assert.equal(s.accountProfile.employerQuestions.find(q=>q.id===first.id).answer,'My edited answer');
 });
-test('the same job-specific question retains a separate answer for each job',()=>{
- let s=state();for(const jobId of ['one','two']){rememberEmployerQuestions(s,{...request,jobId},{questions:[{question:'Why this role?',field_type:'textarea'}]},at);const q=s.accountProfile.employerQuestions.find(q=>q.jobId===jobId);s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:`Because of job ${jobId}`},'interface',at).state;}
- assert.equal(s.accountProfile.employerQuestions.length,2);assert.deepEqual(new Set(s.accountProfile.employerQuestions.map(q=>q.answer)),new Set(['Because of job one','Because of job two']));
+test('a saved answer is preserved when a different employer reports the same question',()=>{
+ let s=state();rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'}]},at);
+ const q=s.accountProfile.employerQuestions[0];s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:'I enjoy security investigations.'},'interface',at).state;
+ rememberEmployerQuestions(s,{...request,jobId:'two'},{questions:[{question:'Why this role?*',field_type:'text'}]},at);
+ assert.equal(s.accountProfile.employerQuestions.length,1);assert.equal(s.accountProfile.employerQuestions[0].jobSpecific,false);assert.equal(s.accountProfile.employerQuestions[0].answer,'I enjoy security investigations.');
+});
+test('saving synchronizes legacy copies across jobs and compatible controls without changing personal facts',()=>{
+ let s=state();s.accountProfile.city='Abuja';rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'}]},at);const first=s.accountProfile.employerQuestions[0];
+ s.accountProfile.employerQuestions.push({...first,id:'old-other-job',question:'Why this role?*',fieldType:'text',jobId:'two',source:'user',answer:'An older answer',reusePolicy:'job_only'});
+ s=reduceAction(s,{type:'save_employer_answer',questionId:first.id,answer:'My reusable answer'},'interface',at).state;
+ assert.equal(s.accountProfile.employerQuestions.length,2);for(const q of s.accountProfile.employerQuestions){assert.equal(q.answer,'My reusable answer');assert.equal(q.jobSpecific,false);assert.equal(q.reusePolicy,'exact_question');assert.equal(q.originRequestId,undefined);}
+ assert.equal(s.accountProfile.city,'Abuja');
 });
 test('a full workspace retains old answers and reports new-question storage omissions',()=>{
  const s=state();rememberEmployerQuestions(s,request,report(),at);const before=structuredClone(s.accountProfile.employerQuestions);s.profile.resumeText='x'.repeat(1770000);
