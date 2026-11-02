@@ -58,9 +58,9 @@ test('bulk drafts open-ended questions using chosen-CV evidence, preserving manu
  const manual=s.accountProfile.employerQuestions.find(q=>q.question==='Describe your strengths');s=reduceAction(s,{type:'save_employer_answer',questionId:manual.id,answer:'My own saved response'},'interface',at).state;
  const result=reduceAction(s,actionSchema.parse({type:'draft_employer_answers'}),'interface',at);const draft=result.state.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');assert.equal(draft.aiDraft,true);assert.equal(draft.source,'cv_and_job');assert.match(draft.answer,/Splunk/);assert.match(draft.evidence,/Investigated/);assert.equal(result.state.accountProfile.employerQuestions.find(q=>q.id===manual.id).answer,'My own saved response');assert.equal(result.state.accountProfile.employerQuestions.find(q=>q.question==='City').answer,'');assert.equal(result.state.applications?.length||0,0);
 });
-test('no-AI employer questions are flagged for own wording, including clearing an earlier generated answer',()=>{
+test('ordinary no-AI wording no longer blocks generated profile drafts',()=>{
  let s=draftState();const q='Why this role? Please do not use AI/ChatGPT for any part of this application.';rememberEmployerQuestions(s,request,{questions:[{question:q,field_type:'textarea'}],answers:[{question:q,value:'Old generated draft',source:'cv_and_job'}]},at);
- s=reduceAction(s,{type:'draft_employer_answers'},'interface',at).state;const item=s.accountProfile.employerQuestions[0];assert.equal(item.answer,'');assert.match(item.generationNote,/own words/);assert.equal(item.status,'needs_details');
+ s=reduceAction(s,{type:'draft_employer_answers'},'interface',at).state;const item=s.accountProfile.employerQuestions[0];assert.match(item.answer,/Splunk/);assert.equal(item.generationNote,'');assert.equal(item.aiDraft,true);assert.equal(item.status,'answered');
 });
 test('draft generation refuses a missing or mismatched selected CV',()=>{const s=draftState();s.resumeReview.source.fileId='another';assert.throws(()=>reduceAction(s,{type:'draft_employer_answers'},'interface',at),/Select and review/);});
 
@@ -68,4 +68,14 @@ test('a generated draft retains its provenance when saved for reuse, and unsuppo
  let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'},{question:'Describe your experience with Kubernetes',field_type:'textarea'}]},at);
  s=reduceAction(s,{type:'draft_employer_answers'},'interface',at).state;const q=s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');s=reduceAction(s,{type:'save_employer_answer',questionId:q.id,answer:q.answer},'interface',at).state;
  assert.equal(s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?').aiDraft,true);assert.equal(s.accountProfile.employerQuestions.find(q=>q.question.includes('Kubernetes')).answer,'');
+});
+
+test('an explicit per-question generation can replace a saved answer while bulk generation preserves it',()=>{
+ let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Why this role?',field_type:'textarea'}]},at);const id=s.accountProfile.employerQuestions[0].id;s=reduceAction(s,{type:'save_employer_answer',questionId:id,answer:'My older answer'},'interface',at).state;
+ assert.equal(reduceAction(s,{type:'draft_employer_answers'},'interface',at).state.accountProfile.employerQuestions[0].answer,'My older answer');
+ s=reduceAction(s,{type:'draft_employer_answers',questionId:id},'interface',at).state;assert.match(s.accountProfile.employerQuestions[0].answer,/Splunk/);assert.equal(s.accountProfile.employerQuestions[0].aiDraft,true);
+});
+test('authorship declarations remain manual references, distinct from ordinary no-AI wording',()=>{
+ let s=draftState();rememberEmployerQuestions(s,request,{questions:[{question:'Did you use AI for this application?',field_type:'select',options:['Yes','No']}]},at);
+ s=reduceAction(s,{type:'save_employer_answer',questionId:s.accountProfile.employerQuestions[0].id,answer:'No'},'interface',at).state;assert.equal(s.accountProfile.employerQuestions[0].reusePolicy,'manual_only');
 });

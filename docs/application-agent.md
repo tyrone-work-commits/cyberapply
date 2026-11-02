@@ -306,3 +306,12 @@ Employer requests for no AI/ChatGPT-written application answers are recognized i
 Checks: shared Python planner/unit regression suite; focused browser fixtures for automatic prose, automatic cover-letter upload and a no-AI pause; 25 domain/question/agent tests and final question checks; 51 fictional-owner HTTP checks for profile drafting, persistence, owner isolation, no-AI notices, stale-answer revocation and deletion; TypeScript and production build. Browser UI created two grounded fictional drafts and flagged a separate no-AI question without contacting an employer. No real application is submitted as part of this update.
 
 Worker follow-up: optional no-AI prose can remain blank without blocking a complete form; required no-AI prose still needs the applicant’s own text. If a later page introduces a no-AI restriction after generated prose was used earlier, the worker pauses for review before continuing. Focused unit/browser fixtures verified required versus optional behavior without contacting an employer.
+
+
+## Owner override for ordinary no-AI wording — 2 November 2026
+
+Supersedes v76's content-only no-AI drafting pause, at the owner's explicit request. Ordinary “do not use AI/ChatGPT” wording in a narrative prompt or job description no longer blocks CV-grounded drafting, cover-letter generation, reuse or filling. Removed the corresponding profile notices and browser pause path. Generated origin/evidence remain visible; no authorship is misrepresented and no model API/service was added.
+
+Generate open-ended drafts still preserves explicit saved answers in bulk. Generate new CV-based draft on one question explicitly replaces that question's earlier answer, retaining revision history; other answers stay unchanged. Old content-only no-AI generation notes are cleared on regeneration/save. CV evidence, personal-fact safeguards, missing-fact pauses, consent, human verification, destination authorization, receipt requirements and duplicate prevention remain. Actual authorship declarations (for example, certifying no AI was used) are separate manual factual statements and cannot be automatically filled with a false claim.
+
+Verified with the agent unit suite, 27 question/domain/agent tests, intercepted browser forms for drafting/filling despite no-AI wording and for truthful authorship/consent pauses, TypeScript and production build. Fictional-owner HTTP checks cover regenerated drafts, preservation, ownership and unchanged application outcomes. No employer submission is authorized by this update alone.

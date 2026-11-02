@@ -9,8 +9,14 @@ def key(question):return re.sub(r'\s+',' ',str(question)).strip().rstrip(' *').c
 def automation_check(question,choices=()):
     return any(re.search(r"\b(?:are you (?:a |an )?(?:human|robot|bot)|i am (?:a |an )?(?:human|ai|robot|bot|automated program)|(?:verify|confirm|prove) (?:that )?you(?: are|'re) (?:a )?human|captcha)\b",str(text),re.I) for text in [question,*choices])
 
+def authorship_check(question):
+    text=re.sub(r'\s+',' ',str(question))
+    certification=re.search(r"\b(?:confirm|certify|attest|declare|acknowledge)\b.{0,100}\b(?:AI|ChatGPT|own words|original work|independently written)\b",text,re.I)
+    direct=re.search(r"^(?:(?:did|have) you (?:ever )?(?:use|used)\b|(?:was|were|is|are) (?:any of )?(?:your|this|the|these|all) (?:application|answers?|responses?|submission|cover.?letter)\b)",text,re.I)
+    return bool(certification or direct and re.search(r'\b(?:AI|ChatGPT)\b',text,re.I) and re.search(r'\b(?:application|answers?|responses?|submission|cover.?letter)\b',text,re.I))
+
 def remembered_answer(payload,question,field):
-    if not question.strip() or re.search(r'\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|password|captcha|verification|security code)\w*\b',question,re.I) or re.search(r'\bauthori[sz]\w*\b.*\b(?:process|store|share|collect|retain|contact|personal data)\b',question,re.I) or field.get('type') in {'file','hidden','password'}:return None
+    if authorship_check(question) or not question.strip() or re.search(r'\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|password|captcha|verification|security code)\w*\b',question,re.I) or re.search(r'\bauthori[sz]\w*\b.*\b(?:process|store|share|collect|retain|contact|personal data)\b',question,re.I) or field.get('type') in {'file','hidden','password'}:return None
     rows=(payload.get('applicantProfile') or {}).get('employerQuestions') or []
     kind=field.get('type','text')
     def group(control):return 'choice' if control in {'select','radio','combobox','checkbox'} else 'text' if control in {'text','textarea'} else control

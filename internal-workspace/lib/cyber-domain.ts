@@ -3,7 +3,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
 import { CANDIDATE_FACTS_ENABLED } from './features';
-import {manualAnswerOnly,employerQuestionKey,answerControlGroup,draftEmployerProse,openEndedQuestion,employerRestrictsAi,type EmployerQuestion} from './employer-questions';
+import {manualAnswerOnly,employerQuestionKey,answerControlGroup,draftEmployerProse,openEndedQuestion,type EmployerQuestion} from './employer-questions';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -139,11 +139,10 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     let generated=0,needsYou=0,preserved=0;
     for(const item of questions){
       if(action.questionId&&item.id!==action.questionId||!openEndedQuestion(item.question,item.fieldType))continue;
-      if(item.source==='user'){preserved++;continue;}
+      if(item.source==='user'&&!action.questionId){if(item.generationNote?.includes('not to use AI-written'))delete item.generationNote;preserved++;continue;}
       const job=state.jobs.find(job=>job.id===item.jobId);
       const context=job||{title:state.accountProfile?.targetRole||'advertised',company:'',description:'',skills:state.profile.skills};
-      const policy=[context.description,...questions.filter(q=>q.jobId===item.jobId).map(q=>q.question)].filter(employerRestrictsAi).join(' ');
-      const drafted=draftEmployerProse(item.question,item.fieldType,state.profile.resumeText,context,policy);
+      const drafted=draftEmployerProse(item.question,item.fieldType,state.profile.resumeText,context);
       item.generationNote=drafted.reason;item.updatedAt=at;
       if(!drafted.answer){needsYou++;if(item.source==='cv_and_job'){item.answer='';item.status='needs_details';item.source='missing';}continue;}
       item.answer=drafted.answer;item.evidence=drafted.evidence;item.source='cv_and_job';item.status='answered';item.aiDraft=true;item.jobSpecific=true;item.reusePolicy='job_only';generated++;
@@ -158,7 +157,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       row.jobSpecific=false;row.reusePolicy=reference?'manual_only':'exact_question';
       row.aiDraft=row.aiDraft||row.source==='cv_and_job';row.answer=action.answer;row.source='user';row.status=action.answer?'answered':'needs_details';
       row.evidence=reference?'Personal reference supplied in Account Profile; not automatic verification or employer consent.':'Answer supplied directly in Account Profile for this question across employers.';
-      row.updatedAt=at;delete row.originRequestId;
+      row.updatedAt=at;delete row.originRequestId;delete row.generationNote;
     }
     message=reference?'Reference answer saved. The agent still pauses for employer verification or consent.':'Answer saved for all employers. The agent will reuse it wherever this question appears and the offered choices match.';
   } else if (action.type === 'complete_tutorial') {

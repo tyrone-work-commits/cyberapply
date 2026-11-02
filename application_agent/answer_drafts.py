@@ -28,7 +28,3 @@ def narrative_draft(question,text,job,contribution):
         ranked=sorted(evidence,key=lambda line:-len(words.intersection(re.findall(r'\b[a-z]{4,}\b',line.casefold()))))[:2]
         return 'My CV describes the following relevant work: '+' '.join(ranked)+' '+contribution
     return None
-
-
-def employer_restricts_ai(text):
-    return bool(re.search(r"\b(?:do not|don['’]t|must not|avoid)\s+(?:use|using|submit|submitting|include|generate)\b.{0,100}\b(?:AI|ChatGPT|language models?)\b|\bwithout\s+(?:any\s+)?(?:AI|ChatGPT)\b|\bno\s+(?:AI|ChatGPT)[-\s]+(?:written|generated|assisted|content|answers?)\b|\b(?:AI|ChatGPT)\b.{0,70}\b(?:prohibited|not allowed|not permitted)\b",re.sub(r'\s+',' ',str(text)),re.I))

@@ -493,18 +493,17 @@ def test_an_earlier_employers_saved_answer_fills_the_next_employers_dropdown():
     assert any(a['source']=='saved_profile' and a['value']=='Yes' for a in result['report']['answers'])
 
 
-def test_employer_no_ai_question_pauses_before_an_automatic_draft_or_submit():
+def test_no_ai_wording_does_not_prevent_filling_a_grounded_answer():
     from application_agent.reasoning import build_plan
     q='Why are you interested? Please do not use AI or ChatGPT for any part of this application.'
-    result,posts=run(FORM.replace('{extra}',f'<label>{q}<textarea name="why" required></textarea></label>'),planner=build_plan)
-    assert result['status']=='needs_attention' and not posts
-    assert any(item.get('source')=='employer_policy' for item in result['report']['unresolved'])
-    assert not any(answer.get('source')=='cv_and_job' for answer in result['report']['answers'])
-
-
-def test_optional_no_ai_question_is_left_blank_without_an_unnecessary_pause():
-    from application_agent.reasoning import build_plan
-    q='Anything else? Please do not use AI or ChatGPT for your response.'
-    result,posts=run(FORM.replace('{extra}',f'<label>{q}<textarea name="extra"></textarea></label>'),planner=build_plan)
+    payload={**PAYLOAD,'cv':{**PAYLOAD['cv'],'text':PAYLOAD['cv']['text']+'\nInvestigated security alerts using Splunk.'}}
+    result,posts=run(FORM.replace('{extra}',f'<label>{q}<textarea name="why" required></textarea></label>'),planner=build_plan,payload=payload)
     assert result['status']=='applied' and len(posts)==1
-    assert not any(answer.get('source')=='cv_and_job' for answer in result['report']['answers'])
+    assert any(answer.get('source')=='cv_and_job' for answer in result['report']['answers'])
+
+def test_authorship_declaration_is_not_automatically_certified_as_no_ai():
+    from application_agent.reasoning import build_plan
+    q='I certify these application answers were written without AI'
+    result,posts=run(FORM.replace('{extra}',f'<label><input name="authorship" type="checkbox" required>{q}</label>'),planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    assert any(item.get('source')=='authorship' for item in result['report']['unresolved']),result

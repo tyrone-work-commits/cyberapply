@@ -9,8 +9,8 @@ import calendar
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from .profile_answers import profile_field, saved_profile_answer, place_key
-from .answer_drafts import experience_answer, narrative_draft, employer_restricts_ai
-from .answer_memory import remembered_answer, automation_check
+from .answer_drafts import experience_answer, narrative_draft
+from .answer_memory import remembered_answer, automation_check, authorship_check
 from html import unescape
 import re
 from urllib.parse import urlsplit
@@ -167,14 +167,15 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
     cover_letter = f"Dear {company} hiring team,\n\nI am applying for {title}. "
     cover_letter += ("My CV includes the following relevant work: " + " ".join(evidence) + "\n\n") if evidence else "Please consider the experience and qualifications in my attached CV.\n\n"
     cover_letter += contribution + "\n\nI would welcome the opportunity to discuss how this background fits your team's needs.\n\nKind regards,\n" + (str((payload.get("applicantProfile") or {}).get("fullName") or facts["name"] or "Applicant"))
-    ai_restricted=any(employer_restricts_ai(value) for value in [str(job.get('description','')),*[str(field.get('label','')) for field in fields]])
-    if ai_restricted:cover_letter=''
     answers, unresolved = [], []
     for field in fields[:100]:
         question = str(field.get("label", "")).strip()
         normalized = re.sub(r"\s+", " ", question.lower()).strip(" *:?!")
         kind, value, source, proof = field.get("type", "text"), None, "cv", ""
         user_supplied, confirmed_value, confirmed_proof = _confirmed(payload, question, field)
+        if authorship_check(question):
+            unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'authorship','reason':'Answer this authorship declaration accurately. Generated text must not be certified as written without AI.'})
+            continue
         if automation_check(question,[*(field.get('options') or []),confirmed_value or '']):
             unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'verification','reason':'This employer question identifies human versus automated form completion. Complete this verification yourself; a profile answer cannot bypass it.'})
             continue
@@ -182,7 +183,6 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
-        if ai_restricted and remembered and any(row.get('aiDraft') and _question_key(str(row.get('question','')))==_question_key(question) for row in (payload.get('applicantProfile') or {}).get('employerQuestions',[])):remembered=None
         if remembered:
             value,proof=remembered;source='saved_profile'
         elif profile_key and kind not in {"password","hidden","file"}:
@@ -232,11 +232,6 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         if not value and not profile_key and not linkedin_field and not user_supplied and kind in {"text","textarea"} and not _UNSUPPORTED.search(question) and not re.search(r"experience (?:with|in|using|as)|have you (?:used|worked with)",question,re.I):
             draft=narrative_draft(question,text,job,contribution)
             if draft:value,source,proof=draft,"cv_and_job","CV evidence and selected role; generated under the user's automatic-answer instruction."
-        policy_blocked=ai_restricted and (source=='cv_and_job' and value or employer_restricts_ai(question) and not value or kind=='file' and re.search(r'cover.?letter',question,re.I) and not user_supplied)
-        if policy_blocked:
-            value=None
-            if field.get('required'):unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'employer_policy','reason':'This employer asks for no AI-written application answers. Write this answer yourself; an automatic draft will not be used.'})
-            continue
         if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
             options = field.get("options") or []
@@ -257,4 +252,4 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
                 reason = confirmed_proof
             unresolved.append({"field_id": field.get("id"), "question": question, "field_type":kind,"reason": reason, **({"source":"edit_profile","profile_field":profile_key} if profile_key else {})})
     return {"answers": answers, "unresolved": unresolved, "cover_letter": cover_letter, "experience": experience,
-            "research_sources": research.get("sources", []), "method": "cv_evidence_saved_edit_profile_and_company_research", "ai_drafting_allowed":not ai_restricted}
+            "research_sources": research.get("sources", []), "method": "cv_evidence_saved_edit_profile_and_company_research", "ai_drafting_allowed":True}

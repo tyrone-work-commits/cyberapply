@@ -45,21 +45,21 @@ class OpenEndedTests(unittest.TestCase):
  def test_new_open_ended_wording_is_drafted_automatically_from_cv(self):
   for question in ['What interests you most about this opportunity?','What are your professional strengths?','Is there anything else you would like us to know?']:
    result=plan([field(question,'textarea')]);self.assertFalse(result['unresolved']);self.assertTrue(result['answers'][0]['automatic']);self.assertIn('Splunk',result['answers'][0]['value'])
- def test_employer_no_ai_question_never_uses_a_generated_answer(self):
+ def test_no_ai_wording_does_not_block_a_grounded_generated_answer(self):
   q='Why are you interested in this role at Chainguard? (While we love AI please do not use AI/ ChatGPT for any part of your application)'
-  result=plan([field(q,'textarea')]);self.assertFalse(result['answers']);self.assertFalse(result['ai_drafting_allowed']);self.assertEqual(result['cover_letter'],'');self.assertEqual(result['unresolved'][0]['source'],'employer_policy')
- def test_employer_no_ai_policy_applies_to_other_questions_and_cover_letters(self):
+  result=plan([field(q,'textarea')]);self.assertTrue(result['answers'][0]['automatic']);self.assertTrue(result['ai_drafting_allowed']);self.assertTrue(result['cover_letter']);self.assertFalse(result['unresolved'])
+ def test_job_description_no_ai_wording_does_not_block_prose_or_cover_letters(self):
   fields=[field('Why this role?','textarea'),field('Cover letter','file')]
   result=plan(fields,job={'title':'SOC Analyst','company':'Example','description':'Please do not use ChatGPT for this application.'})
-  self.assertFalse(result['answers']);self.assertTrue(all(row['source']=='employer_policy' for row in result['unresolved']))
+  self.assertEqual(len(result['answers']),2);self.assertTrue(all(row['automatic'] for row in result['answers']))
  def test_no_ai_policy_does_not_replace_an_applicants_own_supplied_text(self):
   q='Why this role? Please do not use AI for your answer.'
   result=plan([field(q,'textarea')],confirmedAnswers=[{'question':q,'value':'My own personally written answer for this employer.'}])
   self.assertEqual(result['answers'][0]['value'],'My own personally written answer for this employer.')
- def test_saved_generated_draft_cannot_be_laundered_into_a_no_ai_form(self):
+ def test_a_saved_draft_remains_usable_when_the_employer_mentions_no_ai(self):
   q='Why this role?';profile={'employerQuestions':[{'question':q,'answer':'An earlier generated draft','source':'user','fieldType':'textarea','aiDraft':True}]}
   result=plan([field(q,'textarea')],job={'title':'SOC Analyst','description':'Do not use AI for any answers.'},applicantProfile=profile)
-  self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['source'],'employer_policy')
+  self.assertEqual(result['answers'][0]['value'],'An earlier generated draft');self.assertEqual(result['answers'][0]['source'],'saved_profile')
  def test_personal_unknowns_and_referral_facts_remain_uninvented(self):
   for q in ['How did you hear about us?','What is your favourite hobby?','What is your date of birth?']:
    self.assertFalse(plan([field(q,'textarea')])['answers'])
@@ -72,12 +72,18 @@ class CommonProsePromptsTests(unittest.TestCase):
  def test_summary_and_experience_explanations_use_actual_cv_evidence(self):
   for q in ['Professional summary','Relevant experience','Do you have experience with Splunk? Please explain.']:
    result=plan([field(q,'textarea')]);self.assertFalse(result['unresolved']);self.assertIn('Splunk',result['answers'][0]['value'])
- def test_no_ai_policy_is_recognized_across_line_breaks(self):
-  result=plan([field('Why this role? Please do not use\nAI or ChatGPT.','textarea')]);self.assertFalse(result['answers']);self.assertFalse(result['ai_drafting_allowed'])
+ def test_no_ai_wording_across_line_breaks_does_not_disable_drafting(self):
+  result=plan([field('Why this role? Please do not use\nAI or ChatGPT.','textarea')]);self.assertTrue(result['answers'][0]['automatic']);self.assertTrue(result['ai_drafting_allowed'])
 
 class OptionalRestrictedProseTests(unittest.TestCase):
- def test_optional_no_ai_question_can_stay_blank(self):
+ def test_optional_no_ai_wording_also_receives_a_grounded_draft(self):
   result=plan([field('Anything else? Please do not use AI for your response.','textarea',required=False)])
-  self.assertFalse(result['answers']);self.assertFalse(result['unresolved']);self.assertFalse(result['ai_drafting_allowed'])
+  self.assertTrue(result['answers'][0]['automatic']);self.assertFalse(result['unresolved']);self.assertTrue(result['ai_drafting_allowed'])
+
+class AuthorshipDeclarationTests(unittest.TestCase):
+ def test_authorship_certifications_cannot_be_generated_or_falsely_reused(self):
+  for q in ['I certify these answers were written without AI','Did you use AI for this application?','Are your answers AI generated?']:
+   result=plan([field(q,'select',options=['Yes','No'])],applicantProfile={'employerQuestions':[{'question':q,'answer':'No','source':'user','fieldType':'select'}]})
+   self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['source'],'authorship')
 
 if __name__=='__main__':unittest.main()
