@@ -5,6 +5,8 @@ import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-dom
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
 import { ApplicationDeleteDialog, type DeleteTarget } from './application-delete-dialog';
 import { ReceiptCheckPanel } from './receipt-check-panel';
+import type {EmployerQuestion} from '@/lib/employer-questions';
+import {applicationQuestionChoices} from '@/lib/application-question-choices';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -17,7 +19,8 @@ function sourceName(job?: Job) {
 function timestamp(value:string){return new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});}
 const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['applied','Applied'],['check_outcome','Awaiting confirmation']];
 
-export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,receiptChecksEnabled,onReceiptsChanged}:{
+export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,receiptChecksEnabled,onReceiptsChanged,employerQuestions=[]}:{
+ employerQuestions?:EmployerQuestion[];
  receiptChecksEnabled:boolean;onReceiptsChanged:()=>Promise<void>;
  applications:ApplicationRequest[];jobs:Job[];drafts:Draft[];files:Attachment[];selectedCvId?:string;agentEnabled:boolean;lastSeenAt?:string;busy:boolean;
  onRefresh:(id:string)=>Promise<void>;onChooseCv:()=>void;onExplore:()=>void;onQueue:(id:string)=>Promise<void>;onAnswer:(id:string,answers:{question:string;value:string}[])=>Promise<boolean>;
@@ -65,7 +68,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
     {!!progress.actionEvidence.length&&<section className="application-detail-section" aria-label="Recorded agent actions"><h4>Recorded agent actions</h4><ul>{progress.actionEvidence.map(text=><li key={text}>{text}</li>)}</ul></section>}
     <dl className="application-request-facts"><div><dt>CV for this application</dt><dd>{application.cv?.name||'No CV attached'}{application.cv&&!attachedFile&&<small>Original file unavailable</small>}</dd></div><div><dt>Vacancy source</dt><dd>{sourceName(job)}{sourceUrl&&<a href={sourceUrl} target="_blank" rel="noopener noreferrer">View vacancy<ExternalLink size={12}/></a>}</dd></div><div><dt>Requested</dt><dd>{timestamp(application.at)}</dd></div></dl>
     {progress.group==='applied'&&<div className="application-confirmation"><ShieldCheck size={19}/><div><strong>{application.receiptVerification?'Employer email verified':'Confirmation saved'}</strong><p>{application.result?.receipt||confirmation?.text}</p>{confirmationUrl&&<a href={confirmationUrl} target="_blank" rel="noopener noreferrer">{application.receiptVerification?'Open employer receipt in Gmail':'Open confirmation page'}<ExternalLink size={12}/></a>}<small>{application.receiptVerification?`Matched the role, employer, recipient, date and authenticated sender. Received ${timestamp(application.receiptVerification.receivedAt)}.`:'The browser agent recorded this evidence. Check your email for any employer follow-up.'}</small></div></div>}
-    {application.status==='needs_attention'&&<ApplicationQuestionAnswers key={`${application.id}-${application.result?.at||''}`} application={application} busy={busy} onSave={answers=>onAnswer(application.id,answers)}/>}
+    {application.status==='needs_attention'&&<ApplicationQuestionAnswers key={`${application.id}-${application.result?.at||''}`} application={application} employerQuestions={employerQuestions} busy={busy} onSave={answers=>onAnswer(application.id,answers)}/>}
     {!!application.confirmedAnswers?.length&&<details className="application-saved-draft"><summary>Review your saved answers ({application.confirmedAnswers.length})</summary><dl>{application.confirmedAnswers.map((answer,index)=><div className="application-detail-section" key={`${answer.question}-${index}`}><dt><strong>{answer.question}</strong></dt><dd style={{margin:0,whiteSpace:'pre-wrap'}}>{answer.value}</dd></div>)}</dl></details>}
     <div className="application-overview-actions">
      {application.agentVersion===2&&<><a id={'watch-live-'+application.id} className="button quiet" href={'/application-watch?request='+encodeURIComponent(application.id)} target="_blank" rel="noopener noreferrer" title="Watch live (opens in a new tab)"><Eye size={15}/>Watch live<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a><a id={'watch-recording-'+application.id} className="button quiet" href={'/application-watch?request='+encodeURIComponent(application.id)+'&mode=recording'} target="_blank" rel="noopener noreferrer" title="Watch recording (opens in a new tab)"><Eye size={15}/>Watch recording<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a></>}
@@ -88,24 +91,30 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
  </section>;
 }
 
-function ApplicationQuestionAnswers({application,busy,onSave}:{application:ApplicationRequest;busy:boolean;onSave:(answers:{question:string;value:string}[])=>Promise<boolean>}){
+function ApplicationQuestionAnswers({application,busy,onSave,employerQuestions}:{application:ApplicationRequest;employerQuestions:EmployerQuestion[];busy:boolean;onSave:(answers:{question:string;value:string}[])=>Promise<boolean>}){
  const raw=Array.isArray(application.report?.unresolved)?application.report.unresolved:[];
  const questions=[...new Map(raw.filter(item=>item&&typeof item==='object'&&typeof (item as Record<string,unknown>).question==='string').map(item=>{
   const entry=item as Record<string,unknown>,question=String(entry.question).slice(0,1000);
-  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:'',profile:entry.source==='edit_profile',generated:entry.source==='generated',suggestion:typeof entry.suggested_value==='string'?entry.suggested_value:'',evidence:typeof entry.evidence==='string'?entry.evidence:''}] as const;
+  return [question,{question,reason:typeof entry.reason==='string'?entry.reason:'',profile:entry.source==='edit_profile',generated:entry.source==='generated',suggestion:typeof entry.suggested_value==='string'?entry.suggested_value:'',evidence:typeof entry.evidence==='string'?entry.evidence:'',...applicationQuestionChoices(application,entry,employerQuestions)}] as const;
  })).values()].filter(item=>item.question.trim()).slice(0,40);
  const [values,setValues]=useState<Record<string,string>>(()=>Object.fromEntries(questions.filter(item=>!item.profile).map(item=>[item.question,application.confirmedAnswers?.find(answer=>answer.question===item.question)?.value||item.suggestion])));
  const [confirmed,setConfirmed]=useState(false);
  const [saving,setSaving]=useState(false),[saved,setSaved]=useState(false);
  const answers=questions.filter(item=>!item.profile).map(item=>({question:item.question,value:(values[item.question]||'').trim()})).filter(item=>item.value);
+ const invalidChoice=questions.some(item=>!item.profile&&item.isDropdown&&!!values[item.question]&&!item.options.includes(values[item.question]));
+ const update=(question:string,value:string)=>{setValues({...values,[question]:value});setConfirmed(false);setSaved(false);};
  if(!questions.length)return null;
-  return <form className="application-question-answers" onSubmit={async event=>{event.preventDefault();if(busy||saving||!confirmed||!answers.length)return;setSaving(true);try{if(await onSave(answers)){setSaved(true);setConfirmed(false);}}finally{setSaving(false);}}}>
+  return <form className="application-question-answers" onSubmit={async event=>{event.preventDefault();if(busy||saving||!confirmed||!answers.length||invalidChoice)return;setSaving(true);try{if(await onSave(answers)){setSaved(true);setConfirmed(false);}}finally{setSaving(false);}}}>
   <h4>{questions.some(item=>item.generated)?'Generated answers need your approval':'Answer this employer’s questions'}</h4>
   <p className="subtle">These answers are saved for this application only. Read each question carefully and enter only facts you can confirm. Leave an answer blank if you are unsure; the agent will keep that question paused.</p>
-  {questions.map((item,index)=>item.profile?<div key={item.question}><strong>{item.question}</strong><p className="subtle">{item.reason}</p><a className="button quiet" href="/onboarding">Update Edit Profile</a></div>:<label key={item.question} htmlFor={`application-answer-${application.id}-${index}`}>{item.question}{item.generated&&<span className="badge">AGENT DRAFT · REVIEW REQUIRED</span>}<textarea id={`application-answer-${application.id}-${index}`} rows={item.generated?5:2} maxLength={20000} value={values[item.question]||''} disabled={busy||saving} onChange={event=>{setValues({...values,[item.question]:event.target.value});setConfirmed(false);setSaved(false);}}/>{item.reason&&<span className="label-hint">{item.reason}</span>}{item.generated&&item.evidence&&<span className="label-hint">Basis: {item.evidence}</span>}</label>)}
+  {questions.map((item,index)=>{
+   const inputId=`application-answer-${application.id}-${index}`,value=values[item.question]||'';
+   const dropdown=<select id={inputId} value={value} disabled={busy||saving||item.profile||!item.options.length} onChange={event=>update(item.question,event.target.value)}><option value="">{item.options.length?'Choose an option':'Employer choices not yet captured'}</option>{!!value&&!item.options.includes(value)&&<option value={value} disabled>Previous answer (review required): {value}</option>}{item.options.map((option,i)=><option key={i} value={option}>{option}</option>)}</select>;
+   return item.profile?<div key={item.question}><label htmlFor={item.isDropdown?inputId:undefined}><strong>{item.question}</strong>{item.isDropdown&&dropdown}</label><p className="subtle">{item.reason}</p><a className="button quiet" href="/onboarding?edit=1">Update Edit Profile</a></div>:<label key={item.question} htmlFor={inputId}>{item.question}{item.generated&&<span className="badge">AGENT DRAFT · REVIEW REQUIRED</span>}{item.isDropdown?dropdown:<textarea id={inputId} rows={item.generated?5:2} maxLength={20000} value={value} disabled={busy||saving} onChange={event=>update(item.question,event.target.value)}/>}{item.isDropdown&&!item.options.length&&<span className="label-hint">Open Edit Profile and refresh employer choices, or complete this question on the employer’s website.</span>}{item.isDropdown&&!!value&&!item.options.includes(value)&&<span className="label-hint">Your previous answer is not in this employer’s choices. Select a current option before saving.</span>}{item.truncated&&<span className="label-hint">First 100 captured choices shown. Check the employer website for any additional options.</span>}{item.reason&&<span className="label-hint">{item.reason}</span>}{item.generated&&item.evidence&&<span className="label-hint">Basis: {item.evidence}</span>}</label>;
+  })}
   <p className="subtle">For a checkbox or consent question, enter “Yes” only if you personally agree to its exact wording above for this employer. Enter “No” to decline. The agent will not choose an opt-in for you.</p>
   <label className="check-label"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event=>setConfirmed(event.target.checked)}/><span>I have reviewed these exact answers and approve the agent using them. I confirm that they are accurate. Any “Yes” I entered for a consent or checkbox question is my explicit choice for that exact question in this application.</span></label>
-  <button type="submit" className="button quiet" disabled={busy||saving||!confirmed||!answers.length}><Check size={16}/>{saving?'Saving approval…':'Approve and save answers'}</button>
+  <button type="submit" className="button quiet" disabled={busy||saving||!confirmed||!answers.length||invalidChoice}><Check size={16}/>{saving?'Saving approval…':'Approve and save answers'}</button>
   <p className="subtle" role="status">{saved?'Your answers are saved. Continue with my answers will use these exact responses.':'Update missing details in Edit Profile, or save the other answers above. Then queue the agent again.'}</p>
  </form>;
 }
