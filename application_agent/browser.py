@@ -599,20 +599,24 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         continue
                     if kind == "combobox":
                         from .profile_answers import profile_field, saved_profile_answer
-                        from .answer_drafts import experience_answer
                         normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
                         unique=sum(f['type']=='combobox' and normalize(f['label'])==normalize(field['label']) for f in fields)==1
                         permitted=bool(unique and exact_confirmed(field,answer))
                         if unique and answer and answer.get('source')=='edit_profile' and profile_field(field['label']):
                             expected,_,_=saved_profile_answer(payload,field['label'],field)
-                            permitted=expected is not None and expected==answer.get('value')
+                            from .choice_matching import unique_option
+                            mapped=unique_option(field['label'],expected,field.get('options') or [],payload.get('applicantProfile') or {}) if expected is not None and field.get('options') else expected
+                            permitted=mapped is not None and mapped==answer.get('value')
                         elif unique and answer and answer.get('source')=='saved_profile':
                             from .answer_memory import remembered_answer
                             remembered=remembered_answer(payload,field['label'],field)
                             permitted=bool(remembered and remembered[0]==answer.get('value'))
                         elif unique and answer and answer.get('source')=='cv':
-                            known=experience_answer(field['label'],str(cv.get('text','')),'select')
-                            permitted=bool(known and not known[2] and known[0]==answer.get('value'))
+                            # Recompute from the exact chosen CV, not an arbitrary
+                            # planner assertion or a previous employer's option.
+                            from .reasoning import build_plan
+                            known=build_plan(payload,[field]).get('answers',[])
+                            permitted=bool(len(known)==1 and known[0]['source']=='cv' and known[0]['value']==answer.get('value'))
                         try:
                             if answer and permitted:
                                 dropdown_issue=['']
@@ -644,7 +648,18 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         if kind == "select":
                             if value not in field["options"]:
                                 raise ApplicationAttention("A suggested answer does not match the employer's available choices.")
-                            recovery.run('select_native_option',lambda:same_question(lambda:control.select_option(label=value,timeout=min(timeout,3000))),field['id'])
+                            def select_native():
+                                choices=control.locator('option').evaluate_all("items=>items.filter(e=>!e.disabled&&!e.closest('optgroup[disabled]')).map(e=>e.text)")
+                                if choices.count(value)!=1:
+                                    raise DropdownAttention('No unique enabled employer option matches the saved answer.')
+                                control.select_option(label=value,timeout=min(timeout,3000))
+                                if control.evaluate("e=>e.selectedOptions[0]?.text||''")!=value:
+                                    raise TransientFormError('The employer dropdown did not retain the selected answer.')
+                            try:
+                                recovery.run('select_native_option',lambda:same_question(select_native),field['id'])
+                            except DropdownAttention as error:
+                                unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error),'source':'agent_recovery'})
+                                continue
                             expected_values[field['id']]=('select',value)
                         elif kind in ("text", "email", "tel", "url", "number", "textarea", "search", "date"):
                             def fill_saved():

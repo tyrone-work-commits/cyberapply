@@ -8,9 +8,10 @@ from __future__ import annotations
 import calendar
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from .profile_answers import profile_field, saved_profile_answer, place_key
+from .profile_answers import profile_field, saved_profile_answer
 from .answer_drafts import experience_answer, narrative_draft
 from .answer_memory import remembered_answer, automation_check, authorship_check
+from .choice_matching import unique_option
 from html import unescape
 import re
 from urllib.parse import urlsplit
@@ -236,8 +237,9 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         if value:
             options = field.get("options") or []
             if options:
-                match = next((str(option) for option in options if str(option).casefold().strip() == str(value).casefold().strip() or profile_key=='country' and place_key(option)==place_key(value)), None)
-                value = match
+                value = unique_option(question, value, options, payload.get('applicantProfile') or {},
+                    years=source=='cv' and experience['established'] and not experience['approximate'] and
+                    bool(re.search(r'years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?', normalized)))
             if value is not None:
                 answers.append({"field_id": field.get("id"), "value": str(value), "source": source, "evidence": proof or str(value),"field_type":kind,"automatic":source=='cv_and_job'})
                 continue

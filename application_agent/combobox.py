@@ -3,6 +3,7 @@ import re
 import time
 
 from .profile_answers import place_key, profile_field
+from .choice_matching import option_matches
 
 
 class DropdownAttention(Exception):
@@ -23,27 +24,6 @@ def _open_dropdown(control,timeout):
         if type(error).__name__!='TimeoutError':raise
     if control.get_attribute('aria-expanded')!='true':
         control.press('ArrowDown',timeout=min(timeout,1000))
-
-
-def option_matches(question, value, label, profile):
-    if _text(value) == _text(label):
-        return True
-    key = profile_field(question)
-    if key == 'country':
-        # Phone-country menus append a calling code to the actual country name.
-        country = re.sub(r'\s*\+\d[\d\s-]*$', '', label).strip()
-        return place_key(country) == place_key(value)
-    if key == 'city':
-        parts = [part.strip() for part in label.split(',')]
-        country = profile.get('country')
-        state = profile.get('state')
-        # Several cities can share a name within one country. The answer is
-        # still the saved City; saved State only distinguishes offered places.
-        if state and len(parts) >= 3 and _text(parts[-2]) != _text(state):
-            return False
-        return bool(len(parts) >= 2 and country and _text(parts[0]) == _text(value)
-                    and place_key(parts[-1]) == place_key(country))
-    return False
 
 
 _DISPLAY = """e => {

@@ -23,6 +23,12 @@ For a new checkout create a Python virtual environment and install `application_
 
 ## Operational boundaries
 
+### Dropdown matching — 2 November 2026
+
+Native selects and labelled single-choice ARIA dropdowns use the same fact-backed matching rules. City/country/state options can use equivalent country names and US state abbreviations, with saved State distinguishing cities sharing a name. The selected original CV supplies tool-experience evidence, professional links and dated cybersecurity duration. An unambiguous years-of-experience range can be selected only from an established, non-approximate CV duration. Total professional experience is not substituted for cybersecurity experience.
+
+The agent checks offered options, refuses duplicate/ambiguous/disabled choices, verifies the committed selection, and checks again before Continue/Submit. Custom dropdown answers are independently recomputed from the selected CV or current Account Profile before interaction. Missing facts, conditional options and verification challenges remain pauses. It does not choose the first option, invent skills, guess eligibility or retry a possibly delivered application. This is a background-runner update; the hosted interface and audience do not change.
+
 ### Remembered employer sign-in
 
 The Windows runner automatically attempts encrypted session reuse for the selected employer. It uses a dedicated agent browser context; it does not copy the user's personal Chrome profile. A CyberApply owner/site namespace and employer partition isolate sessions, including different employers on shared Greenhouse/Lever domains and embedded boards. Supported aliases for the same employer share a partition. Only allowed HTTPS-origin storage and matching cookies are retained. Session files are protected with current-user Windows DPAPI under the local agent's sessions folder, outside the repository. No password-input field, verification-code input, screenshot or sign-in transcript is recorded.
