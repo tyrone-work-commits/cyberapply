@@ -3,6 +3,23 @@ const dir='.sites-runtime/question-tests';await mkdir(dir,{recursive:true});
 for(const name of ['features','candidate-facts','cover-letter','cyber-domain','employer-questions','application-agent-state','application-deletion'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
 const {rememberEmployerQuestions}=await import('../'+dir+'/employer-questions.mjs');const {emptyState,reduceAction,actionSchema,applicationProfile}=await import('../'+dir+'/cyber-domain.mjs');const {deletionHistoryExpression}=await import('../'+dir+'/application-deletion.mjs');
 const at='2026-11-01T15:00:00Z';const request={id:'request-one',jobId:'one',cvSha256:'a'.repeat(64)};
+const {draftEmployerProse}=await import('../'+dir+'/employer-questions.mjs');
+
+test('PDF-wrapped statements become complete prose without absorbing headings or later bullets',()=>{
+ const cv='PROFESSIONAL EXPERIENCE\n• Built secure Python services, integrating secure\ncoding practices across the development lifecycle.\n• Implemented role-based access control\nfor application users.\nPROJECTS\nRegistry System\nGitHub: https://example.test/project\nBuilt a Django-based records system with a focus on access control, and\ncompliance for document approvals.\nTechnologies: Python, Django';
+ const job={title:'Security Engineer',company:'Fixture',description:'Python services integrating secure coding practices across the development lifecycle. Django records system compliance document approvals.',skills:['Python','Django']};
+ for(const question of ['Why are you interested in this role?','Is there anything else you would like us to know?']){
+  const r=draftEmployerProse(question,'textarea',cv,job);
+  assert.match(r.answer,/integrating secure coding practices across the development lifecycle\./);
+  assert.doesNotMatch(r.answer,/secure Built|and I would|PROJECTS|GitHub:|Technologies:/);
+  assert.match(r.answer,/\n\nI built/);assert.match(r.evidence,/access control, and compliance for document approvals\./);
+ }
+});
+
+test('a dangling CV fragment is not promoted into a completed work claim',()=>{
+ const r=draftEmployerProse('Why this role?','textarea','Built a secure service with',{title:'Security Engineer',company:'Fixture',description:'Security',skills:[]});
+ assert.equal(r.answer,'');assert.match(r.reason,/enough work evidence/);
+});
 function state(){const s=emptyState();s.accountProfile={fullName:'QA',headline:'',targetRole:'SOC',completedAt:at};return s;}
 const report=()=>({questions:[{question:'Why this role?',field_type:'textarea'},{question:'Have you worked with Kubernetes?',field_type:'select',options:['Yes','No']}],answers:[{question:'Why this role?',field_type:'textarea',value:'I would use the incident response work in my CV.',source:'cv_and_job',evidence:'Investigated security alerts.'}],unresolved:[{question:'Have you worked with Kubernetes?'}]});
 test('encountered questions persist both grounded answers and missing facts with source evidence',()=>{const s=state(),r=report();rememberEmployerQuestions(s,request,r,at);assert.equal(s.accountProfile.employerQuestions.length,2);const prose=s.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');assert.equal(prose.source,'cv_and_job');assert.equal(prose.jobSpecific,true);assert.equal(s.accountProfile.employerQuestions[0].status,'needs_details');assert.deepEqual(applicationProfile(s).employerQuestions,s.accountProfile.employerQuestions);});
