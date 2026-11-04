@@ -113,12 +113,31 @@ def deliver_questions(site,token,task,report,site_access_token=None):
     return {'saved':saved,'omitted':omitted,'deliveryFailed':failed}
 
 
+_source_refresh_attempts={}
+
+def maybe_refresh_sources(site,token,site_access_token=None,now=None):
+    """Public listing refresh only, while idle. Never queues or submits a job."""
+    import hashlib
+    key=(site,hashlib.sha256(token.encode()).hexdigest())
+    current=time.monotonic() if now is None else now
+    if key in _source_refresh_attempts and current-_source_refresh_attempts[key]<300:return False
+    if len(_source_refresh_attempts)>=128:_source_refresh_attempts.clear()
+    _source_refresh_attempts[key]=current
+    try:
+        call_site(site,token,'/api/application-agent/sources/refresh',{},site_access_token=site_access_token,timeout=50)
+        return True
+    except Exception:
+        # Old deployments, a busy source or feed errors never replay an application.
+        return False
+
+
 def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None):
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
     except Exception:pass
     task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":4,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
     if not task:
+        maybe_refresh_sources(site,token,site_access_token)
         return False
     if on_state:on_state('working')
     query = urlencode({"requestId":task["requestId"], "claimId":task["claimId"]})

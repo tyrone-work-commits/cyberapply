@@ -1,3 +1,5 @@
+import {enrichJob} from './job-extraction';
+import {readProviderBoard,normalizeProviderJob} from './provider-jobs';
 import { DomainError, liveState, record, safeJobUrl, type Job, type State, type Activity } from './cyber-domain';
 import { boardKey, boardUrl, cybersecurityRole, matchesSearch, searchSchema, type EmployerBoard, type JobSearch, type BoardReport, type DiscoveryReport } from './job-catalog';
 
@@ -20,6 +22,7 @@ function timestamp(value:unknown){const d=new Date(typeof value==='number'||type
 type Row=Record<string,any>;
 export function normalizeJob(raw:Row,board:EmployerBoard,at:string):Job|null {
  if(!raw||typeof raw!=='object'||Array.isArray(raw))return null;
+ if(board.provider!=='greenhouse'&&board.provider!=='lever'){const normalized=normalizeProviderJob(raw,board);if(!normalized)return null;raw=normalized;}
  const externalId=String(raw.id??'');
  if(!externalId||externalId.length>100)return null;
  const greenhouse=board.provider==='greenhouse';
@@ -35,30 +38,30 @@ export function normalizeJob(raw:Row,board:EmployerBoard,at:string):Job|null {
  const workMode=mode(greenhouse?location:String(raw.workplaceType||location));
  const description=rawDescription.slice(0,MAX_DESCRIPTION);
  const skills=skillWords.filter(skill=>new RegExp(`(^|[^a-z0-9])${skill.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}([^a-z0-9]|$)`,'i').test(rawDescription));
- return {id:`${boardKey(board)}:${externalId}`,title,company:greenhouse?plain(raw.company_name||board.company).slice(0,200):board.company,department,location,workMode,url,applyUrl,description,skills,sample:false,saved:false,disposition:'open',createdAt:at,source:{provider:board.provider,board:board.board,region:board.region,externalId,boardUrl:boardUrl(board),checkedAt:at,availability:'open',postedAt:timestamp(greenhouse?raw.first_published:raw.createdAt),descriptionTruncated:rawDescription.length>MAX_DESCRIPTION}};
+ return enrichJob({id:`${boardKey(board)}:${externalId}`,title,company:greenhouse?plain(raw.company_name||board.company).slice(0,200):board.company,department,location,workMode,url,applyUrl,description,skills,sample:false,saved:false,disposition:'open',createdAt:at,source:{provider:board.provider,board:board.board,region:board.region,externalId,boardUrl:boardUrl(board),checkedAt:at,availability:'open',postedAt:timestamp(greenhouse?raw.first_published:raw.createdAt),descriptionTruncated:rawDescription.length>MAX_DESCRIPTION},...(raw.salary?{salary:raw.salary}:{}),employmentType:typeof raw.employmentType==='string'?raw.employmentType:undefined,industry:plain(raw.industry).slice(0,100)||undefined,companySize:plain(raw.company_size).slice(0,100)||undefined,postedAt:timestamp(greenhouse?raw.first_published:raw.createdAt)});
 }
-export async function jsonFeed(url:string,fetcher:typeof fetch,signal:AbortSignal){
+export async function jsonFeed(url:string,fetcher:typeof fetch,signal:AbortSignal,headers?:Record<string,string>,maxBytes=MAX_BYTES){
  // Workers supports manual/follow. Reject redirects explicitly to keep requests on the fixed API host.
- const response=await fetcher(url,{method:'GET',headers:{Accept:'application/json'},redirect:'manual',signal});
+ const response=await fetcher(url,{method:'GET',headers:{Accept:'application/json',...headers},redirect:'manual',signal});
  if(!response.ok){await response.body?.cancel();throw new Error(response.status===429?'The employer feed is rate limited. Try again later.':`Employer feed returned HTTP ${response.status}.`);}
  if(!/json/i.test(response.headers.get('content-type')||'')){await response.body?.cancel();throw new Error('Employer feed did not return JSON.');}
  const reader=response.body?.getReader();if(!reader)throw new Error('Employer feed was empty.');
  const chunks:Uint8Array[]=[];let size=0;
- try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>MAX_BYTES)throw new Error('Employer board is too large for this search. Choose a smaller board.');chunks.push(value);}}catch(error){await reader.cancel();throw error;}finally{reader.releaseLock();}
+ try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxBytes)throw new Error('Employer board is too large for this search. Choose a smaller board.');chunks.push(value);}}catch(error){await reader.cancel();throw error;}finally{reader.releaseLock();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
  return JSON.parse(new TextDecoder().decode(bytes));
 }
 export type BoardResult={board:EmployerBoard;jobs:Job[];seen:string[];report:BoardReport};
-export async function fetchBoard(board:EmployerBoard,search:JobSearch,at:string,fetcher:typeof fetch=fetch):Promise<BoardResult>{
+export async function fetchBoard(board:EmployerBoard,search:JobSearch,at:string,fetcher:typeof fetch=fetch,secrets?:{recruitee?:Record<string,string>}):Promise<BoardResult>{
  const report:BoardReport={key:boardKey(board),company:board.company,provider:board.provider,status:'ok',fetched:0,matching:0,complete:true};
  try{
-  let rows:Row[]=[];
+  let rows:Row[]=[],externalSeen:string[]|undefined,externalFetched:number|undefined;
   const signal=AbortSignal.timeout(15000);
   if(board.provider==='greenhouse'){
    const data=await jsonFeed(`https://boards-api.greenhouse.io/v1/boards/${encodeURIComponent(board.board)}/jobs?content=true`,fetcher,signal);
    if(!data||!Array.isArray(data.jobs))throw Error('Employer feed has an unexpected format.');
    rows=data.jobs;
-  }else{
+  }else if(board.provider==='lever'){
    // Pagination is bounded. Incomplete scans never close unseen saved vacancies.
    for(let skip=0;skip<1000;skip+=250){
     const data=await jsonFeed(`https://api.${board.region==='eu'?'eu.':''}lever.co/v0/postings/${encodeURIComponent(board.board)}?mode=json&skip=${skip}&limit=250`,fetcher,signal);
@@ -66,20 +69,24 @@ export async function fetchBoard(board:EmployerBoard,search:JobSearch,at:string,
     rows.push(...data);if(data.length<250)break;if(skip===750)report.complete=false;
    }
   }
+  if(board.provider!=='greenhouse'&&board.provider!=='lever'){
+   const result=await readProviderBoard(board,search,(url,headers,max)=>jsonFeed(url,fetcher,signal,headers,max),secrets?.recruitee?.[board.board.toLowerCase()]);rows=result.rows;externalSeen=result.seen;externalFetched=result.fetched;report.complete=result.complete;
+  }
   if(rows.length>3000){rows=rows.slice(0,3000);report.complete=false;}
-  report.fetched=rows.length;
-  const seen=rows.filter(row=>row&&row.id!==undefined).map(row=>String(row.id));
+  report.fetched=externalFetched??rows.length;
+  const seen=externalSeen||rows.filter(row=>row&&row.id!==undefined).map(row=>String(row.id));if(externalSeen?.some(id=>!id||id.length>100))throw Error('Employer feed has invalid vacancy identifiers.');
   const jobs=rows.map(row=>{const job=normalizeJob(row,board,at);return job&&matchesSearch(job,search)?job:null;}).filter((job):job is Job=>job!==null);
   report.matching=jobs.length;
   return {board,jobs:[...new Map(jobs.map(job=>[job.id,job])).values()],seen,report};
  }catch(error){console.warn('Employer feed unavailable',boardKey(board),error instanceof Error?`${error.name}: ${error.message.slice(0,250)}`:'Unknown network error');return {board,jobs:[],seen:[],report:{...report,status:'error',complete:false,message:error instanceof Error&&error.name==='TimeoutError'?'Employer feed timed out. Try again.':error instanceof Error&&/^Employer|^The employer/.test(error.message)?error.message:'Could not read this employer feed. Check the board URL or try again later.'}};}
 }
-export async function discover(settings:unknown,fetcher:typeof fetch=fetch,at=new Date().toISOString()){
+export async function discover(settings:unknown,fetcher:typeof fetch=fetch,at=new Date().toISOString(),secrets?:{recruitee?:Record<string,string>}){
  const parsed=searchSchema.safeParse(settings);if(!parsed.success)throw new DomainError('Choose one to ten valid employer boards and valid search filters.');
  // Keep the larger source list within the existing Worker memory/network budget.
+ let requests=0;const bounded:typeof fetch=async(...args)=>{if(++requests>40)throw Error('Employer feed request budget reached; saved work is retained.');return fetcher(...args);};
  const results:BoardResult[]=new Array(parsed.data.boards.length);let next=0;
  await Promise.all(Array.from({length:Math.min(3,parsed.data.boards.length)},async()=>{
-  while(next<parsed.data.boards.length){const index=next++;results[index]=await fetchBoard(parsed.data.boards[index],parsed.data,at,fetcher);}
+  while(next<parsed.data.boards.length){const index=next++;results[index]=await fetchBoard(parsed.data.boards[index],parsed.data,at,bounded,secrets);}
  }));
  return {settings:parsed.data,results,at};
 }

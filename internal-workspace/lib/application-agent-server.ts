@@ -35,6 +35,7 @@ function stillConnected(state:State,user:Identity&{agentHash:string}){
   const config=state.newApplicationAgent;
   if(!config?.enabled||config.tokenHash!==user.agentHash||Date.parse(config.expiresAt)<=Date.now())throw new DomainError('Agent connection expired or was revoked.',401);
 }
+export async function applicationWorkerIdentity(request:Request){const user=await worker(request),current=await load(user);stillConnected(current.state,user);return user;}
 async function original(user:Identity&{agentHash:string},requestId:string,claimId:string){
   const current=await load(user);stillConnected(current.state,user);
   const item=activeClaim(current.state,requestId,claimId),file=current.state.attachments.find(file=>file.id===item.cv!.fileId)!;

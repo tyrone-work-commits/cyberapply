@@ -1,3 +1,4 @@
+import {enrichJob} from './job-extraction';
 import {recordingPrefix} from './application-recordings';
 import {watchStorageKeys} from './agent-watch-storage';
 import { env } from 'cloudflare:workers';
@@ -31,11 +32,12 @@ export async function load(user: Identity): Promise<Snapshot> {
   if (!row) throw new DomainError('Workspace could not be loaded.', 503);
   const stored=JSON.parse(row.payload);
   if(stored.__deleting===true)throw new DomainError('Your CyberApply account deletion is in progress. Open Account to retry cleanup.',409);
-  const state=retireLocalAgent(stored);
+  const state=retireLocalAgent(stored);state.jobs=state.jobs.map(job=>job.extracted?job:enrichJob(job));
   return {revision:row.revision, updatedAt:row.updated_at, state, searchCooldown:liveSearchCooldown(state.discovery?.lastSearch.at)};
 }
 export async function save(user: Identity, expected: number, state: State, action: string): Promise<Snapshot> {
   if (!Number.isSafeInteger(expected) || expected < 0) throw new DomainError('A current workspace revision is required.');
+  state.jobs=state.jobs.map(job=>job.extracted?job:enrichJob(job));
   const revision = expected + 1, at = new Date().toISOString(), token = crypto.randomUUID(), payload = workspacePayload(state);
   const results = await db().batch([
     db().prepare("UPDATE cyber_workspaces SET payload=?,revision=?,write_token=?,updated_at=? WHERE owner_id=? AND revision=? AND json_extract(payload,'$.__deleting') IS NULL").bind(payload,revision,token,at,user.userId,expected),
@@ -121,12 +123,13 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
  const coverKeys=[...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].filter(item=>plan.ids.includes(item.id)).map(item=>item.coverLetter?.key).filter((key):key is string=>!!key&&key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`));if(coverKeys.length)try{await files().delete(coverKeys);}catch{console.error('Deleted application cover-file cleanup pending under owner prefix.');}
  return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),message:'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};
 }
+export function sourceSecrets(){const value=(env as unknown as Record<string,string|undefined>).RECRUITEE_BOARD_TOKENS;if(!value)return {};try{const parsed=JSON.parse(value);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return {};return{recruitee:Object.fromEntries(Object.entries(parsed).filter(([board,token])=>/^[a-z0-9][a-z0-9-]{0,79}$/.test(board)&&typeof token==='string'&&token.length<=2000&&!/[\r\n]/.test(token)) as [string,string][])};}catch{return {};}}
 export async function discoverJobs(user:Identity,expected:number,settings:unknown,source:Activity['source']) {
   if(!Number.isSafeInteger(expected)||expected<0)throw new DomainError('A current numeric workspace revision is required.');
   const current=await load(user);
   if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before searching.',409);
   if(current.searchCooldown.remainingMs>0)throw new SearchCooldownError(current.searchCooldown);
-  const result=await discover(settings??current.state.discovery?.settings??defaultSearch);
+  const result=await discover(settings??current.state.discovery?.settings??defaultSearch,fetch,new Date().toISOString(),sourceSecrets());
   const merged=mergeDiscovery(current.state,result.settings,result.results,result.at,source);
   return {...await save(user,expected,merged.state,'discover_jobs'),message:merged.message,report:merged.report};
 }

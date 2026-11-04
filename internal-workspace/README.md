@@ -5,7 +5,7 @@ This directory is the current deployed CyberApply app. It uses Sites/Vinext, Cha
 ## Features
 
 - ChatGPT sign-in/create-account entry, setup/edit profile and account settings.
-- Real cybersecurity job discovery from selected public Greenhouse/Lever boards, search filters and source management. Searches are on request with a one-minute per-user cooldown.
+- Job discovery from Greenhouse, Lever, Ashby and SmartRecruiters published feeds, Workable’s public widget adapter and Recruitee’s Careers Site API where access is available. Fixed hosts, redirect rejection, bounded requests/bytes, HTML stripping and per-owner deduplication apply. Recruitee may require employer-authorized access. Live searches have a one-minute per-user cooldown; filtering saved results does not.
 - Explore: left to reject, right to Apply, up to save; centered Undo and ordered background saves.
 - Saved jobs and Applications with the chosen original CV, agent progress, employer questions, reviewed answers, outcome evidence and deletion controls.
 - CV upload, view, download, delete and deterministic ATS-style text quality guidance. This is not an employer ATS score or hiring prediction. Searchable PDF, DOCX and UTF-8 TXT are supported, with 5 MB/file and 20 saved files/account; scanned/image-only documents need a searchable export.
@@ -126,3 +126,15 @@ Edit Profile displays the captured choices in a select control alongside the edi
 ## Dropdowns in Applications — 2 November 2026
 
 Answer this employer’s questions now renders original select/combobox questions as dropdowns. It uses the question's recorded options, with a same-vacancy Account Profile fallback or newer refreshed choices. Other employers' options are excluded. No option is selected by default. Non-choice questions remain text fields; questions requiring an Account Profile correction retain that flow. A previous answer absent from the available choices must be reviewed before approval. Every edit clears the local approval checkbox, and choosing an option does not save, queue or submit anything. Missing/truncated lists are explicitly identified.
+
+## Career upgrade checkpoints
+
+The upgrade ledger is `../docs/upgrade-plan-2026-11.md`. Dashboard, ATS scan reports/history, an evidence-preserving optimizer, guided résumé builder with text PDF/DOCX exports, reviewed cover letters, discovery/search and private company bookmarks are implemented. Further PDF prompts remain in progress; do not treat lower-level scaffolding as completed UI. The original CV is retained and generated CV versions are selected for applications only through an explicit action. Provider `none` is the default; no paid model, billing, sending email or publishing service has been enabled.
+
+## Source access and refresh
+
+Save selected employer boards in Explore or Add a listing. Manual Refresh now preserves existing choices, drafts and application records. The current background runner checks due sources only while idle, at most once per five minutes; the server leases each refresh and makes a successful source due again after `JOB_REFRESH_HOURS` (default 12). Feed errors retain prior jobs and schedule a bounded later check. A partial board never closes unseen vacancies. Keep the computer awake and runner connected, or refresh manually; this is not a cloud scheduler. Restart an older runner with the checked code to gain this capability. No runner was restarted as part of upgrade QA.
+
+Workable’s widget JSON is not the authenticated Workable SPI API and may change. Recruitee documents token enforcement from **10 February 2027**: <https://docs.recruitee.com/reference/authentication-1>. If Covenda obtains employer-authorized Careers API tokens, configure server-only `RECRUITEE_BOARD_TOKENS` JSON mapping exact lowercase board subdomains to their matching token. No token belongs in the UI, saved-source records, Git or chat. Tokens are sent only in a header to that board’s fixed careers API host. Nothing here creates employer access or permission to automate submissions; the application agent retains its destination/consent/verification boundaries.
+
+Source fixtures under `tests/fixtures/job-feeds` were captured from public endpoints on 4 November 2026, reduced to one record and stripped of contact data; descriptions use explicit fictional test requirements and pagination metadata reflects the reduced fixture. Automated tests use these fixtures without live network. Manual read-only contract checks observed 72 Ashby jobs, 16 Workable jobs, 11 Recruitee jobs and a SmartRecruiters listing/detail. These checks did not submit applications or verify every employer’s future API behavior.

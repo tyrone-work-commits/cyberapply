@@ -5,6 +5,7 @@ import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-dom
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
 import { ApplicationDeleteDialog, type DeleteTarget } from './application-delete-dialog';
 import { ReceiptCheckPanel } from './receipt-check-panel';
+import {providerNames} from '@/lib/job-catalog';
 import type {EmployerQuestion} from '@/lib/employer-questions';
 import {applicationQuestionChoices} from '@/lib/application-question-choices';
 
@@ -14,7 +15,7 @@ function httpsUrl(value?: string) {
 }
 function sourceName(job?: Job) {
   if (!job?.source) return 'Listing you added';
-  return `${job.source.provider === 'greenhouse' ? 'Greenhouse' : 'Lever'} · ${job.company}`;
+  return `${providerNames[job.source.provider]} · ${job.company}`;
 }
 function timestamp(value:string){return new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});}
 const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['applied','Applied'],['check_outcome','Awaiting confirmation']];
