@@ -10,7 +10,7 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 | 1 | Central server writing service, basic mode, quotas and status | Implemented; 6 tests, TypeScript and production build passed |
 | 2 | ATS scan engine and private scan records | Implemented; 14 logic/storage/file tests, TypeScript and production build passed. PDF structure beyond fonts/page data remains explicitly unverified |
 | 3 | Dashboard, match reports and history | Implemented; TypeScript/production build and local browser checks passed at 375/768/1280px. Created pasted/PDF scans, renamed, reloaded, changed history status, opened guide and highlighted keywords |
-| 4 | Optimize editor and evidence-preserving suggestions | Pending |
+| 4 | Optimize editor and evidence-preserving suggestions | Implemented locally; 6 optimizer tests, TypeScript and production build passed. Browser verified saved version, comparison, export and explicit CV selection. PDF/Track/cover-letter links await prompts 5/10/6 |
 | 5 | Resume builder, versions and exports | Pending |
 | 6 | Cover letters | Pending |
 | 7 | Discovery improvements and companies | Pending; swipe stack already exists |
@@ -43,3 +43,7 @@ Keep factual checks, per-owner data isolation, auth boundaries, original CVs, em
 - Local QA only, using the existing fictional Alex Preview account: created a pasted scan, saved a title change and verified it after refresh; changed a scan's progress to interviewing and verified after refresh; uploaded a synthetic PDF and observed its font/page checks. No application was queued or submitted. Existing CV selection and application workspace revision stayed unchanged.
 - Screenshots: `output/upgrade-scan-desktop-local.jpg`, `output/upgrade-scan-tablet-local.jpg`, `output/upgrade-more-mobile-local.jpg`, `output/upgrade-report-guide-mobile-local.jpg` (untracked QA artifacts; no real CV data).
 - Local migration baseline used historical ad-hoc SQL rather than Wrangler migration history; applied only the two new SQL files locally, preserving prior fixture records. Production uses the normal Sites/Drizzle deployment path.
+
+## Checkpoint 4 evidence
+
+Optimizer sessions have per-owner versions, direct editing, live rescoring, before/after review and accept/reject. Unsupported claims are rejected; missing skills require actual user evidence. Embedded and standalone summary tools use the central provider or explicit basic fallback. DOCX export preserves matched source paragraphs and run formatting, including line breaks; unmatched changed paragraphs fail clearly. Clean DOCX and saved library versions do not replace the chosen application CV. Local fictional QA saved v3 and reloaded it, downloaded DOCX, saved a new library version and verified approval-qa.txt stayed chosen. No real application or external AI call made. Published v83 remains prompts 0–3 until the next rollout.
