@@ -9,7 +9,7 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 | 0 | Protected authentication and upgrade guardrails | Implemented; existing project rules preserved |
 | 1 | Central server writing service, basic mode, quotas and status | Implemented; 6 tests, TypeScript and production build passed |
 | 2 | ATS scan engine and private scan records | Implemented; 14 logic/storage/file tests, TypeScript and production build passed. PDF structure beyond fonts/page data remains explicitly unverified |
-| 3 | Dashboard, match reports and history | Pending |
+| 3 | Dashboard, match reports and history | Implemented; TypeScript/production build and local browser checks passed at 375/768/1280px. Created pasted/PDF scans, renamed, reloaded, changed history status, opened guide and highlighted keywords |
 | 4 | Optimize editor and evidence-preserving suggestions | Pending |
 | 5 | Resume builder, versions and exports | Pending |
 | 6 | Cover letters | Pending |
@@ -35,3 +35,11 @@ Keep factual checks, per-owner data isolation, auth boundaries, original CVs, em
 - Anthropic Messages: https://platform.claude.com/docs/en/api/messages/create
 - Ashby public job boards: https://developers.ashbyhq.com/docs/public-job-posting-api
 - SmartRecruiters public posting API: https://developers.smartrecruiters.com/docs/endpoints
+
+## Checkpoint 3 evidence
+
+- Dashboard after sign-in; Explore stays one tap away, and signed-in logos target Explore.
+- Explicit fictional sample uses no scan quota. New scans accept saved CVs, private direct uploads or pasted text. Reports show skill counts/context, category advice, detected ATS/tips, editable title, print, rescan, exclusions and keyword highlights. History has progress labels, paging, archive and sorting. Tracker/LinkedIn dashboard integrations remain pending their later prompts.
+- Local QA only, using the existing fictional Alex Preview account: created a pasted scan, saved a title change and verified it after refresh; changed a scan's progress to interviewing and verified after refresh; uploaded a synthetic PDF and observed its font/page checks. No application was queued or submitted. Existing CV selection and application workspace revision stayed unchanged.
+- Screenshots: `output/upgrade-scan-desktop-local.jpg`, `output/upgrade-scan-tablet-local.jpg`, `output/upgrade-more-mobile-local.jpg`, `output/upgrade-report-guide-mobile-local.jpg` (untracked QA artifacts; no real CV data).
+- Local migration baseline used historical ad-hoc SQL rather than Wrangler migration history; applied only the two new SQL files locally, preserving prior fixture records. Production uses the normal Sites/Drizzle deployment path.
