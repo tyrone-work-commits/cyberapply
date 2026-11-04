@@ -31,3 +31,13 @@ export const receiptChecks=sqliteTable('cyber_receipt_checks',{
 export const aiUsage=sqliteTable('cyber_ai_usage',{
  ownerId:text('owner_id').notNull(),day:text('day').notNull(),count:integer('count').notNull().default(0),
 },table=>[primaryKey({columns:[table.ownerId,table.day]})]);
+
+export const careerRecords=sqliteTable('cyber_career_records',{
+ ownerId:text('owner_id').notNull(),kind:text('kind').notNull(),id:text('id').notNull(),version:integer('version').notNull(),payload:text('payload').notNull(),writeToken:text('write_token').notNull(),createdAt:text('created_at').notNull(),updatedAt:text('updated_at').notNull(),
+},table=>[primaryKey({columns:[table.ownerId,table.kind,table.id]})]);
+export const careerVersions=sqliteTable('cyber_career_versions',{
+ ownerId:text('owner_id').notNull(),kind:text('kind').notNull(),id:text('id').notNull(),version:integer('version').notNull(),payload:text('payload').notNull(),createdAt:text('created_at').notNull(),
+},table=>[primaryKey({columns:[table.ownerId,table.kind,table.id,table.version]})]);
+export const careerUsage=sqliteTable('cyber_career_usage',{
+ ownerId:text('owner_id').notNull(),kind:text('kind').notNull(),period:text('period').notNull(),count:integer('count').notNull(),
+},table=>[primaryKey({columns:[table.ownerId,table.kind,table.period]})]);

@@ -8,7 +8,7 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 |---|---|---|
 | 0 | Protected authentication and upgrade guardrails | Implemented; existing project rules preserved |
 | 1 | Central server writing service, basic mode, quotas and status | Implemented; 6 tests, TypeScript and production build passed |
-| 2 | ATS scan engine and private scan records | Pending |
+| 2 | ATS scan engine and private scan records | Implemented; 14 logic/storage/file tests, TypeScript and production build passed. PDF structure beyond fonts/page data remains explicitly unverified |
 | 3 | Dashboard, match reports and history | Pending |
 | 4 | Optimize editor and evidence-preserving suggestions | Pending |
 | 5 | Resume builder, versions and exports | Pending |

@@ -178,6 +178,10 @@ export async function deleteAccount(user:Identity,expected:number){
   }
   try{
     await db().batch([
+      db().prepare('DELETE FROM cyber_ai_usage WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_career_versions WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_career_records WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_career_usage WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_agent_presence WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_receipt_checks WHERE owner_id=?').bind(user.userId),
     db().prepare('DELETE FROM cyber_revisions WHERE owner_id=?').bind(user.userId),
