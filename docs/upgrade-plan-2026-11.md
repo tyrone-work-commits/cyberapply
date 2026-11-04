@@ -11,7 +11,7 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 | 2 | ATS scan engine and private scan records | Implemented; 14 logic/storage/file tests, TypeScript and production build passed. PDF structure beyond fonts/page data remains explicitly unverified |
 | 3 | Dashboard, match reports and history | Implemented; TypeScript/production build and local browser checks passed at 375/768/1280px. Created pasted/PDF scans, renamed, reloaded, changed history status, opened guide and highlighted keywords |
 | 4 | Optimize editor and evidence-preserving suggestions | Implemented locally; 6 optimizer tests, TypeScript and production build passed. Browser verified saved version, comparison, export and explicit CV selection. PDF/Track/cover-letter links await prompts 5/10/6 |
-| 5 | Resume builder, versions and exports | Pending |
+| 5 | Resume builder, versions and exports | Implemented; 14 relevant optimizer/builder/storage tests, TypeScript, build, PDF render and local browser checks passed |
 | 6 | Cover letters | Pending |
 | 7 | Discovery improvements and companies | Pending; swipe stack already exists |
 | 8 | More supported job feeds and refresh | Pending |
@@ -47,3 +47,9 @@ Keep factual checks, per-owner data isolation, auth boundaries, original CVs, em
 ## Checkpoint 4 evidence
 
 Optimizer sessions have per-owner versions, direct editing, live rescoring, before/after review and accept/reject. Unsupported claims are rejected; missing skills require actual user evidence. Embedded and standalone summary tools use the central provider or explicit basic fallback. DOCX export preserves matched source paragraphs and run formatting, including line breaks; unmatched changed paragraphs fail clearly. Clean DOCX and saved library versions do not replace the chosen application CV. Local fictional QA saved v3 and reloaded it, downloaded DOCX, saved a new library version and verified approval-qa.txt stayed chosen. No real application or external AI call made. Published v83 remains prompts 0–3 until the next rollout.
+
+## Checkpoint 5 evidence
+
+Added a seven-step builder, eight single-column layouts, editable/reorderable sections and role/education entries, blank/profile/saved-CV/upload/pasted-LinkedIn starts, per-document autosave with conflict errors, rename/duplicate/delete, last-20 version restoration, evidence-only Coach/summary/bullet/skill drafts, job matches, PDF/DOCX preview/download, save to CV library and explicit Set as main résumé. Saved CV files have rename/duplicate/Open in builder. Optimizer now also exports PDF. PDF uses embedded OFL Noto Sans with honest unsupported-character errors; DOCX uses the selected template font. No browser renderer or paid service is required in the Worker.
+
+Tests extracted real Unicode text from all eight PDF layouts and checked single-column coordinates, DOCX text/style settings, entry limits, import confirmation, owner isolation and autosave conflicts. Rendered and visually inspected the fictional PDF. Local browser created fictional Zoë résumé, changed name/template/contact/spacing, added a section, observed v4, downloaded PDF and reloaded v4 successfully; no horizontal page overflow at 375/1280px. Screenshot proof in output/upgrade-builder-{desktop,mobile}-local.jpg. Production build passed. No real applicant details changed or employer submission made.
