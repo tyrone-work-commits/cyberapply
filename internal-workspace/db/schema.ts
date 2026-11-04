@@ -27,3 +27,7 @@ export const receiptChecks=sqliteTable('cyber_receipt_checks',{
   ownerId:text('owner_id').primaryKey(),
   nextCheckAt:integer('next_check_at').notNull(),
 });
+
+export const aiUsage=sqliteTable('cyber_ai_usage',{
+ ownerId:text('owner_id').notNull(),day:text('day').notNull(),count:integer('count').notNull().default(0),
+},table=>[primaryKey({columns:[table.ownerId,table.day]})]);
