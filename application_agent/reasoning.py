@@ -168,6 +168,8 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
     cover_letter = f"Dear {company} hiring team,\n\nI am applying for {title}. "
     cover_letter += ("My CV includes the following relevant work: " + " ".join(evidence) + "\n\n") if evidence else "Please consider the experience and qualifications in my attached CV.\n\n"
     cover_letter += contribution + "\n\nI would welcome the opportunity to discuss how this background fits your team's needs.\n\nKind regards,\n" + (str((payload.get("applicantProfile") or {}).get("fullName") or facts["name"] or "Applicant"))
+    reviewed_letter=payload.get("coverLetter") or {}
+    if isinstance(reviewed_letter.get("text"),str) and 20<=len(reviewed_letter["text"])<=12000:cover_letter=reviewed_letter["text"]
     answers, unresolved = [], []
     for field in fields[:100]:
         question = str(field.get("label", "")).strip()
@@ -194,6 +196,8 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         elif linkedin_field:
             value=facts['linkedin'] if kind not in {'password','hidden','file'} else None
             source='cv';proof='LinkedIn profile URL extracted from the exact chosen CV.'
+        elif reviewed_letter and re.fullmatch(r"(?:cover|covering|motivation) letter",normalized) and kind not in {"password","hidden"}:
+            value,source,proof=cover_letter,"user_confirmed","Reviewed cover letter explicitly attached to this exact application."
         elif user_supplied:
             value, source, proof = confirmed_value, "user_confirmed", confirmed_proof
         elif kind not in {"password","hidden","file"} and not _UNSUPPORTED.search(question) and (match:=experience_answer(question,text,kind)):

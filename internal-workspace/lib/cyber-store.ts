@@ -118,6 +118,7 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
   db().prepare(`INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE ${guard}`).bind(user.userId,revision,payload,'permanently_delete_application_records',at,user.userId,token),
  ]);
  if(results[0].meta.changes!==1)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
+ const coverKeys=[...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].filter(item=>plan.ids.includes(item.id)).map(item=>item.coverLetter?.key).filter((key):key is string=>!!key&&key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`));if(coverKeys.length)try{await files().delete(coverKeys);}catch{console.error('Deleted application cover-file cleanup pending under owner prefix.');}
  return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),message:'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};
 }
 export async function discoverJobs(user:Identity,expected:number,settings:unknown,source:Activity['source']) {

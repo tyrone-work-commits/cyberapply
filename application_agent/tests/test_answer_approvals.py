@@ -87,3 +87,12 @@ class AuthorshipDeclarationTests(unittest.TestCase):
    self.assertFalse(result['answers']);self.assertEqual(result['unresolved'][0]['source'],'authorship')
 
 if __name__=='__main__':unittest.main()
+
+class ReviewedLetterTests(unittest.TestCase):
+ def test_explicit_attached_letter_is_used_for_text_and_file(self):
+  text='My reviewed cover letter for this exact application.'
+  for kind in ('file','textarea'):
+   result=plan([field('Cover letter',kind)],coverLetter={'text':text})
+   self.assertEqual(result['cover_letter'],text)
+   self.assertEqual(result['answers'][0]['value'],text)
+   self.assertEqual(result['answers'][0]['source'],'user_confirmed')

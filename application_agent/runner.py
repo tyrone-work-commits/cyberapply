@@ -117,7 +117,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
     except Exception:pass
-    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":4}, site_access_token=site_access_token)["task"]
+    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":4,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
     if not task:
         return False
     if on_state:on_state('working')
@@ -125,6 +125,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
     watch=None;delivery=None
     try:
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)
+        cover_letter_bytes=call_site(site,token,"/api/application-agent/cv?"+query+"&document=cover_letter",binary=True,site_access_token=site_access_token) if task.get("coverLetter") else None
         from .live_watch import LiveWatch
         try:
             delivery=RecordingDelivery(site,token,task,site_access_token)
@@ -140,9 +141,9 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
             sessions=LoginSessions(site,token.split('.')[1])
         result = execute_application(task, cv_bytes, submit=submit, allowed_hosts=allowed_hosts, before_submit=authorize,
                                      browser_channel=None if browser_channel=='chromium' else browser_channel,
-                                     session_store=sessions,interactive_login=submit,live_watch=watch)
+                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes)
     except Exception:
-        result = {"status":"failed", "message":"The selected CV could not be read. No employer submission was attempted."}
+        result = {"status":"failed", "message":"The selected CV or reviewed cover letter could not be read. No employer submission was attempted."}
     finally:
         if watch:
             try:watch.close()

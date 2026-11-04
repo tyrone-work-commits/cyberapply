@@ -168,7 +168,7 @@ def restrict_transports(context):
 
 def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), playwright_factory=None,
                         research_fn=None, planner=None, resolver=socket.getaddrinfo, timeout=15000, before_submit=None,
-                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None):
+                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None):
     """Inspect/fill a single claim. No application is retried after final click."""
     if planner is None:
         from .reasoning import build_plan
@@ -199,6 +199,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         cv = payload.get("cv") or {}
         if not cv_bytes or len(cv_bytes) > 15_000_000 or hashlib.sha256(cv_bytes).hexdigest() != cv.get("sha256"):
             raise ApplicationAttention("The selected CV bytes do not match this Apply request. Choose the CV again.")
+        reviewed_letter=payload.get("coverLetter") or {}
+        if reviewed_letter and (not cover_letter_bytes or len(cover_letter_bytes)>5_000_000 or hashlib.sha256(cover_letter_bytes).hexdigest()!=reviewed_letter.get("sha256")):
+            raise ApplicationAttention("The reviewed cover-letter bytes do not match this request. No employer form was opened.")
         job = payload.get("job") or {}
         url = job.get("applyUrl") or job.get("url") or ""
         original_host = validate_public_url(url, resolver=resolver)
@@ -552,9 +555,13 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if not report["cover_letter"]:
                                 unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"No grounded cover letter was prepared."})
                             else:
-                                uploads.arm('cover_letter','cover-letter.txt','text/plain',report['cover_letter'].encode())
-                                control.set_input_files({"name":"cover-letter.txt","mimeType":"text/plain","buffer":report["cover_letter"].encode()})
-                                expected_values[field['id']]=('file',{'name':'cover-letter.txt','size':len(report['cover_letter'].encode())})
+                                approved_file=bool(cover_letter_bytes and reviewed_letter.get('text')==report['cover_letter'])
+                                letter_bytes=cover_letter_bytes if approved_file else report['cover_letter'].encode()
+                                letter_name='cover-letter.docx' if approved_file else 'cover-letter.txt'
+                                letter_type=reviewed_letter['type'] if approved_file else 'text/plain'
+                                uploads.arm('cover_letter',letter_name,letter_type,letter_bytes)
+                                control.set_input_files({"name":letter_name,"mimeType":letter_type,"buffer":letter_bytes})
+                                expected_values[field['id']]=('file',{'name':letter_name,'size':len(letter_bytes)})
                         elif re.search(r"resume|résumé|\bcv\b", label):
                             name = str(cv.get("name") or "CV.pdf").replace('\\','/').split('/')[-1]
                             uploads.arm('resume',name,cv.get('type') or 'application/octet-stream',cv_bytes)

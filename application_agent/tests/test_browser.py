@@ -63,10 +63,10 @@ def browser_factory(html, posts, success=True):
         yield Runtime()
 
 
-def run(html, *, submit=True, success=True, cv=CV, payload=PAYLOAD, planner=plan):
+def run(html, *, submit=True, success=True, cv=CV, payload=PAYLOAD, planner=plan, cover_letter_bytes=None):
     posts=[]
     result=execute_application(payload,cv,submit=submit,planner=planner,research_fn=lambda _:{'sources':[]},resolver=dns,
-                               playwright_factory=lambda:browser_factory(html,posts,success),timeout=3000,before_submit=lambda:True)
+                               playwright_factory=lambda:browser_factory(html,posts,success),timeout=3000,before_submit=lambda:True,cover_letter_bytes=cover_letter_bytes)
     return result,posts
 
 def test_profile_contact_and_salary_reach_form_with_exact_cv():
@@ -507,3 +507,22 @@ def test_authorship_declaration_is_not_automatically_certified_as_no_ai():
     result,posts=run(FORM.replace('{extra}',f'<label><input name="authorship" type="checkbox" required>{q}</label>'),planner=build_plan)
     assert result['status']=='needs_attention' and not posts
     assert any(item.get('source')=='authorship' for item in result['report']['unresolved']),result
+
+
+def test_reviewed_cover_letter_upload_uses_exact_attachment_bytes():
+    from application_agent.reasoning import build_plan
+    letter=b'Exact reviewed DOCX fixture bytes'
+    text='My personally reviewed cover letter for this role.'
+    payload={**PAYLOAD,'coverLetter':{'text':text,'type':'application/vnd.openxmlformats-officedocument.wordprocessingml.document','sha256':hashlib.sha256(letter).hexdigest()}}
+    html=FORM.replace('{extra}','<label>Cover letter<input type="file" name="letter" required></label>')
+    result,posts=run(html,payload=payload,planner=build_plan,cover_letter_bytes=letter)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert letter in posts[0] and b'cover-letter.docx' in posts[0]
+    assert result['report']['cover_letter']==text
+
+
+def test_reviewed_cover_letter_mismatch_stops_before_browser_opens():
+    payload={**PAYLOAD,'coverLetter':{'text':'My reviewed cover letter.','sha256':'0'*64}}
+    result=execute_application(payload,CV,cover_letter_bytes=b'wrong',playwright_factory=lambda:pytest.fail('Browser must not open'))
+    assert result['status']=='needs_attention'
+    assert 'cover-letter bytes' in result['message']

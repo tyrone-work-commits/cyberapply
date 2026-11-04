@@ -41,8 +41,9 @@ async function original(user:Identity&{agentHash:string},requestId:string,claimI
   assertApplicationProfileCurrent(current.state,item);
   const object=await files().get(file.key);if(!object)throw new DomainError('The chosen CV file is unavailable.',409);
   const bytes=new Uint8Array(await object.arrayBuffer());if(await digest(bytes)!==item.cvSha256)throw new DomainError('The selected CV content changed.',409);
+  let coverBytes:Uint8Array<ArrayBuffer>|undefined;if(item.coverLetter){if(!item.coverLetter.key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`))throw new DomainError('The reviewed cover letter is unavailable.',409);const object=await files().get(item.coverLetter.key);if(!object)throw new DomainError('The reviewed cover letter is unavailable.',409);coverBytes=new Uint8Array(await object.arrayBuffer());if(await digest(coverBytes)!==item.coverLetter.sha256)throw new DomainError('The reviewed cover letter changed. Stop before submitting.',409);}
   const latest=await load(user);stillConnected(latest.state,user);assertApplicationProfileCurrent(latest.state,activeClaim(latest.state,requestId,claimId));
-  return {current,item,file,bytes};
+  return {current,item,file,bytes,coverBytes};
 }
 const claimBody=z.object({requestId:z.string().max(300),claimId:z.string().uuid()}).strict();
 const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','uncertain','failed']),message:z.string().trim().min(1).max(1500),receipt:z.string().max(1500).optional(),evidence:z.object({url:z.string().max(2000),text:z.string().trim().min(1).max(3000)}).strict().optional(),report:z.record(z.string(),z.unknown()).optional()}).strict();
@@ -85,9 +86,10 @@ export async function claim(request:Request){try{
       try{
         const object=await files().get(file.key);if(!object)throw new Error('missing');
         const bytes=new Uint8Array(await object.arrayBuffer()),extracted=await extractResume(bytes,file.name);
+        if(item.coverLetter&&capability?.coverLetterVersion!==1)throw new Error('cover_letter_runner_update');
         item.cvSha256=await digest(bytes);
-        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:4,applicantProfile:item.applicantProfile,job:{id:job.id,title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],expiresAt:item.claim!.expiresAt};
-      }catch{item.status='needs_attention';item.result={at:new Date().toISOString(),message:'The chosen CV could not be read. Select a readable CV and update the request.'};}
+        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:4,applicantProfile:item.applicantProfile,job:{id:job.id,title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],...(item.coverLetter?{coverLetter:{text:item.coverLetter.text,name:item.coverLetter.name,type:item.coverLetter.type,sha256:item.coverLetter.sha256,version:item.coverLetter.version}}:{}),expiresAt:item.claim!.expiresAt};
+      }catch(error){item.status='needs_attention';item.result={at:new Date().toISOString(),message:error instanceof Error&&error.message==='cover_letter_runner_update'?'Update your browser runner to use the reviewed cover-letter attachment. No employer submission was started.':'The chosen CV or reviewed cover letter could not be read. Check the saved materials before continuing.'};}
     }
     try{await save(user,current.revision,current.state,'application_agent_claim');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
   }
@@ -95,8 +97,8 @@ export async function claim(request:Request){try{
 }catch(error){return failure(error);}}
 export async function cv(request:Request){try{
   const user=await worker(request),params=new URL(request.url).searchParams,body=claimBody.parse({requestId:params.get('requestId'),claimId:params.get('claimId')});
-  const {bytes,file}=await original(user,body.requestId,body.claimId);
-  return new Response(bytes,{headers:{'Content-Type':file.type,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
+  const {bytes,file,item,coverBytes}=await original(user,body.requestId,body.claimId);const document=params.get('document');if(document&&document!=='cover_letter')throw new DomainError('Unknown application document.');if(document==='cover_letter'&&!coverBytes)throw new DomainError('No reviewed cover letter is attached.',404);
+  return new Response(new Uint8Array(document==='cover_letter'?coverBytes!:bytes).buffer,{headers:{'Content-Type':document==='cover_letter'?item.coverLetter!.type:file.type,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 }catch(error){return failure(error);}}
 export async function authorize(request:Request){try{
   const user=await worker(request),body=claimBody.parse(await json(request));await original(user,body.requestId,body.claimId);return response({authorized:true});
