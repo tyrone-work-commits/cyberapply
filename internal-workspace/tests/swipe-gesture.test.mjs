@@ -8,4 +8,5 @@ const {swipeDirection}=await import('../.sites-runtime/gesture-tests/gesture.mjs
 test('an upward gesture saves with slight horizontal movement',()=>{assert.equal(swipeDirection(10,-120),'save');assert.equal(swipeDirection(-20,-120),'save');});
 test('horizontal gestures retain reject and Apply',()=>{assert.equal(swipeDirection(-120,20),'pass');assert.equal(swipeDirection(120,-20),'apply');});
 test('short drags and taps make no choice',()=>{for(const [x,y] of [[0,0],[0,-84],[84,0],[-85,0]])assert.equal(swipeDirection(x,y),null);});
-test('diagonal and downward motion never become accidental saves',()=>{for(const [x,y] of [[120,-120],[-120,-120],[0,140],[20,140]])assert.equal(swipeDirection(x,y),null);});
+test('ambiguous diagonals never become decisions',()=>{for(const [x,y] of [[120,-120],[-120,-120],[120,120]])assert.equal(swipeDirection(x,y),null);});
+test('downward motion requests similar roles rather than saving or applying',()=>{assert.equal(swipeDirection(0,140),'similar');assert.equal(swipeDirection(20,140),'similar');});

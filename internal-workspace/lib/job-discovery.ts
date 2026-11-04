@@ -69,7 +69,7 @@ export async function fetchBoard(board:EmployerBoard,search:JobSearch,at:string,
   if(rows.length>3000){rows=rows.slice(0,3000);report.complete=false;}
   report.fetched=rows.length;
   const seen=rows.filter(row=>row&&row.id!==undefined).map(row=>String(row.id));
-  const jobs=rows.map(row=>{const job=normalizeJob(row,board,at);return job&&cybersecurityRole(job.title,job.department)&&matchesSearch(job,search)?job:null;}).filter((job):job is Job=>job!==null);
+  const jobs=rows.map(row=>{const job=normalizeJob(row,board,at);return job&&matchesSearch(job,search)?job:null;}).filter((job):job is Job=>job!==null);
   report.matching=jobs.length;
   return {board,jobs:[...new Map(jobs.map(job=>[job.id,job])).values()],seen,report};
  }catch(error){console.warn('Employer feed unavailable',boardKey(board),error instanceof Error?`${error.name}: ${error.message.slice(0,250)}`:'Unknown network error');return {board,jobs:[],seen:[],report:{...report,status:'error',complete:false,message:error instanceof Error&&error.name==='TimeoutError'?'Employer feed timed out. Try again.':error instanceof Error&&/^Employer|^The employer/.test(error.message)?error.message:'Could not read this employer feed. Check the board URL or try again later.'}};}
