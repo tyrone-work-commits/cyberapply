@@ -18,3 +18,5 @@
 .app-shell .sidebar nav{overflow-y:auto;min-height:0;flex:1;padding-bottom:8px}
 
 .saved-source-panel{margin-top:12px;padding:12px 0;border-top:1px solid var(--line)}.saved-source-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--line)}.saved-source-panel>p{margin:12px 0}.saved-source-row small{color:var(--muted);font-size:11px}
+
+.career-actions,.career-answer-library{display:grid;gap:18px}.career-actions .action-question{display:grid;gap:18px;max-width:850px}.action-question>h2{font-size:22px;overflow-wrap:anywhere}.action-question textarea{min-height:150px}.application-settings-sheet{display:grid;gap:18px}.apply-daily-count{font-size:11px;color:var(--muted);white-space:nowrap}.career-answer-library textarea{min-height:120px}.career-answer-library .row-actions{margin-top:14px}@media(max-width:700px){.header-actions .apply-daily-count{display:none}.header-actions .apply-mode-toggle{font-size:10px;padding:6px 9px;min-height:34px}.career-actions .section-title{flex-wrap:wrap}.career-answer-library .career-segment{flex-wrap:wrap}}

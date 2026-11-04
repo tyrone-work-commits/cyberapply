@@ -186,7 +186,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
-        if remembered:
+        if remembered and not user_supplied:
             value,proof=remembered;source='saved_profile'
         elif profile_key and kind not in {"password","hidden","file"}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)

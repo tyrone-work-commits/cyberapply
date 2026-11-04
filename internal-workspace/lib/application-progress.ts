@@ -26,7 +26,8 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   const confirmed=status==='applied'&&hasConfirmation(application);
   const expiresAt=Date.parse(application.claim?.expiresAt||'');
   const lostClaim=status==='processing'&&(!Number.isFinite(expiresAt)||expiresAt<=now);
-  const checkOutcome=status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
+  const possibleDelivery=!!application.report?.journey&&typeof application.report.journey==='object'&&(application.report.journey as Record<string,unknown>).possible_delivery===true;
+  const checkOutcome=possibleDelivery&&!confirmed||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
   const journey=application.report?.journey as Record<string,unknown>|undefined;
   const recordedJourney=journey&&journey.version===1;
   const count=(key:string)=>recordedJourney&&Number.isSafeInteger(journey[key])&&(journey[key] as number)>=0?journey[key] as number:null;
@@ -50,13 +51,16 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
       'The employer may have received all or part of this application. Check the employer website or inbox before trying again.';
     if(/six-step limit/i.test(application.result?.message||''))description='The previous runner stopped at its form-navigation limit. This report does not establish that Submit was clicked. The outcome remains unverified; check the employer website or inbox before any retry.';
   }else if(status==='queued'){
-    group='in_progress';label='Queued';tone='active';description='Waiting for your browser runner to pick up this request. Keep the runner open on your computer.';
+    group='in_progress';label='Queued';tone='active';description=application.reason==='daily_limit'?'Your daily agent-run allowance is used. This queued request can continue after the UTC day changes.':'Waiting for your browser runner to pick up this request. Keep the runner open on your computer.';
   }else if(status==='processing'){
     group='in_progress';label='Agent working';tone='active';description='The agent has claimed this request and is working through the employer form. Submission is not confirmed yet.';
   }else if(!application.cv||application.reason==='cv_required'){
     label='Choose a CV';description='Choose an uploaded CV and attach it to this request before queuing the agent.';
   }else if(application.reason==='materials_changed'||application.reason==='candidate_review_required'){
     label='Update request';description='Review the chosen CV and update this request before queuing the agent.';
+  }else if(application.reason==='review_required'){label='Review before applying';description='Review the chosen CV and saved materials, then start the agent for this request when you are ready.';
+  }else if(application.reason==='daily_limit'){label='Daily limit reached';description='Your daily agent-run allowance is used. Continue after the UTC day changes.';
+  }else if(application.reason==='below_minimum_match'){label='Below your match setting';description='This CV does not establish the minimum keyword match you chose. Review the CV or lower the setting if appropriate.';
   }else if(status==='needs_attention'){
     label='Needs your input';tone='warning';if(Array.isArray(application.report?.unresolved)&&application.report.unresolved.some(item=>item&&typeof item==='object'&&(item as Record<string,unknown>).source==='generated')){label='Approval needed';}
     description='The agent paused this unsent application. Review its questions and preparation report, save any answers you can confirm, then queue it again.';

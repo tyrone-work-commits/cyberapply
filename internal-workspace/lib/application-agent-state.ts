@@ -1,5 +1,5 @@
 import {rememberEmployerQuestions} from './employer-questions';
-import { DomainError, record, safeJobUrl, applicationProfile, type State } from './cyber-domain';
+import { DomainError, record, safeJobUrl, applicationProfile, getApplySettings, applicationPolicyIssue, applicationRunsToday, type State } from './cyber-domain';
 
 export function claimApplication(state:State,at=new Date().toISOString()){
   for(const item of state.applications||[])if(item.agentVersion===2&&item.status==='processing'&&item.claim&&Date.parse(item.claim.expiresAt)<=Date.parse(at)){
@@ -7,9 +7,13 @@ export function claimApplication(state:State,at=new Date().toISOString()){
   }
   const request=state.applications?.find(item=>item.agentVersion===2&&item.status==='queued'&&item.agentAuthorizedAt);
   if(!request)return null;
+  if(request.report?.journey&&typeof request.report.journey==='object'&&(request.report.journey as Record<string,unknown>).possible_delivery===true){request.status='uncertain';delete request.agentAuthorizedAt;request.result={at,message:'A prior run may have delivered this application. Check the employer outcome before any retry.'};return null;}
   if(!request.cv||!state.attachments.some(item=>item.id===request.cv!.fileId)){
     request.status='needs_attention';request.result={at,message:'The chosen CV is unavailable. Attach a CV before trying again.'};return null;
   }
+  const job=state.jobs.find(j=>j.id===request.jobId);if(!job||job.source?.availability==='closed'){request.status='needs_attention';request.result={at,message:'This vacancy is no longer available. No employer form was opened.'};return null;}
+  const policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at,!request.reviewedForSubmissionAt);if(policy){request.reason=policy;if(policy!=='daily_limit'){request.status='needs_action';delete request.agentAuthorizedAt;}return null;}
+  state.applicationUsage={day:at.slice(0,10),started:applicationRunsToday(state,at)+1};
   request.applicantProfile=applicationProfile(state);
   request.status='processing';request.claim={id:crypto.randomUUID(),at,expiresAt:new Date(Date.parse(at)+15*60_000).toISOString()};
   record(state,'application_agent_claim','The CV application agent started an authorized request.','agent',at);
@@ -31,3 +35,5 @@ export function completeApplication(state:State,input:{requestId:string;claimId:
 }
 
 export function assertApplicationProfileCurrent(state:State,request:NonNullable<State['applications']>[number]){if(!request.applicantProfile||JSON.stringify(request.applicantProfile)!==JSON.stringify(applicationProfile(state)))throw new DomainError('Edit Profile changed during this application. Stop and update the application before submitting.',409);}
+
+export function assertApplicationModeCurrent(state:State,request:NonNullable<State['applications']>[number]){if(getApplySettings(state).mode==='review'&&!request.reviewedForSubmissionAt)throw new DomainError('Application mode changed to review. Stop before submitting and review this request.',409);}

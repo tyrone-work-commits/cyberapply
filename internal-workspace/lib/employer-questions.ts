@@ -1,5 +1,5 @@
 import type {State,ApplicationRequest} from './cyber-domain';
-export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;options:string[];optionsTruncated?:boolean;optionsCompany?:string;optionsJobId?:string;optionsCheckedAt?:string;jobTitle?:string;company?:string;aiDraft?:boolean;generationNote?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
+export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;lastUsedAt?:string;options:string[];optionsTruncated?:boolean;optionsCompany?:string;optionsJobId?:string;optionsCheckedAt?:string;jobTitle?:string;company?:string;aiDraft?:boolean;generationNote?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
 export const isAutomationCheck=(question:string,choices:string[]=[])=>[question,...choices].some(text=>/\b(?:are you (?:a |an )?(?:human|robot|bot)|i am (?:a |an )?(?:human|ai|robot|bot|automated program)|(?:verify|confirm|prove) (?:that )?you(?: are|'re) (?:a )?human|captcha)\b/i.test(text));
 export const questionNeedsDirectFacts=(q:string)=>/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|authori[sz]|visa|sponsor|citizen|nationality|right to work|salary|compensation|wage|clearance|criminal|convict|gender|race|ethnic|religion|disabil|veteran|birth|age|password|captcha|verification|security code)\w*\b/i.test(q);
 export const authorshipCheck=(question:string)=>{const text=question.replace(/\s+/g,' ');return /\b(?:confirm|certify|attest|declare|acknowledge)\b.{0,100}\b(?:AI|ChatGPT|own words|original work|independently written)\b/i.test(text)||/^(?:(?:did|have) you (?:ever )?(?:use|used)\b|(?:was|were|is|are) (?:any of )?(?:your|this|the|these|all) (?:application|answers?|responses?|submission|cover.?letter)\b)/i.test(text)&&/\b(?:AI|ChatGPT)\b/i.test(text)&&/\b(?:application|answers?|responses?|submission|cover.?letter)\b/i.test(text);};
@@ -25,8 +25,8 @@ export function rememberEmployerQuestions(state:State,request:ApplicationRequest
   const options=Array.isArray(row.options)?[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean))].slice(0,100).map(v=>v.slice(0,200)):[];
   const choiceMetadata=options.length?{options,optionsTruncated:!!row.optionsTruncated,optionsCompany:job?.company,optionsJobId:request.jobId,optionsCheckedAt:at}:{};
   if(old&&(old.source==='user'||metadataOnly)){
-   if(!options.length)continue;
-   const refreshed={...old,...choiceMetadata};
+   const reused=answers.some(a=>a.source==='saved_profile'&&key(String(a.question||''))===key(question));if(!options.length&&!reused)continue;
+   const refreshed={...old,...choiceMetadata,...(reused?{lastUsedAt:at}:{})};
    if(manualAnswerOnly(question,options))refreshed.reusePolicy='manual_only';
    const size=used-bytes(old)+bytes(refreshed);if(size>budget){omitted++;continue;}
    bank[bank.indexOf(old)]=refreshed;used=size;saved++;continue;

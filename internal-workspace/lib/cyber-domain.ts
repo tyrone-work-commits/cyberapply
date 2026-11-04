@@ -27,15 +27,20 @@ function saveFileReview(state:State){
 }
 export type SelectedCv = { fileId:string; name:string; type:string; size:number };
 export type NewApplicationAgent = { enabled:boolean; tokenHash:string; issuedAt:string; expiresAt:string; lastSeenAt?:string };
-export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; applicantProfile?: ApplicantProfile; cv?: SelectedCv; employerConsent?:boolean; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed'; sourceUrl: string; agentAuthorizedAt?:string; agentVersion?:2; cvSha256?:string; coverLetter?:{letterId:string;version:number;text:string;key:string;name:string;type:string;sha256:string}; confirmedAnswers?:{question:string;value:string}[]; report?:Record<string,unknown>; receiptVerification?:import('./employer-receipts').VerifiedReceipt & {verifiedAt:string;previousResult?:ApplicationRequest['result']}; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string;evidence?:{url:string;text:string}} };
+export type ApplicationRequest = { id: string; jobId: string; draftId: string; draftVersion: number; text: string; candidate: Profile; applicantProfile?: ApplicantProfile; cv?: SelectedCv; employerConsent?:boolean; at: string; status: 'needs_action'|'queued'|'processing'|'applied'|'needs_attention'|'uncertain'|'failed'; reason: 'connection_required' | 'candidate_review_required' | 'cv_required' | 'materials_changed' | 'review_required' | 'daily_limit' | 'below_minimum_match'; sourceUrl: string; agentAuthorizedAt?:string; reviewedForSubmissionAt?:string; agentVersion?:2; cvSha256?:string; coverLetter?:{letterId:string;version:number;text:string;key:string;name:string;type:string;sha256:string}; confirmedAnswers?:{question:string;value:string}[]; report?:Record<string,unknown>; receiptVerification?:import('./employer-receipts').VerifiedReceipt & {verifiedAt:string;previousResult?:ApplicationRequest['result']}; claim?:{id:string;at:string;expiresAt:string}; result?:{at:string;message:string;receipt?:string;evidence?:{url:string;text:string}} };
 export type AccountDetails = { zipCode?:string; location?:string; address?:string; city?:string; state?:string; country?:string; phone?:string; yearsExperience?:number|null; expectedSalary?:SalaryFacts|null; ukVisaRequired?:boolean|null; usaVisaRequired?:boolean|null; canadaVisaRequired?:boolean|null; irelandVisaRequired?:boolean|null; ukRightToWork?:boolean|null; usaRightToWork?:boolean|null; canadaRightToWork?:boolean|null; irelandRightToWork?:boolean|null };
 export type ApplicantProfile = {fullName:string;employerQuestions?:EmployerQuestion[]} & Pick<AccountDetails,'zipCode'|'location'|'address'|'city'|'state'|'country'|'phone'|'expectedSalary'|'ukVisaRequired'|'usaVisaRequired'|'canadaVisaRequired'|'irelandVisaRequired'|'ukRightToWork'|'usaRightToWork'|'canadaRightToWork'|'irelandRightToWork'>;
 export function applicationProfile(state:State):ApplicantProfile{const p=state.accountProfile;return {employerQuestions:structuredClone(p?.employerQuestions||[]),fullName:p?.fullName||'',zipCode:p?.zipCode||'',location:p?.location||'',address:p?.address||'',city:p?.city||'',state:p?.state||'',country:p?.country||'',phone:p?.phone||'',expectedSalary:p?.expectedSalary?structuredClone(p.expectedSalary):null,ukVisaRequired:p?.ukVisaRequired??null,usaVisaRequired:p?.usaVisaRequired??null,canadaVisaRequired:p?.canadaVisaRequired??null,irelandVisaRequired:p?.irelandVisaRequired??null,ukRightToWork:p?.ukRightToWork??null,usaRightToWork:p?.usaRightToWork??null,canadaRightToWork:p?.canadaRightToWork??null,irelandRightToWork:p?.irelandRightToWork??null};}
 export type AccountProfile = AccountDetails & { employerQuestions?:EmployerQuestion[]; fullName: string; headline: string; targetRole: string; completedAt: string };
 export type ApplicationArchive = { applications:ApplicationRequest[]; drafts:Draft[]; at:string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
-export type State = { receiptChecksEnabled?:boolean; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
+export type State = { applicationSettings?:ApplySettings; applicationUsage?:{day:string;started:number}; receiptChecksEnabled?:boolean; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
+export type ApplySettings={mode:'automatic'|'review';dailyLimit:number;minimumMatch:number;autoConsentAt?:string;tutorialSeen:boolean};
+export function getApplySettings(state:State):ApplySettings{return{mode:state.applicationSettings?.mode||(state.newApplicationAgent?.enabled?'automatic':'review'),dailyLimit:state.applicationSettings?.dailyLimit??20,minimumMatch:state.applicationSettings?.minimumMatch??0,autoConsentAt:state.applicationSettings?.autoConsentAt||(state.newApplicationAgent?.enabled?state.newApplicationAgent.issuedAt:undefined),tutorialSeen:state.applicationSettings?.tutorialSeen??false};}
+export function applicationRunsToday(state:State,at=new Date().toISOString()){return state.applicationUsage?.day===at.slice(0,10)?state.applicationUsage.started:[...(state.applications||[]),...(state.applicationArchive?.applications||[])].filter(a=>a.claim?.at.slice(0,10)===at.slice(0,10)).length;}
+export function applicationMatchScore(text:string,job:Job){if(!text.trim()||!job.skills.length)return null;const norm=(s:string)=>s.toLowerCase().replace(/[^a-z0-9+#.]+/g,' ').replace(/\.(?=\s|$)/g,' ').trim(),cv=' '+norm(text)+' ';return Math.round(100*job.skills.filter(s=>cv.includes(' '+norm(s)+' ')).length/job.skills.length);}
+export function applicationPolicyIssue(state:State,job:Job,cvText:string,at:string,automatic=false){const settings=getApplySettings(state);if(automatic&&settings.mode!=='automatic')return 'review_required';if(automatic&&!settings.autoConsentAt)return 'review_required';if(applicationRunsToday(state,at)>=settings.dailyLimit)return 'daily_limit';const score=applicationMatchScore(cvText,job);if(settings.minimumMatch>0&&(score===null||score<settings.minimumMatch))return 'below_minimum_match';return '';}
 
 // D1 caps a string/table row at 2,000,000 bytes. Leave room for row metadata.
 // Check UTF-8 bytes rather than UTF-16 characters, in both optimistic and saved writes.
@@ -60,6 +65,8 @@ const accountDetails = {
 };
 const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional(), totalExperienceYears: z.number().min(0).max(60).optional(), cybersecurityExperienceYears: z.number().min(0).max(60).optional(), currentSalary:z.object({amount:z.number().finite().positive().max(1_000_000_000_000),currency:z.enum(['USD','NGN','GBP','EUR','CAD','AUD','GHS','KES','ZAR','AED','INR','SGD']),period:z.enum(['year','month','hour'])}).strict().optional() }).strict().superRefine((value,ctx)=>{if(value.totalExperienceYears!==undefined&&value.cybersecurityExperienceYears!==undefined&&value.cybersecurityExperienceYears>value.totalExperienceYears)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Cybersecurity experience cannot exceed total experience.'});});
 export const actionSchema = z.discriminatedUnion('type', [
+  z.object({type:z.literal('set_apply_settings'),mode:z.enum(['automatic','review']),dailyLimit:z.number().int().min(1).max(100),minimumMatch:z.number().int().min(0).max(100),authorizeAutomatic:z.boolean().optional(),tutorialSeen:z.boolean().optional()}).strict(),
+  z.object({type:z.literal('delete_employer_answer'),questionId:id}).strict(),
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
   z.object({type:z.literal('draft_employer_answers'),questionId:id.optional()}).strict(),
@@ -75,7 +82,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
   z.object({ type: z.literal('refresh_application_materials'), applicationId: id }).strict(),
   z.object({ type: z.literal('queue_application_agent'), applicationId: id }).strict(),
-  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(1000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(40),confirmation:z.literal('CONFIRMED') }).strict(),
+  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(4000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(40),confirmation:z.literal('CONFIRMED') }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
@@ -194,6 +201,14 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if(!archived.applications.length&&!archived.drafts.length)delete state.applicationArchive;
     delete state.lastDecision;
     message=`Restored ${restored.length} application records. Nothing was queued or sent.`;
+  } else if(action.type==='set_apply_settings'){
+    const previous=getApplySettings(state),consent=action.authorizeAutomatic?at:previous.autoConsentAt;
+    if(action.mode==='automatic'&&!consent)throw new DomainError('Read and authorize automatic applications before enabling automatic mode.',409);
+    state.applicationSettings={mode:action.mode,dailyLimit:action.dailyLimit,minimumMatch:action.minimumMatch,...(consent?{autoConsentAt:consent}:{}),tutorialSeen:action.tutorialSeen??previous.tutorialSeen};
+    if(action.mode==='review')for(const request of state.applications||[])if(request.status==='queued'){request.status='needs_action';request.reason='review_required';delete request.agentAuthorizedAt;delete request.reviewedForSubmissionAt;}
+    message=action.mode==='automatic'?'Automatic application settings saved. Future Apply requests use these limits.':'Review mode saved. Review each unsent request before starting its agent.';
+  } else if(action.type==='delete_employer_answer'){
+    const bank=state.accountProfile?.employerQuestions;if(!bank?.some(q=>q.id===action.questionId))throw new DomainError('This saved answer no longer exists.',404);state.accountProfile!.employerQuestions=bank.filter(q=>q.id!==action.questionId);invalidateUnsent(state);message='Saved answer removed from your reusable library. Existing application records remain.';
   } else if (action.type === 'save_profile') {
     if (action.profile.reviewed && (!action.profile.fullName || !action.profile.email || action.profile.resumeText.trim().length < 20)) throw new DomainError('Add your name, email and résumé text before confirming the facts.');
     state.profile = {...state.profile, ...action.profile, skills: unique(action.profile.skills), preferredRoles: unique(action.profile.preferredRoles)};
@@ -241,7 +256,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       const cv=selectedCv(state);
       const request: ApplicationRequest = { id: `request-${decisionId}`, jobId: job.id, draftId: draft.id, draftVersion: draft.version, text: draft.text, candidate: structuredClone(state.profile), ...(cv?{cv:cvSnapshot(cv)}:{}), at, status:'needs_action', reason: !cv?'cv_required':CANDIDATE_FACTS_ENABLED&&!state.profile.reviewed?'candidate_review_required':'connection_required', sourceUrl: job.url };
       if(cv&&state.newApplicationAgent?.enabled&&Date.parse(state.newApplicationAgent.expiresAt)>Date.parse(at)){
-        request.status='queued';request.agentVersion=2;request.agentAuthorizedAt=at;
+        const policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at,true);if(policy){request.reason=policy;}else{request.status='queued';request.agentVersion=2;request.agentAuthorizedAt=at;}
       }
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
@@ -290,7 +305,9 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const cv=selectedCv(state);
     if(!cv)throw new DomainError('Choose an uploaded CV in CV review before attaching it to this request.',409);
     const draft=getDraft(state,request.draftId);
+    const cvChanged=request.cv?.fileId!==cv.id;
     request.cv=cvSnapshot(cv);
+    if(cvChanged)delete request.coverLetter;
     request.candidate=structuredClone(state.profile);
     request.text=draft.text;
     request.draftVersion=draft.version;
@@ -307,11 +324,13 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message='Your answers are saved for these exact questions on this application. Queue the request when you are ready.';
   } else if (action.type === 'queue_application_agent') {
     const request=state.applications?.find(item=>item.id===action.applicationId);
+    if(request?.report?.journey&&typeof request.report.journey==='object'&&(request.report.journey as Record<string,unknown>).possible_delivery===true)throw new DomainError('The previous run may have delivered this application. Verify the employer outcome before any retry.',409);
     if(!request||!['needs_action','needs_attention','failed'].includes(request.status))throw new DomainError('Only an unsent request with a known outcome can be queued.',409);
     if(!state.newApplicationAgent?.enabled||Date.parse(state.newApplicationAgent.expiresAt)<=Date.parse(at))throw new DomainError('Connect the new application agent in Settings first.',409);
     if(!request.cv||!state.attachments.some(file=>file.id===request.cv?.fileId))throw new DomainError('Attach an available CV to this request first.',409);
     if(request.reason==='materials_changed')throw new DomainError('Update this request with the chosen CV before queuing it.',409);
-    request.status='queued';request.agentVersion=2;request.agentAuthorizedAt=at;delete request.claim;delete request.result;delete request.report;
+    const job=getJob(state,request.jobId),policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at);if(policy)throw new DomainError(policy==='daily_limit'?'Your daily application-run limit is reached. Queued requests can continue after the UTC day changes.':'This request does not meet your minimum match setting. Review your CV or application settings.',409);
+    request.reviewedForSubmissionAt=at;request.reason='connection_required';request.status='queued';request.agentVersion=2;request.agentAuthorizedAt=at;delete request.claim;delete request.result;delete request.report;
     message='Request queued for the application agent. It will pause if information or employer confirmation is missing.';
   } else if (action.type === 'review_resume') {
     if (state.profile.resumeText.trim().length < 20) throw new DomainError('Paste or import your CV text and save it before reviewing.');

@@ -8,6 +8,7 @@ import { ReceiptCheckPanel } from './receipt-check-panel';
 import {providerNames} from '@/lib/job-catalog';
 import type {EmployerQuestion} from '@/lib/employer-questions';
 import {applicationQuestionChoices} from '@/lib/application-question-choices';
+import {similarJobs} from '@/lib/job-browse';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -82,6 +83,7 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
     </div>
     <details className="application-detail-panel"><summary>Application details and agent report</summary>
      {application.report?<AgentReport value={application.report}/>:<p className="subtle">The agent’s answers, experience calculation, company research and cover letter will appear here after it reports back.</p>}
+     {job&&<div className="application-detail-section"><h4>Jobs you might like</h4>{similarJobs(job,jobs).slice(0,3).map(other=><p key={other.id}><a className="text-link" href={'/workspace?view=search&job='+encodeURIComponent(other.id)}>{other.title} · {other.company}</a></p>)}{!similarJobs(job,jobs).length&&<p className="subtle">No similar roles in your collection yet.</p>}</div>}
      <div className="application-detail-section"><h4>Recorded activity</h4><ol className="application-event-list">{progress.events.map((event,index)=><li key={`${event.label}-${index}`}><span>{event.label}</span><time dateTime={event.at}>{timestamp(event.at)}</time></li>)}</ol></div>
      <div className="application-detail-section"><h4>Files and source</h4><div className="application-overview-actions">{attachedFile&&<a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}`} download><Download size={15}/>Download application CV</a>}{applyUrl&&<a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer">Open employer application<ExternalLink size={15}/></a>}{canChangeCv&&<button type="button" className="button quiet" disabled={busy} onClick={()=>void onRefresh(application.id)}>Use {chosenCv!.name} instead</button>}</div></div>
      <a className="button quiet" href={`/workspace?view=cover-letters&job=${encodeURIComponent(application.jobId)}`}>Generate cover letter</a>{application.coverLetter&&<p className="subtle">Reviewed cover letter attached · version {application.coverLetter.version}</p>}{draft&&<details className="application-saved-draft"><summary>Earlier saved draft for manual use</summary><p className="subtle">This is your saved draft. The agent prepares its own cover letter, shown in its report above.</p><pre className="snapshot-text">{draft.text}</pre></details>}
