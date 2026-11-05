@@ -196,3 +196,9 @@ Mobile navigation now reads Explore, Search, Saved, Applications, More. Dashboar
 TypeScript and production build passed. Local fictional-user browser checked the five bottom labels, opened Search from its new tab, opened More and Dashboard, and returned to Explore. No horizontal overflow at 375/768/1280px; desktop sidebar starts with Explore then Search. No profile data, CV choice, job or employer application action was changed. Protected sign-in/auth/shared styles/access policy are unchanged.
 
 Published as Site v94: native deployment succeeded 5 November 2026 at 14:11:39 Africa/Lagos (13:11:39 UTC) using pushed Site source `6914e3aebe3b53efaafd540e2171add0bc9ec58e` and application commit `6994c9b`. Existing private audience/read-only connector retained. Real-account hosted navigation was not repeated; local browser checks and native deployment establish the checked implementation and rollout separately. This rollout note changes reporting only.
+
+## Remove Add a listing — 5 November 2026
+
+Removed the Add a listing header button from Explore/Saved, its empty-deck shortcut and the now-unreachable manual-listing dialog/form state. Empty-state guidance points to Search. Existing job records, backend import actions and employer-board management in Search are retained; this is an interface removal, not a data deletion.
+
+TypeScript and production build passed. Local fictional-user browser verified no button on the populated Explore page, empty card view, Saved or desktop Explore; Search still opens and restores matching results after clearing a temporary local filter. Original grid display was restored after checking the empty card view. No horizontal overflow at 375/768/1280px. No jobs, CVs, applicant facts or application requests were changed. Protected sign-in/auth/shared styles/access policy have no diff. Publication pending for this checkpoint.
