@@ -1,5 +1,6 @@
 import { identity, load, response, failure } from '@/lib/cyber-store';
 import { connectorsForRequest, type ConnectorResult } from '@/lib/connectors';
+import {listCareer} from '@/lib/career-store';
 import { inboxQuery, matchingInboxMessages, type MailRow } from '@/lib/job-inbox';
 
 export const dynamic='force-dynamic';
@@ -35,6 +36,6 @@ export async function GET(request:Request){
     const raw=value(searchResult);
     const emails=raw&&typeof raw==='object'&&'emails'in raw&&Array.isArray(raw.emails)?raw.emails as MailRow[]:null;
     if(!emails)return response({error:'Gmail returned an unexpected response. No messages were displayed.'},502);
-    return response({mailbox,items:matchingInboxMessages(emails,saved.state.jobs,applications),checkedAt:new Date().toISOString(),scope:'Recent Inbox messages matching jobs in your Applications list. Other mail is hidden; only the first 75 search results are checked.'});
+    const links=await listCareer<{messageId:string;applicationId:string|null}>(user,'inboxLinks',{limit:100});const items=matchingInboxMessages(emails,saved.state.jobs,applications).map(message=>{const link=links.find(r=>r.data.messageId===message.id),app=link?.data.applicationId?applications.find(a=>a.id===link.data.applicationId):undefined,job=app?saved.state.jobs.find(j=>j.id===app.jobId):undefined;return{...message,applicationId:link?app?.id||null:applications.find(a=>a.jobId===message.jobId)?.id,manualLink:!!link,...(job?{jobId:job.id,jobTitle:job.title,company:job.company}:{})};});return response({mailbox,items,applications:applications.map(a=>({id:a.id,title:saved.state.jobs.find(j=>j.id===a.jobId)?.title||'Vacancy',company:saved.state.jobs.find(j=>j.id===a.jobId)?.company||''})),checkedAt:new Date().toISOString(),scope:'Recent Inbox messages matching jobs in your Applications list. Other mail is hidden; only the first 75 search results are checked.'});
   }catch(error){return failure(error);}
 }

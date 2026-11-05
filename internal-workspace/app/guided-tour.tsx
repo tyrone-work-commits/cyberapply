@@ -7,7 +7,7 @@ const areaLabel:Record<TourArea,string>={explore:'Explore',saved:'Saved',applica
 type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string};
 export const tourSteps:ReadonlyArray<Step>=[
  {area:'explore',title:'Explore: find your next role',description:'Explore shows cybersecurity vacancies from your chosen employer boards. Review each role here before deciding. This guide only points to controls; it does not change jobs.',target:'.page-heading'},
- {area:'explore',title:'Search live openings',description:'Choose a role, location and remote filter, then search Greenhouse and Lever boards. Manage sources to change the employer boards you search.',target:'.job-sources .source-search'},
+ {area:'explore',title:'Search live openings',description:'Choose a role, location and remote filter, then search your selected employer boards. Manage sources to change the employer boards you search.',target:'.job-sources .source-search'},
  {area:'explore',title:'Review and decide',description:'Read the card and original source. Swipe left to reject, up to save, or right to Apply. Undo restores the latest choice. Apply alone is not proof of employer submission.',target:'.swipe-actions',fallback:'.swipe-stage'},
  {area:'saved',title:'Saved: revisit roles',description:'Saved keeps jobs you bookmarked so you can compare them later. Saving a role does not apply for it.',target:'.page-heading'},
  {area:'saved',title:'Use saved job actions',description:'Open a role and its original listing, remove the bookmark, or choose Apply when ready. If this page is empty, save a card in Explore first.',target:'.list-grid .listing-row .row-actions',fallback:'.list-grid .empty-state'},
@@ -21,7 +21,7 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'activity',title:'Activity: see what changed',description:'Activity records actions and earlier saved versions, so you can review what happened in the workspace and show evidence of your work.',target:'.page-heading'},
  {area:'activity',title:'Review history and export',description:'View recent actions and earlier versions below. Export evidence to download your workspace records for your own review.',target:'.evidence-strip > a',fallback:'.activity-grid'},
  {area:'account',title:'Settings: manage your account',description:'Settings holds your profile and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
- {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. No automatic application agent is connected. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
+ {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. Manage your connected application runner, private notifications and Help. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
 ];
 type Box={top:number;left:number;width:number;height:number};
 function visible(selector:string):HTMLElement|null{
