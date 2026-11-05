@@ -188,3 +188,9 @@ Role, location, remote and other search-filter changes immediately filter the va
 TypeScript and production build passed. Local fictional-user browser demonstrated role mismatch → zero, role match plus location mismatch → zero, and Security Analyst + Dallas → one immediately, without pressing a search/filter button. Selecting the list item focused its details at 375px; Apply and Reject were enabled and keyboard reachable. No horizontal overflow at 375/768/1280px. Neither action was clicked: no employer application or rejection occurred, and revision 61/its existing records remained unchanged.
 
 Published as Site v93: native deployment succeeded 5 November 2026 at 12:56:07 UTC using pushed Site source `fd6cf2e81fe5794adca5208a4125c7aabfba8de2` and application commit `a7072d7`. The earlier section move in v92 is included. Existing private audience and read-only connector retained. Hosted real-account interactions were not repeated; the result is supported by local browser checks plus successful native deployment. This rollout note changes reporting only.
+
+## Explore/Search primary navigation — 5 November 2026
+
+Mobile navigation now reads Explore, Search, Saved, Applications, More. Dashboard moves into More as its first item. A shared primary-tab set keeps the bottom tabs and More menu complementary, without duplicate Search or Dashboard entries. Desktop navigation also starts with Explore then Search; its full tool sidebar remains available.
+
+TypeScript and production build passed. Local fictional-user browser checked the five bottom labels, opened Search from its new tab, opened More and Dashboard, and returned to Explore. No horizontal overflow at 375/768/1280px; desktop sidebar starts with Explore then Search. No profile data, CV choice, job or employer application action was changed. Protected sign-in/auth/shared styles/access policy are unchanged. Publication pending for this checkpoint.
