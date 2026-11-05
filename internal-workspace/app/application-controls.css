@@ -5,4 +5,7 @@
 .applications-controls-dialog .section-title h3{display:flex;align-items:center;gap:8px;margin-top:0}
 .applications-controls-dialog .application-detail-section p{line-height:1.75;margin:12px 0}
 .applications-controls-dialog .agent-tracker-identity>a{white-space:normal}
+.applications-controls-dialog .application-management{padding:18px;margin-top:18px}
+.applications-controls-dialog .application-management h3{margin-top:0}
+.applications-controls-dialog .application-reset-confirm{margin-top:14px}
 @media(max-width:600px){.applications-controls-dialog{padding:18px}.applications-controls-dialog .modal-head h2{font-size:20px}.applications-controls-dialog .agent-tracker-context,.applications-controls-dialog .application-detail-section{padding:14px}.applications-controls-dialog .application-overview-actions{flex-direction:column;align-items:stretch}}

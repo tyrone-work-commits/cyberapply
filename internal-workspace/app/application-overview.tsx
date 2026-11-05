@@ -1,5 +1,5 @@
 "use client";
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Bot, Check, CheckCircle2, Clock3, Download, ExternalLink, Eye, FileText, Search, Settings, ShieldCheck, TriangleAlert, Trash2, Undo2 } from 'lucide-react';
 import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-domain';
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
@@ -33,6 +33,8 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
 }){
  const [filter,setFilter]=useState<ProgressGroup|'all'>('all'),[search,setSearch]=useState('');
  const [confirmClear,setConfirmClear]=useState(false);
+ const clearReview=useRef<HTMLDivElement>(null);
+ useEffect(()=>{if(!confirmClear)return;const trigger=document.activeElement as HTMLElement|null;clearReview.current?.focus({preventScroll:true});clearReview.current?.scrollIntoView({block:'nearest'});return()=>{if(trigger?.isConnected)trigger.focus({preventScroll:true});};},[confirmClear]);
  const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);
  const chosenCv=files.find(file=>file.id===selectedCvId);
  const ordered=[...applications].sort((a,b)=>b.at.localeCompare(a.at));
@@ -42,21 +44,23 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
   return (filter==='all'||applicationProgress(item).group===filter)&&`${job?.title||''} ${job?.company||''} ${sourceName(job)}`.toLowerCase().includes(search.trim().toLowerCase());
  });
  return <section className="application-overview agent-applications" aria-label="Your applications">
-  <ApplicationControlsDialog open={settingsOpen} onClose={onCloseSettings}>
+  <ApplicationControlsDialog open={settingsOpen} onClose={()=>{setConfirmClear(false);onCloseSettings();}}>
   <div className="agent-tracker-context panel">
    <div className="agent-tracker-identity"><span className="agent-tracker-icon"><Bot size={23}/></span><div><h2 id="application-overview-title">Your application agent</h2><p>{agentEnabled?'Connection enabled · keep the browser runner open on your computer.':'Connect your browser runner to start sending applications.'}</p>{lastSeenAt&&<small>Last request picked up {timestamp(lastSeenAt)}</small>}</div><a className="button quiet" href="/account#application-agent-heading"><Settings size={15}/>{agentEnabled?'Manage agent':'Connect agent'}</a></div>
    <div className="agent-tracker-cv"><FileText size={16}/><span>CV for your next Apply swipe: <strong>{chosenCv?.name||'Choose a CV'}</strong></span><button className="text-link" type="button" onClick={onChooseCv}>{chosenCv?'Change CV':'Choose a CV'}<ArrowRight size={13}/></button></div>
   </div>
   <ReceiptCheckPanel enabled={receiptChecksEnabled} pendingCount={counts.check_outcome} busy={busy} onChanged={onReceiptsChanged}/>
+  {(applications.length>0||drafts.length>0)&&<section className="panel application-management" aria-label="Manage applications"><h3>Manage applications</h3>
+   <button className="button quiet" type="button" disabled={busy||applications.some(item=>item.status==='processing')} onClick={()=>setConfirmClear(true)}><Trash2 size={16}/>Clear all applications</button>
+  {confirmClear&&<div ref={clearReview} tabIndex={-1} className="panel application-reset-confirm" role="group" aria-label="Confirm clearing applications"><h3>Clear your applications list?</h3><p>This clears all {applications.length} application records and {drafts.length} saved drafts, including records hidden by filters. Your CVs, profile, saved jobs and agent connection stay saved. Queued requests will stop. This does not withdraw anything sent to an employer.</p><p>You can restore cleared records here. A previously submitted or uncertain application remains protected against an accidental duplicate.</p><div className="account-actions"><button className="button quiet" type="button" disabled={busy} onClick={()=>setConfirmClear(false)}>Cancel</button><button className="button" type="button" disabled={busy} onClick={()=>void onClear().then(saved=>{if(saved){setConfirmClear(false);setFilter('all');setSearch('');}})}><Trash2 size={16}/>Clear applications</button></div></div>}
+  </section>}
   </ApplicationControlsDialog>
   <p className="subtle">New agent runs save a private video here after they finish or pause. Choose Watch recording to replay it.</p>
-  <div className="application-reset-controls">
-   {(applications.length>0||drafts.length>0)&&<button className="button quiet" type="button" disabled={busy||applications.some(item=>item.status==='processing')} onClick={()=>setConfirmClear(true)}><Trash2 size={16}/>Clear all applications</button>}
+  {(clearedCount>0||!legacyDeleted)&&<div className="application-reset-controls">
    {clearedCount>0&&<button className="button quiet" type="button" disabled={busy} onClick={()=>void onRestore()}><Undo2 size={16}/>Restore cleared applications ({clearedCount})</button>}
    {clearedCount>0&&<button className="button quiet danger" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'cleared',label:`${clearedCount} cleared application records and their saved drafts`})}><Trash2 size={16}/>Permanently delete cleared applications</button>}
    {!legacyDeleted&&<button className="button quiet" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'candidate_facts',label:'Old Candidate Facts and manual review data; uploaded CV files and CV review scores are kept.'})}><Trash2 size={16}/>Delete old Candidate Facts data</button>}
-  </div>
-  {confirmClear&&<div className="panel application-reset-confirm" role="group" aria-label="Confirm clearing applications"><h3>Clear your applications list?</h3><p>This clears all {applications.length} application records and {drafts.length} saved drafts, including records hidden by filters. Your CVs, profile, saved jobs and agent connection stay saved. Queued requests will stop. This does not withdraw anything sent to an employer.</p><p>You can restore cleared records here. A previously submitted or uncertain application remains protected against an accidental duplicate.</p><div className="account-actions"><button className="button quiet" type="button" disabled={busy} onClick={()=>setConfirmClear(false)}>Cancel</button><button className="button" type="button" disabled={busy} onClick={()=>void onClear().then(saved=>{if(saved){setConfirmClear(false);setFilter('all');setSearch('');}})}><Trash2 size={16}/>Clear applications</button></div></div>}
+  </div>}
   <div className="application-filters" role="group" aria-label="Filter applications by status">{filters.map(([key,label])=><button key={key} type="button" aria-pressed={filter===key} className={filter===key?'application-filter active':'application-filter'} onClick={()=>setFilter(key)}><span>{label}</span><strong>{counts[key]}</strong></button>)}</div>
   <div className="application-list-heading"><div><h2>Your applications</h2><p role="status">{visible.length} {visible.length===1?'application':'applications'}{filter==='all'?'':` · ${filters.find(([key])=>key===filter)?.[1]}`}</p></div><label className="application-search"><Search size={16}/><span className="sr-only">Find an application by role, company or source</span><input type="search" placeholder="Find a role or company" value={search} onChange={event=>setSearch(event.target.value)}/></label></div>
   {visible.length?<ol className="application-overview-list">{visible.map(application=>{
