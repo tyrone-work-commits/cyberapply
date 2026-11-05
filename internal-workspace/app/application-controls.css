@@ -1,0 +1,8 @@
+.applications-preferences-button{display:flex;align-items:center;justify-content:center;width:44px;height:44px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--panel);color:var(--text);box-shadow:0 3px 14px #20212308;flex-shrink:0}
+.applications-controls-dialog .agent-tracker-context{margin-bottom:18px;padding:18px}
+.applications-controls-dialog .application-detail-section{margin-top:0;padding:18px}
+.applications-controls-dialog .section-title{flex-wrap:wrap;gap:9px}
+.applications-controls-dialog .section-title h3{display:flex;align-items:center;gap:8px;margin-top:0}
+.applications-controls-dialog .application-detail-section p{line-height:1.75;margin:12px 0}
+.applications-controls-dialog .agent-tracker-identity>a{white-space:normal}
+@media(max-width:600px){.applications-controls-dialog{padding:18px}.applications-controls-dialog .modal-head h2{font-size:20px}.applications-controls-dialog .agent-tracker-context,.applications-controls-dialog .application-detail-section{padding:14px}.applications-controls-dialog .application-overview-actions{flex-direction:column;align-items:stretch}}

@@ -5,6 +5,7 @@ import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-dom
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
 import { ApplicationDeleteDialog, type DeleteTarget } from './application-delete-dialog';
 import { ReceiptCheckPanel } from './receipt-check-panel';
+import {ApplicationControlsDialog} from './application-controls-dialog';
 import {providerNames} from '@/lib/job-catalog';
 import type {EmployerQuestion} from '@/lib/employer-questions';
 import {applicationQuestionChoices} from '@/lib/application-question-choices';
@@ -21,7 +22,8 @@ function sourceName(job?: Job) {
 function timestamp(value:string){return new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});}
 const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['applied','Applied'],['check_outcome','Awaiting confirmation']];
 
-export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,receiptChecksEnabled,onReceiptsChanged,employerQuestions=[]}:{
+export function ApplicationOverview({settingsOpen,onCloseSettings,applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,receiptChecksEnabled,onReceiptsChanged,employerQuestions=[]}:{
+ settingsOpen:boolean;onCloseSettings:()=>void;
  employerQuestions?:EmployerQuestion[];
  receiptChecksEnabled:boolean;onReceiptsChanged:()=>Promise<void>;
  applications:ApplicationRequest[];jobs:Job[];drafts:Draft[];files:Attachment[];selectedCvId?:string;agentEnabled:boolean;lastSeenAt?:string;busy:boolean;
@@ -39,13 +41,15 @@ export function ApplicationOverview({applications,jobs,drafts,files,selectedCvId
   const job=jobs.find(job=>job.id===item.jobId);
   return (filter==='all'||applicationProgress(item).group===filter)&&`${job?.title||''} ${job?.company||''} ${sourceName(job)}`.toLowerCase().includes(search.trim().toLowerCase());
  });
- return <section className="application-overview agent-applications" aria-labelledby="application-overview-title">
+ return <section className="application-overview agent-applications" aria-label="Your applications">
+  <ApplicationControlsDialog open={settingsOpen} onClose={onCloseSettings}>
   <div className="agent-tracker-context panel">
    <div className="agent-tracker-identity"><span className="agent-tracker-icon"><Bot size={23}/></span><div><h2 id="application-overview-title">Your application agent</h2><p>{agentEnabled?'Connection enabled · keep the browser runner open on your computer.':'Connect your browser runner to start sending applications.'}</p>{lastSeenAt&&<small>Last request picked up {timestamp(lastSeenAt)}</small>}</div><a className="button quiet" href="/account#application-agent-heading"><Settings size={15}/>{agentEnabled?'Manage agent':'Connect agent'}</a></div>
    <div className="agent-tracker-cv"><FileText size={16}/><span>CV for your next Apply swipe: <strong>{chosenCv?.name||'Choose a CV'}</strong></span><button className="text-link" type="button" onClick={onChooseCv}>{chosenCv?'Change CV':'Choose a CV'}<ArrowRight size={13}/></button></div>
   </div>
-  <p className="subtle">New agent runs save a private video here after they finish or pause. Choose Watch recording to replay it.</p>
   <ReceiptCheckPanel enabled={receiptChecksEnabled} pendingCount={counts.check_outcome} busy={busy} onChanged={onReceiptsChanged}/>
+  </ApplicationControlsDialog>
+  <p className="subtle">New agent runs save a private video here after they finish or pause. Choose Watch recording to replay it.</p>
   <div className="application-reset-controls">
    {(applications.length>0||drafts.length>0)&&<button className="button quiet" type="button" disabled={busy||applications.some(item=>item.status==='processing')} onClick={()=>setConfirmClear(true)}><Trash2 size={16}/>Clear all applications</button>}
    {clearedCount>0&&<button className="button quiet" type="button" disabled={busy} onClick={()=>void onRestore()}><Undo2 size={16}/>Restore cleared applications ({clearedCount})</button>}
