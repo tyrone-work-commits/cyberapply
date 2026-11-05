@@ -10,7 +10,7 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 | 1 | Central server writing service, basic mode, quotas and status | Implemented; 6 tests, TypeScript and production build passed |
 | 2 | ATS scan engine and private scan records | Implemented; 14 logic/storage/file tests, TypeScript and production build passed. PDF structure beyond fonts/page data remains explicitly unverified |
 | 3 | Dashboard, match reports and history | Implemented; TypeScript/production build and local browser checks passed at 375/768/1280px. Created pasted/PDF scans, renamed, reloaded, changed history status, opened guide and highlighted keywords |
-| 4 | Optimize editor and evidence-preserving suggestions | Implemented locally; 6 optimizer tests, TypeScript and production build passed. Browser verified saved version, comparison, export and explicit CV selection. PDF/Track/cover-letter links await prompts 5/10/6 |
+| 4 | Optimize editor and evidence-preserving suggestions | Implemented; optimizer checks, export and explicit CV selection passed. Builder/tracker/cover-letter links completed in their dependent checkpoints; published |
 | 5 | Resume builder, versions and exports | Implemented; 14 relevant optimizer/builder/storage tests, TypeScript, build, PDF render and local browser checks passed |
 | 6 | Cover letters | Implemented locally; 20 JS tests, 6 targeted browser/planner tests, 20 planner tests and 13 recording/question-delivery regression tests passed; TypeScript/build and local browser QA passed |
 | 7 | Discovery improvements and companies | Implemented locally; 36 browse/feed/gesture/queue tests, TypeScript/build and local UI checks passed. Touch pointer delivery remains unverified |
@@ -21,9 +21,9 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 | 12 | Interview practice | Implemented; practice, coaching and private recordings checked; published in v89; no transcription provider enabled |
 | 13 | Optional extended profile and setup | Implemented; optional private profile/setup checked; published in v89; geocoder inactive |
 | 14 | Notifications, help and settings | Implemented; private notifications/Help/export checked; published in v89; external delivery inactive |
-| 15 | Optional disabled commercial scaffolding | Implemented as an intentionally inactive scaffold; 8 tests passed; final rollout pending |
-| 16 | Learning centre | Implemented; 12 original guides, eight role layouts and local UI checked; final rollout pending |
-| 17 | Optional scoped browser extension | Implemented; scoped MV3 extension, private transfer and isolation/idempotence tests passed; installation/live connection untested; final rollout pending |
+| 15 | Optional disabled commercial scaffolding | Implemented as an intentionally inactive scaffold; 8 tests passed; published in v90 |
+| 16 | Learning centre | Implemented; 12 original guides, eight role layouts and local UI checked; published in v90 |
+| 17 | Optional scoped browser extension | Implemented; scoped MV3 extension, private transfer and isolation/idempotence tests passed; installation/live connection untested; published in v90 |
 
 ## Verification
 
@@ -159,3 +159,8 @@ Local fictional browser QA previewed a pasted transfer at 375px, saved it to the
 ## Final operational boundaries
 
 All prompts 0–17 have implementation checkpoints adapted to the internal architecture. Optional commerce remains disabled. Email/push, paid AI/transcription, geocoding and social connections remain inactive; digest/source refreshes need owner activity or the existing connected runner rather than an always-on cloud scheduler. Calendar export is authenticated download/import because external calendar subscribers cannot cross the private hosting gate. Practice recording cleanup is owner-activity driven. Extension installation, actual Chrome job-page extraction and direct hosted token access remain untested until a user explicitly installs/connects it. Authenticated hosted feature QA was limited by the existing ChatGPT/connector consent screen; native deployment confirmation establishes rollout, not a full real-account acceptance test. Use the checkpoint evidence above for exact local/live distinctions.
+
+
+## Final rollout — Site v90, 5 November 2026
+
+Native deployment succeeded at 08:50:56 UTC. Saved Site version 90 uses pushed source `6879e1efef0aef7d55ec32ba3f87c4faa285c485`, corresponding to the application changes through GitHub commit `73e6d3e` on `codex/explore-swipes`. Archive: `.tmp/career-upgrade-final-v90.tar.gz`. Deployment ID: `appgdep_6aec43641d1c81918aa41c7c230261fa`. Existing `workspace_all` audience and the read-only connector declaration were preserved. All implemented checkpoints 0–17 are included; the root extension package/source lives in GitHub and the user must install it explicitly. Commercial and external-service boundaries above remain unchanged. Real-account acceptance and installed-extension testing remain outstanding; successful publication does not claim those tests occurred.
