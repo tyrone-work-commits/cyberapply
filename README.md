@@ -10,7 +10,7 @@ CyberApply is a private, mobile-responsive workspace for Covenda users. The curr
 - `application_agent/`: the active Python browser runner, Windows background setup, form handling and tests.
 - `docs/application-agent.md`: setup, answer policies, recovery and submission boundaries.
 
-Explore imports real vacancies from selected Greenhouse and Lever employer boards. Swiping Apply saves a request with the chosen original CV. An enabled, connected runner can process it while the computer is awake and online. Requests that need facts, consent or verification pause honestly. A submitted click without an employer receipt stays **Check outcome**; it must not be retried automatically.
+Explore imports real vacancies from selected Greenhouse, Lever, Ashby, Workable, SmartRecruiters and Recruitee employer boards where public or employer-authorized feed access is available. Swiping Apply saves a request with the chosen original CV. An enabled, connected runner can process it while the computer is awake and online. Requests that need facts, consent or verification pause honestly. A submitted click without an employer receipt stays **Check outcome**; it must not be retried automatically.
 
 ## Development
 
@@ -35,3 +35,8 @@ Ignored local files in those old directories were not erased: they may contain p
 ## Progress
 
 Meaningful changes are committed to GitHub and reported in the **CyberApply - Cybersecurity Job Automation** Linear project. Report verified local checks separately from live employer behavior. No new paid hosting, model service or publishing destination is authorized by this repository.
+
+
+## Career tools upgrade
+
+The Sorce + Jobscan upgrade adds private CV scans/history, evidence-preserving optimization, résumé and cover-letter builders, richer discovery, application settings/Actions, tracking and interview calendars, LinkedIn-content review, practice interviews, optional profile details, in-app notifications, Help/export, learning guides and a job-page extension. See [the implementation and verification ledger](docs/upgrade-plan-2026-11.md) for the complete feature list, adaptations and live-testing limits. Optional commerce, paid providers and external notifications remain inactive. The [Chrome extension](extension/README.md) requires explicit local installation and uses an authenticated transfer when private hosting blocks direct requests.

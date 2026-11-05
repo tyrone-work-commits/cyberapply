@@ -129,7 +129,7 @@ Answer this employer’s questions now renders original select/combobox question
 
 ## Career upgrade checkpoints
 
-The upgrade ledger is `../docs/upgrade-plan-2026-11.md`. Dashboard, ATS scan reports/history, an evidence-preserving optimizer, guided résumé builder with text PDF/DOCX exports, reviewed cover letters, discovery/search and private company bookmarks are implemented. Further PDF prompts remain in progress; do not treat lower-level scaffolding as completed UI. The original CV is retained and generated CV versions are selected for applications only through an explicit action. Provider `none` is the default; no paid model, billing, sending email or publishing service has been enabled.
+The upgrade ledger is `../docs/upgrade-plan-2026-11.md`. Dashboard, ATS scan reports/history, an evidence-preserving optimizer, guided résumé builder with text PDF/DOCX exports, reviewed cover letters, discovery/search and private company bookmarks are implemented. The remaining prompts add application settings/Actions, a job tracker and calendar export, LinkedIn-content optimization, interview practice, optional profile details, private notifications/Help/export, an inactive commerce scaffold, learning guides and a scoped job-page extension. See the ledger for adaptations and inactive integrations. The original CV is retained and generated CV versions are selected for applications only through an explicit action. Provider `none` is the default; no paid model, billing, sending email or publishing service has been enabled.
 
 ## Source access and refresh
 
@@ -138,3 +138,10 @@ Save selected employer boards in Explore or Add a listing. Manual Refresh now pr
 Workable’s widget JSON is not the authenticated Workable SPI API and may change. Recruitee documents token enforcement from **10 February 2027**: <https://docs.recruitee.com/reference/authentication-1>. If Covenda obtains employer-authorized Careers API tokens, configure server-only `RECRUITEE_BOARD_TOKENS` JSON mapping exact lowercase board subdomains to their matching token. No token belongs in the UI, saved-source records, Git or chat. Tokens are sent only in a header to that board’s fixed careers API host. Nothing here creates employer access or permission to automate submissions; the application agent retains its destination/consent/verification boundaries.
 
 Source fixtures under `tests/fixtures/job-feeds` were captured from public endpoints on 4 November 2026, reduced to one record and stripped of contact data; descriptions use explicit fictional test requirements and pagination metadata reflects the reduced fixture. Automated tests use these fixtures without live network. Manual read-only contract checks observed 72 Ashby jobs, 16 Workable jobs, 11 Recruitee jobs and a SmartRecruiters listing/detail. These checks did not submit applications or verify every employer’s future API behavior.
+
+
+## Browser extension and final checks
+
+See `../extension/README.md`. Build with `node extension/build.mjs` from the repository root, then explicitly load the unpacked folder in Chrome. Settings links to scoped connection creation/revocation. The private host can require authenticated job transfer instead of direct token requests; no global Site access credential is bundled. Save/Scan never submit an employer application.
+
+Run `node scripts/test-offline.mjs` from this directory for the deterministic suite (289 tests at the upgrade checkpoint). TypeScript and the production build are separate checks. Read `tests/README.md` before running the old HTTP harnesses: they need disposable isolated mock servers and must not target production or a user's retained preview.

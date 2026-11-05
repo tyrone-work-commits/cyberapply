@@ -15,15 +15,15 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 | 6 | Cover letters | Implemented locally; 20 JS tests, 6 targeted browser/planner tests, 20 planner tests and 13 recording/question-delivery regression tests passed; TypeScript/build and local browser QA passed |
 | 7 | Discovery improvements and companies | Implemented locally; 36 browse/feed/gesture/queue tests, TypeScript/build and local UI checks passed. Touch pointer delivery remains unverified |
 | 8 | More supported job feeds and refresh | Implemented locally; 30 feed/storage/lease tests, 15 runner regression tests, TypeScript/build and local saved-source/live read-only refresh checks passed |
-| 9 | Apply settings, answer library and Actions | Pending; existing agent/consent/memory retained |
-| 10 | Tracker, interviews and thank-you drafts | Pending |
-| 11 | User-supplied LinkedIn content optimizer | Pending |
-| 12 | Interview practice | Pending |
-| 13 | Optional extended profile and setup | Pending |
-| 14 | Notifications, help and settings | Pending; existing delete/sign-out retained |
-| 15 | Optional disabled commercial scaffolding | Pending; internal defaults remain free |
-| 16 | Learning centre | Pending |
-| 17 | Optional scoped browser extension | Pending |
+| 9 | Apply settings, answer library and Actions | Implemented; application policy, Actions and reusable answers checked; published in v89 |
+| 10 | Tracker, interviews and thank-you drafts | Implemented; private tracker, interviews and authenticated calendar export checked; published in v89 |
+| 11 | User-supplied LinkedIn content optimizer | Implemented; user-supplied content only, basic drafts/history checked; published in v89 |
+| 12 | Interview practice | Implemented; practice, coaching and private recordings checked; published in v89; no transcription provider enabled |
+| 13 | Optional extended profile and setup | Implemented; optional private profile/setup checked; published in v89; geocoder inactive |
+| 14 | Notifications, help and settings | Implemented; private notifications/Help/export checked; published in v89; external delivery inactive |
+| 15 | Optional disabled commercial scaffolding | Implemented as an intentionally inactive scaffold; 8 tests passed; final rollout pending |
+| 16 | Learning centre | Implemented; 12 original guides, eight role layouts and local UI checked; final rollout pending |
+| 17 | Optional scoped browser extension | Implemented; scoped MV3 extension, private transfer and isolation/idempotence tests passed; installation/live connection untested; final rollout pending |
 
 ## Verification
 
@@ -143,3 +143,19 @@ Added twelve original Markdown guides covering all seven requested content categ
 Use this template creates a blank Security Specialist builder layout with a desired-role label and an explicit no-example-claims notice. It never copies sample experience, qualifications or skills into a real CV. Cover-letter situation links set a writing focus only and retain explicit Generate. Dashboard has sample/tutorial/learning links. No live demo jobs or profile facts were added.
 
 Three tests passed for all twelve Markdown sources/category coverage, eight-role placeholders/fallbacks and private job/scan aggregate accuracy; TypeScript and production build passed. Local fictional browser filtered ATS to two guides, opened a readable article at 375px without page overflow and opened a blank SOC template with the no-copy notice. The chosen application CV stayed unchanged; no employer action, account connection, paid generation or external sharing occurred. Prompt 17 remains unfinished. Live v89 excludes optional checkpoints 15–16 pending final rollout.
+
+## Checkpoint 17 evidence — scoped browser extension
+
+Added a Chrome Manifest V3 extension with activeTab/scripting/storage permissions and one exact CyberApply host permission. It reads visible job-description containers only after the user opens its panel on LinkedIn Jobs, Indeed or Glassdoor. No background crawling, whole-page body reading, password/form reading, employer submission or verification automation. Save creates a private tracker item; Scan uses the chosen original CV on the server and returns only report metadata. The popup lists recent imports and remaining scans when direct access is available.
+
+New Settings/API files create one-time scoped credentials with explicit user consent, fixed save/scan/recent scopes, registered extension ID, 1/7/30-day expiry, hashed storage and revocation. CORS accepts only the registered extension origin. The extension keeps the secret in trusted session storage, never on a job page or in a URL. No Site-wide bypass token or change to existing identity/authentication is involved. The private outer hosting gate can block direct extension requests; an authenticated-tab bridge passes only public job details, then requires a Save/Scan click in CyberApply. Copy/paste transfer is an explicit fallback. This preserves the existing private audience.
+
+Transfers are owner-scoped and idempotent across direct/bridge retries. Stable scan/report IDs and a transactional per-transfer quota reservation prevent double charging. Tracker deduplication never queues an employer application or changes existing application evidence. A build script produces an unpacked folder and ZIP; the installation README documents permissions, expiry, limitations and testing requirements. Nothing was installed or granted access to a real account during this task.
+
+Five extension tests passed for URL parity/spoofing, token scope/origin/expiry/revocation, owner isolation, repeat transfers, quota and manifest permissions. Fixed a legacy test loader to include the new job-feed dependencies. Final offline suite: **289 tests passed, zero failures**. The initial all-files invocation also attempted 19 legacy HTTP harnesses without their isolated servers (ports 8787/8792); they were unavailable, not treated as successful checks. A documented offline runner now keeps these separate. TypeScript and production build passed. Chrome extension ZIP/build and JavaScript syntax checks passed.
+
+Local fictional browser QA previewed a pasted transfer at 375px, saved it to the tracker and observed its original URL and saved status; settings also fit 375/768/1280px. Local HTTP checks denied anonymous extension access and cross-origin handoff, confirmed zero created token grants, and retained the same nine fictional applications, revision 60 and chosen approval-qa.txt CV. Protected sign-in/entry/auth/layout/shared sign-in styles and hosting policy have no diff from the pre-upgrade baseline. No real employer application was sent.
+
+## Final operational boundaries
+
+All prompts 0–17 have implementation checkpoints adapted to the internal architecture. Optional commerce remains disabled. Email/push, paid AI/transcription, geocoding and social connections remain inactive; digest/source refreshes need owner activity or the existing connected runner rather than an always-on cloud scheduler. Calendar export is authenticated download/import because external calendar subscribers cannot cross the private hosting gate. Practice recording cleanup is owner-activity driven. Extension installation, actual Chrome job-page extraction and direct hosted token access remain untested until a user explicitly installs/connects it. Authenticated hosted feature QA was limited by the existing ChatGPT/connector consent screen; native deployment confirmation establishes rollout, not a full real-account acceptance test. Use the checkpoint evidence above for exact local/live distinctions.

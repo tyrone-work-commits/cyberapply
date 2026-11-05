@@ -1,0 +1,4 @@
+import {mkdir,readFile,writeFile,copyFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {zipSync,strToU8} from '../internal-workspace/node_modules/fflate/esm/index.mjs';
+const root=new URL('./',import.meta.url),files=['manifest.json','protocol.js','service-worker.js','content.js','bridge.js','popup.html','popup.css','popup.js'];await mkdir(new URL('dist/',root),{recursive:true});const zip={};for(const name of files){const bytes=new Uint8Array(await readFile(new URL(name,root)));zip[name]=bytes;await writeFile(new URL('dist/'+name,root),bytes);}zip['README.md']=strToU8(await readFile(new URL('README.md',root),'utf8'));await writeFile(new URL('cyberapply-extension.zip',root),zipSync(zip));console.log('Built '+fileURLToPath(new URL('dist/',root))+' and cyberapply-extension.zip ('+files.length+' runtime files).');
