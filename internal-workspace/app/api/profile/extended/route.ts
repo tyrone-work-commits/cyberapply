@@ -1,0 +1,12 @@
+import {z} from 'zod';
+import {identity,load,response,failure,files,ownedFile} from '@/lib/cyber-store';
+import {DomainError} from '@/lib/cyber-domain';
+import {getCareer,createCareer,updateCareer,privateJson,listCareer} from '@/lib/career-store';
+import {extendedProfileSchema,emptyExtendedProfile,profileStrength,type ExtendedProfile} from '@/lib/extended-profile';
+import {extractResume} from '@/lib/resume-extraction';
+import {extractCandidateFacts} from '@/lib/candidate-facts';
+export const dynamic='force-dynamic';
+async function record(user:Awaited<ReturnType<typeof identity>>){try{return await getCareer<ExtendedProfile>(user,'extendedProfile','profile');}catch(e){if(!(e instanceof DomainError&&e.status===404))throw e;try{return await createCareer(user,'extendedProfile',emptyExtendedProfile(),'profile');}catch{return getCareer<ExtendedProfile>(user,'extendedProfile','profile');}}}
+export async function GET(request:Request){try{const user=await identity(request),current=await load(user),row=await record(user);return response({record:row,strength:profileStrength(current.state.accountProfile,row.data,current.state,user.email),files:current.state.attachments,followedCompanies:(await listCareer<{following:boolean}>(user,'companies',{limit:100})).filter(r=>r.data.following),geocoder:'none'});}catch(e){return failure(e);}}
+const body=z.discriminatedUnion('action',[z.object({action:z.literal('save'),version:z.number().int(),data:extendedProfileSchema}).strict(),z.object({action:z.literal('prefill'),fileId:z.string().max(100)}).strict()]);
+export async function POST(request:Request){try{const user=await identity(request),current=await load(user),input=body.parse(await privateJson(request));if(input.action==='prefill'){const file=ownedFile(current.state,input.fileId),object=await files().get(file.key);if(!object)throw new DomainError('CV file not found.',404);const text=(await extractResume(new Uint8Array(await object.arrayBuffer()),file.name)).text;return response({facts:extractCandidateFacts(text),fileId:file.id,reviewRequired:true});}const old=await record(user),row=await updateCareer(user,old,input.version,input.data);return response({record:row,strength:profileStrength(current.state.accountProfile,row.data,current.state,user.email)});}catch(e){if(e instanceof z.ZodError)return response({error:e.issues[0]?.message||'Check optional profile details.'},400);return failure(e);}}

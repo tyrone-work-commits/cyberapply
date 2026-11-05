@@ -1,6 +1,7 @@
 "use client";
 import type { AccountDetails } from '@/lib/cyber-domain';
 import ExpectedSalaryFields from './expected-salary-fields';
+import InternationalPhone from './international-phone';
 
 export default function ProfileDetailsFields({value,onChange}:{value:AccountDetails;onChange:(patch:Partial<AccountDetails>)=>void}){
  return <div className="account-profile-details">
@@ -9,7 +10,7 @@ export default function ProfileDetailsFields({value,onChange}:{value:AccountDeta
    <label htmlFor="setup-address">Address<input id="setup-address" maxLength={500} autoComplete="street-address" value={value.address||''} onChange={e=>onChange({address:e.target.value})} placeholder="Street address"/></label>
    <div className="form-pair"><label htmlFor="setup-city">City<input id="setup-city" maxLength={200} autoComplete="address-level2" value={value.city||''} onChange={e=>onChange({city:e.target.value})}/></label><label htmlFor="setup-state">State<input id="setup-state" maxLength={200} autoComplete="address-level1" value={value.state||''} onChange={e=>onChange({state:e.target.value})}/></label></div>
    <label htmlFor="setup-country">Country<input id="setup-country" maxLength={200} autoComplete="country-name" value={value.country||''} onChange={e=>onChange({country:e.target.value})}/></label>
-   <div className="form-pair"><label htmlFor="setup-zip">Zip code / postal code<input id="setup-zip" maxLength={30} autoComplete="postal-code" value={value.zipCode||''} onChange={e=>onChange({zipCode:e.target.value})}/></label><label htmlFor="setup-phone">Phone number<input id="setup-phone" type="tel" autoComplete="tel" maxLength={35} title="Include your country calling code, for example +2348012345678, +447700900123 or +12025550123." placeholder="+2348012345678" value={value.phone||''} onChange={e=>onChange({phone:e.target.value})}/></label></div>
+   <div className="form-pair"><label htmlFor="setup-zip">Zip code / postal code<input id="setup-zip" maxLength={30} autoComplete="postal-code" value={value.zipCode||''} onChange={e=>onChange({zipCode:e.target.value})}/></label></div><InternationalPhone value={value.phone||''} onChange={phone=>onChange({phone})}/><div></div>
    <p className="subtle">Include the international calling code: +234, +44, +1, or your country’s code.</p>
   </section>
   <section aria-labelledby="profile-experience-title"><h2 id="profile-experience-title">Experience & salary</h2>
