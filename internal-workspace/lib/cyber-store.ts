@@ -1,4 +1,5 @@
 import {enrichJob} from './job-extraction';
+import {configuredSearch} from './job-source-preferences';
 import {recordingPrefix} from './application-recordings';
 import {watchStorageKeys} from './agent-watch-storage';
 import { env } from 'cloudflare:workers';
@@ -129,7 +130,8 @@ export async function discoverJobs(user:Identity,expected:number,settings:unknow
   const current=await load(user);
   if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before searching.',409);
   if(current.searchCooldown.remainingMs>0)throw new SearchCooldownError(current.searchCooldown);
-  const result=await discover(settings??current.state.discovery?.settings??defaultSearch,fetch,new Date().toISOString(),sourceSecrets());
+  const effective=await configuredSearch(user,settings,current.state.discovery?.settings??defaultSearch);
+  const result=await discover(effective,fetch,new Date().toISOString(),sourceSecrets());
   const merged=mergeDiscovery(current.state,result.settings,result.results,result.at,source);
   return {...await save(user,expected,merged.state,'discover_jobs'),message:merged.message,report:merged.report};
 }
