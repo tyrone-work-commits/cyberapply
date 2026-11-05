@@ -5,7 +5,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 await mkdir('.sites-runtime/swipe-tests',{recursive:true});
 for(const name of ['employer-questions','features','candidate-facts','cover-letter','cyber-domain','swipe-queue'])await writeFile(`.sites-runtime/swipe-tests/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("from './employer-questions'","from './employer-questions.mjs'").replace("from './cyber-domain'","from './cyber-domain.mjs'").replace("from './candidate-facts'","from './candidate-facts.mjs'").replace("from './cover-letter'","from './cover-letter.mjs'").replace("from './features'","from './features.mjs'"));
 const {SwipeQueue}=await import('../.sites-runtime/swipe-tests/swipe-queue.mjs');
-const {emptyState,reduceAction}=await import('../.sites-runtime/swipe-tests/cyber-domain.mjs');
+const {emptyState,reduceAction,savedJobListings}=await import('../.sites-runtime/swipe-tests/cyber-domain.mjs');
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return{promise,resolve,reject};};
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 const now='2026-10-17T18:00:00.000Z';
@@ -87,4 +87,21 @@ test('Apply advances and saves when a CV snapshot crosses the old 750k workspace
  const reloaded=structuredClone(server);h.queue.replace(reloaded);
  assert.equal(h.view.state.applications[0].cv.fileId,'qa-cv');
  assert.equal(h.view.state.jobs[0].disposition,'apply_requested');
+});
+
+for(const decision of ['pass','apply'])test(`saved ${decision} removes the card immediately, persists, and Undo restores its bookmark`,async()=>{
+ const gate=deferred();let server=initial();server.state.jobs[0].saved=true;let count=0;
+ const h=setup(async(base,action)=>{if(!count++)await gate.promise;server=saved(server,action);return server;},async()=>server);h.queue.replace(server);
+ h.queue.enqueue({type:'decide_job',jobId:'a',decision});assert.equal(savedJobListings(h.view.state).length,0);assert.equal(h.view.state.jobs[0].saved,false);assert.equal(server.state.jobs[0].saved,true);
+ gate.resolve();await tick();assert.equal(server.state.jobs[0].saved,false);assert.equal(savedJobListings(server.state).length,0);if(decision==='apply')assert.equal(server.state.applications.length,1);
+ const last=h.view.state.lastDecision;h.queue.enqueue({type:'undo_decision',jobId:'a',decisionId:last.operationId});await tick();assert.equal(savedJobListings(server.state)[0].id,'a');assert.equal(server.state.jobs[0].disposition,'open');assert.equal(server.state.applications.length,0);
+});
+test('failed saved-job decisions restore the bookmark rather than losing the vacancy',async()=>{
+ const server=initial();server.state.jobs[0].saved=true;const h=setup(async()=>{throw Error('Save failed');},async()=>server);h.queue.replace(server);h.queue.enqueue({type:'decide_job',jobId:'a',decision:'pass'});await tick();assert.equal(savedJobListings(h.view.state)[0].id,'a');assert.equal(h.status.pending,0);assert.match(h.errors[0],/latest saved state/);
+});
+test('a blocked Apply preserves the saved card and creates no request',()=>{
+ const packet=initial();packet.state.jobs[0].saved=true;packet.state.applicationSafetyJobIds=['a'];const h=setup(async()=>{throw Error('Must not send');},async()=>packet);h.queue.replace(packet);assert.throws(()=>h.queue.enqueue({type:'decide_job',jobId:'a',decision:'apply'}),/previous application/);assert.equal(savedJobListings(h.view.state)[0].id,'a');assert.equal(h.status.pending,0);assert.equal((h.view.state.applications||[]).length,0);
+});
+test('Saved excludes legacy decided bookmarks and existing requests without deleting records',()=>{
+ const packet=initial();packet.state.jobs.forEach(j=>j.saved=true);packet.state.jobs[0].disposition='passed';packet.state.jobs[1].disposition='apply_requested';packet.state.applications=[{id:'legacy',jobId:'c',status:'applied'}];assert.deepEqual(savedJobListings(packet.state),[]);assert.equal(packet.state.jobs.length,3);assert.equal(packet.state.applications[0].id,'legacy');
 });

@@ -34,6 +34,7 @@ export function applicationProfile(state:State):ApplicantProfile{const p=state.a
 export type AccountProfile = AccountDetails & { employerQuestions?:EmployerQuestion[]; fullName: string; headline: string; targetRole: string; completedAt: string };
 export type ApplicationArchive = { applications:ApplicationRequest[]; drafts:Draft[]; at:string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
+export function savedJobListings(state:Pick<State,'jobs'|'applications'>){const requested=new Set(state.applications?.map(item=>item.jobId));return state.jobs.filter(job=>job.saved&&job.disposition==='open'&&!requested.has(job.id));}
 export type State = { applicationSettings?:ApplySettings; applicationUsage?:{day:string;started:number}; receiptChecksEnabled?:boolean; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 export type ApplySettings={mode:'automatic'|'review';dailyLimit:number;minimumMatch:number;autoConsentAt?:string;tutorialSeen:boolean};
@@ -237,7 +238,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message = action.saved ? 'Job saved for later.' : 'Job removed from saved listings.';
   } else if (action.type === 'decide_job') {
     const job = getJob(state, action.jobId);
-    const previousDisposition=job.disposition;
+    const previousDisposition=job.disposition,previousSaved=job.saved;
     const decisionId=operationId||crypto.randomUUID();
     if (action.decision === 'apply') {
       if(state.applicationSafetyJobIds?.some(id=>id===job.id||state.jobs.find(item=>item.id===id)?.url===job.url))throw new DomainError('A previous application to this vacancy was submitted or had an uncertain outcome. Deleting its tracker record does not make it safe to submit again. Check with the employer.',409);
@@ -260,13 +261,15 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       }
       state.applications = [request, ...(state.applications || [])];
       job.disposition = 'apply_requested';
-      state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,at,applicationId:request.id,createdDraftId};
+      job.saved=false;
+      state.lastDecision={jobId:job.id,decision:'apply',operationId:decisionId,previousDisposition,previousSaved,at,applicationId:request.id,createdDraftId};
       message = !cv?'Apply request saved without a CV. Choose an uploaded CV in CV review and attach it in Applications; nothing has been sent.':CANDIDATE_FACTS_ENABLED&&!state.profile.reviewed?'Apply request saved with your chosen CV. Review candidate facts before using the materials; nothing has been sent.':'Apply request saved with your chosen CV. Review the CV and draft before using them; nothing has been sent.';
       if(request.status==='queued')message='Queued for your application agent with the chosen CV. Stay in Explore; progress and any questions appear in Applications.';
     } else {
       if (state.applications?.some(item => item.jobId === job.id)) throw new DomainError('An Apply request already exists for this job. Open Applications.', 409);
       job.previousDisposition = job.disposition; job.decidedAt = at; job.disposition = 'passed';
-      state.lastDecision={jobId:job.id,decision:'pass',operationId:decisionId,previousDisposition,at};
+      job.saved=false;
+      state.lastDecision={jobId:job.id,decision:'pass',operationId:decisionId,previousDisposition,previousSaved,at};
       message = 'Job rejected. Undo can restore your latest choice.';
     }
   } else if (action.type === 'undo_decision') {
@@ -283,7 +286,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
       if(!job.saved||job.disposition!==last.previousDisposition)throw new DomainError('This saved choice changed and can no longer be undone.',409);
       job.saved=last.previousSaved??false;
     }else if(job.disposition!=='passed'||state.applications?.some(item=>item.jobId===job.id))throw new DomainError('This choice changed and can no longer be undone.',409);
-    if(last.decision!=='save'){job.disposition=last.previousDisposition;delete job.previousDisposition;delete job.decidedAt;}
+    if(last.decision!=='save'){job.disposition=last.previousDisposition;if(last.previousSaved!==undefined)job.saved=last.previousSaved;delete job.previousDisposition;delete job.decidedAt;}
     delete state.lastDecision;
     message = 'Last job choice undone.';
   } else if (action.type === 'edit_draft') {

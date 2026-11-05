@@ -30,5 +30,6 @@
 
 .search-vacancy-list{max-height:none;overflow:visible;margin-top:20px}.search-last-report>summary{cursor:pointer;font-weight:600}.search-last-report[open]>summary{margin-bottom:12px}.search-result-count{margin-top:12px}
 .search-swipe-hint{font-size:12px;color:var(--muted);margin:0 0 14px}.search-swipe-viewport{overflow:hidden;padding:4px;min-width:0}.search-swipe-card{position:relative;touch-action:pan-y pinch-zoom;transition:transform .15s ease-out;min-width:0;will-change:transform}.search-swipe-card.is-dragging{transition:none;user-select:none;cursor:grabbing}.search-swipe-card:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.search-swipe-label{position:absolute;top:14px;right:16px;z-index:2;padding:6px 12px;border:2px solid currentColor;border-radius:6px;background:var(--panel);font-weight:750;pointer-events:none}.search-swipe-label.accept{color:var(--accent)}.search-swipe-label.pass{color:var(--danger,#a64242)}@media(prefers-reduced-motion:reduce){.search-swipe-card{transition:none}}
+.saved-swipe-item{min-width:0}
 
 .profile-job-sources{min-width:0}.profile-job-sources .source-board{flex-wrap:wrap;gap:10px}.profile-job-sources .source-add{display:grid;gap:12px}.profile-job-sources .source-add input{max-width:100%;box-sizing:border-box}.profile-job-sources>.button{margin:12px 0}
