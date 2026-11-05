@@ -17,7 +17,7 @@ import ApplicationSettingsSheet from './application-settings-sheet';
 import {openApplicationQuestions} from '@/lib/application-actions';
 import RichJobCard from './rich-job-card';
 import CompanyPanel from './company-panel';
-import {browseJobs,similarJobs} from '@/lib/job-browse';
+import {browseJobs,exploreVacancies,similarJobs} from '@/lib/job-browse';
 import {careerRequest} from '@/lib/career-client';
 import CareerStudio, {type CareerArea} from './career-studio';
 import { SavedCVFiles } from './saved-cv-files';
@@ -112,9 +112,9 @@ export default function Workspace({viewer,replayTour=false}:{viewer:{displayName
  function updateProfile(update:Partial<Profile>){if(!profileForm)return;setProfileForm({...profileForm,...update,...(!('reviewed'in update)?{reviewed:false}:{})});setProfileDirty(true);}
  const baseSearch=browseFilters||state?.discovery?.settings||defaultSearch;
  const activeSearch={...baseSearch,boards:sourceBoards??baseSearch.boards};
- const openJobs=state?browseJobs(state.jobs,activeSearch,state.profile.resumeText).map(item=>item.job):[],card=openJobs[0],saved=state?savedJobListings(state):[];
+ const openJobs=state?browseJobs(state.jobs,activeSearch,state.profile.resumeText).map(item=>item.job):[],exploreJobs=state?exploreVacancies(state.jobs,activeSearch.boards,state.profile.resumeText):[],saved=state?savedJobListings(state):[];
  const actionCount=useMemo(()=>state?openApplicationQuestions(state).length:0,[state?.applications,state?.accountProfile?.employerQuestions]),applySettings=state?getApplySettings(state):null,runsToday=state?applicationRunsToday(state):0;
- const counts={actions:actionCount,explore:openJobs.length,saved:saved.length,applications:state?.applications?.length||0};
+ const counts={actions:actionCount,explore:exploreJobs.length,saved:saved.length,applications:state?.applications?.length||0};
  const checked=CANDIDATE_FACTS_ENABLED ? state?.profile.reviewed : !!state?.selectedCvId&&(state?.profile.resumeText.trim().length||0)>=20;
  function setExploreView(view:'cards'|'grid'){setBrowseView(view);try{localStorage.setItem('cyberapply-job-view:'+viewer.email,view);}catch{}}
  function jobCard(job:Job,compact=false){return <RichJobCard key={job.id} job={job} cv={state!.profile.resumeText} compact={compact} busy={swipeDisabled} onSave={()=>saveJob(job,!job.saved)} onDetails={()=>{setSelectedJob(job);setModal('job');}} onApply={()=>state!.applications?.some(item=>item.jobId===job.id)?navigate('applications'):void decide(job,'apply')} onPass={()=>void decide(job,'pass')} onSimilar={()=>{setSelectedJob(job);setModal('similar');}}/>;}
@@ -139,7 +139,7 @@ export default function Workspace({viewer,replayTour=false}:{viewer:{displayName
  {tab==='answers'&&<AnswerLibrary onUpdated={reload}/>}
  {tab==='companies'&&<CompanyPanel state={state!}/>}
  {tab==='search'&&(browseFilters?<SearchExperience jobs={state!.jobs} results={openJobs} onSelect={job=>{setSelectedJob(job);setModal('search-job');}} sourceLoading={sourceBoards===null} searchReadyAt={searchReadyAt} initial={activeSearch} report={state!.discovery?.lastSearch} busy={busy} onSearch={searchJobs} onFilter={settings=>{setBrowseFilters(settings);setGridLimit(20);}} suggestedRoles={[...new Set([state!.accountProfile?.targetRole,...state!.profile.preferredRoles].filter((v):v is string=>!!v))]}/>:<p role="status">Loading your saved search…</p>)}
- {tab==='explore'&&<ExploreExperience jobs={openJobs} view={browseView} limit={gridLimit} busy={swipeDisabled} canUndo={!!state!.lastDecision} pending={sync.pending} blocked={sync.blocked} error={error} onLoadMore={()=>setGridLimit(gridLimit+20)} onDecide={(job,decision)=>void decide(job,decision)} onSave={job=>saveJob(job,!job.saved)} onUndo={undoChoice} onDetails={job=>{setSelectedJob(job);setModal('job');}} onSimilar={job=>{setSelectedJob(job);setModal('similar');}}/>}
+ {tab==='explore'&&<ExploreExperience jobs={exploreJobs} view={browseView} limit={gridLimit} busy={swipeDisabled} canUndo={!!state!.lastDecision} pending={sync.pending} blocked={sync.blocked} error={error} onLoadMore={()=>setGridLimit(gridLimit+20)} onDecide={(job,decision)=>void decide(job,decision)} onSave={job=>saveJob(job,!job.saved)} onUndo={undoChoice} onDetails={job=>{setSelectedJob(job);setModal('job');}} onSimilar={job=>{setSelectedJob(job);setModal('similar');}}/>}
  {tab==='saved'&&<div className="list-grid">{saved.length?saved.map(job=><div className="saved-swipe-item" key={job.id}><SwipeVacancy jobId={job.id} disabled={swipeDisabled} onDecide={async decision=>{await decide(job,decision);}}>{jobCard(job,true)}</SwipeVacancy></div>):<Empty icon={<Bookmark size={29}/>} title="Keep a good role close." text="Swipe up or tap the bookmark on a job card to save it here." action={<Button onClick={()=>navigate('explore')}>Explore roles<ArrowRight size={16}/></Button>}/>}</div>}
  {tab==='applications'&&<>
   <div className="career-toolbar"><a className="button quiet" href="/workspace?view=tracker&stage=interview">Interviews</a><a className="button quiet" href="/workspace?view=actions">Needs you</a>{['starred','archived'].map(filter=><a className="button quiet" key={filter} href={'/workspace?view=tracker&filter='+filter}>{filter}</a>)}<a className="button quiet" href="/workspace?view=tracker&stage=saved">Saved tracker</a><a className="button quiet" href="/workspace?view=tracker&stage=rejected">Passed / rejected tracking</a></div>
