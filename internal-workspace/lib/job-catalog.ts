@@ -44,7 +44,7 @@ export function boardFromUrl(value:string,company:string):EmployerBoard {
 export function broadCybersecurityQuery(keyword:string){return /^(?:cyber\s*security|information\s*security|infosec)(?:\s+(?:jobs?|roles?|careers?))?$/.test(keyword.toLowerCase().replace(/[-_]+/g,' ').replace(/\s+/g,' ').trim());}
 export function matchesSearch(job:Pick<Job,'title'|'location'|'workMode'|'department'>&Partial<Job>,search:Pick<JobSearch,'keyword'|'location'|'remoteOnly'>&Partial<JobSearch>,at=Date.now()){
  const keyword=search.keyword.trim().toLowerCase();
- const roleMatch=!keyword||(broadCybersecurityQuery(keyword)?cybersecurityRole(job.title,job.department):job.title.toLowerCase().includes(keyword));
+ const roleMatch=!keyword||(broadCybersecurityQuery(keyword)?cybersecurityRole(job.title,job.department):[job.title,job.company,job.industry].some(value=>value?.toLowerCase().includes(keyword)));
  if(!roleMatch||search.location&&!job.location.toLowerCase().includes(search.location.toLowerCase())||search.remoteOnly&&job.workMode!=='Remote')return false;
  if(search.cybersecurityOnly!==false&&job.source&&!cybersecurityRole(job.title,job.department))return false;
  if(search.workMode&&search.workMode!=='any'&&job.workMode!==search.workMode)return false;
