@@ -8,7 +8,7 @@
 .explore-card-layout{position:relative}
 .explore-card-layout .save-swipe-hint{font-size:10px;color:#8b909a;margin:0 0 8px}
 .explore-card-layout .swipe-card{touch-action:pan-y pinch-zoom}
-.explore-card-layout .explore-vacancy-card{height:clamp(300px,calc(100svh - 285px),700px)}
+.explore-card-layout .explore-vacancy-card{height:clamp(300px,calc(100svh - 265px),720px)}
 .explore-vacancy-card{display:flex;flex-direction:column;height:clamp(460px,calc(100svh - 165px),780px);background:#fff;border-radius:28px;box-shadow:0 5px 30px #20212310;overflow:hidden;min-width:0;color:#202123}
 .explore-card-header{padding:22px 24px 0;flex-shrink:0;touch-action:pan-y pinch-zoom}
 .explore-card-layout .explore-card-header{touch-action:pan-down pinch-zoom}
