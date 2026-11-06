@@ -5,6 +5,7 @@ import { EntryBrand } from '../entry-screen';
 import { GuidedTour, tourSteps } from '../guided-tour';
 import { ApplicationAgentPanel } from '../application-agent-panel';
 import AnswerLibrary from '../answer-library';
+import '../workspace-header.css';
 
 type AccountStatus={email:string;revision:number;deleting:boolean;files:number;jobs:number;applications:number};
 
@@ -65,7 +66,7 @@ export default function AccountPanel({email,signOutHref}:{email:string;signOutHr
     }catch(failure){await refresh();setError((failure as Error).message);}finally{setBusy(false);}
   }
   return <div className="entry-shell account-shell">
-    <header className="entry-header"><EntryBrand href="/workspace?view=explore" label="CyberApply — go to Explore"/><a className="entry-back" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a></header>
+    <header className="entry-header signed-in-page-header"><EntryBrand href="/workspace?view=explore" label="CyberApply — go to Explore"/><a className="entry-back" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a></header>
     <main className="account-main">
       <div className="account-intro"><span className="eyebrow">YOUR ACCOUNT</span><h1>Account settings</h1><p>Manage your profile, saved employer answers and private workspace.</p></div>
       <div id="settings-account-panel" hidden={section!=='account'}>
