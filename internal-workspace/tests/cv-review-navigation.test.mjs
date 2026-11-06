@@ -25,3 +25,11 @@ test('CV files remain the default and unknown sections cannot open a separate to
  assert.equal(route('view=workspace&tool=scan').href,cvReviewHref('scan'));
  for(const view of ['explore','applications','scans','builder','builder:saved'])assert.equal(route('view='+view),null);
 });
+
+test('LinkedIn optimizer links open the embedded profile tools and survive refresh',()=>{
+ const destination=route('view=linkedin');
+ assert.equal(destination.tool,'linkedin');
+ assert.equal(destination.href,cvReviewHref('linkedin'));
+ assert.deepEqual(route(destination.href.split('?')[1]),destination);
+ for(const view of ['scans','cover-letters','cover-letters:saved-letter'])assert.equal(route('view='+view),null);
+});

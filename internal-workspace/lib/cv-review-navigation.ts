@@ -1,4 +1,4 @@
-export type CvReviewTool='files'|'scan'|'optimize';
+export type CvReviewTool='files'|'scan'|'optimize'|'linkedin';
 
 /** CV matching and editing share CV review; saved record IDs remain deep-linkable. */
 export function cvReviewHref(tool:CvReviewTool='files',id?:string){
@@ -13,7 +13,8 @@ export function cvReviewDestination(params:URLSearchParams){
  let tool:CvReviewTool;
  if(view==='scan'||view.startsWith('scan:'))tool='scan';
  else if(view==='optimize'||view.startsWith('optimize:'))tool='optimize';
- else if(view==='workspace')tool=params.get('tool')==='scan'?'scan':params.get('tool')==='optimize'?'optimize':'files';
+ else if(view==='linkedin')tool='linkedin';
+ else if(view==='workspace')tool=params.get('tool')==='scan'?'scan':params.get('tool')==='optimize'?'optimize':params.get('tool')==='linkedin'?'linkedin':'files';
  else return null;
  const legacy=view.startsWith(tool+':')?view.slice(tool.length+1):undefined;
  const id=legacy||params.get(tool==='scan'?'report':'session')||undefined;
