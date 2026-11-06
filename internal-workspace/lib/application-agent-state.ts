@@ -36,4 +36,4 @@ export function completeApplication(state:State,input:{requestId:string;claimId:
 
 export function assertApplicationProfileCurrent(state:State,request:NonNullable<State['applications']>[number]){if(!request.applicantProfile||JSON.stringify(request.applicantProfile)!==JSON.stringify(applicationProfile(state)))throw new DomainError('Edit Profile changed during this application. Stop and update the application before submitting.',409);}
 
-export function assertApplicationModeCurrent(state:State,request:NonNullable<State['applications']>[number]){if(getApplySettings(state).mode==='review'&&!request.reviewedForSubmissionAt)throw new DomainError('Application mode changed to review. Stop before submitting and review this request.',409);}
+export function assertApplicationAuthorizationCurrent(state:State,request:NonNullable<State['applications']>[number]){if(!getApplySettings(state).autoConsentAt&&!request.reviewedForSubmissionAt)throw new DomainError('Authorize Automatic Apply in application settings before submitting this request.',409);}

@@ -4,7 +4,7 @@ import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
 import { identity, load, save, files, response, failure, type Identity } from './cyber-store';
-import { activeClaim, claimApplication, completeApplication, assertApplicationProfileCurrent, assertApplicationModeCurrent } from './application-agent-state';
+import { activeClaim, claimApplication, completeApplication, assertApplicationProfileCurrent, assertApplicationAuthorizationCurrent } from './application-agent-state';
 import { runnerPresence, type PresenceRow } from './agent-presence';
 import {watchStorageKeys,VIDEO_SLOTS} from './agent-watch-storage';
 import { extractResume } from './resume-extraction';
@@ -39,11 +39,11 @@ export async function applicationWorkerIdentity(request:Request){const user=awai
 async function original(user:Identity&{agentHash:string},requestId:string,claimId:string){
   const current=await load(user);stillConnected(current.state,user);
   const item=activeClaim(current.state,requestId,claimId),file=current.state.attachments.find(file=>file.id===item.cv!.fileId)!;
-  assertApplicationProfileCurrent(current.state,item);assertApplicationModeCurrent(current.state,item);
+  assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
   const object=await files().get(file.key);if(!object)throw new DomainError('The chosen CV file is unavailable.',409);
   const bytes=new Uint8Array(await object.arrayBuffer());if(await digest(bytes)!==item.cvSha256)throw new DomainError('The selected CV content changed.',409);
   let coverBytes:Uint8Array<ArrayBuffer>|undefined;if(item.coverLetter){if(!item.coverLetter.key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`))throw new DomainError('The reviewed cover letter is unavailable.',409);const object=await files().get(item.coverLetter.key);if(!object)throw new DomainError('The reviewed cover letter is unavailable.',409);coverBytes=new Uint8Array(await object.arrayBuffer());if(await digest(coverBytes)!==item.coverLetter.sha256)throw new DomainError('The reviewed cover letter changed. Stop before submitting.',409);}
-  const latest=await load(user);stillConnected(latest.state,user);const latestRequest=activeClaim(latest.state,requestId,claimId);assertApplicationProfileCurrent(latest.state,latestRequest);assertApplicationModeCurrent(latest.state,latestRequest);
+  const latest=await load(user);stillConnected(latest.state,user);const latestRequest=activeClaim(latest.state,requestId,claimId);assertApplicationProfileCurrent(latest.state,latestRequest);assertApplicationAuthorizationCurrent(latest.state,latestRequest);
   return {current,item,file,bytes,coverBytes};
 }
 const claimBody=z.object({requestId:z.string().max(300),claimId:z.string().uuid()}).strict();

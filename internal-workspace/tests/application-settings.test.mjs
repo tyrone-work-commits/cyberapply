@@ -4,11 +4,48 @@ function fixture(){const s=d.emptyState();s.profile.resumeText='Fictional Candid
 const apply=s=>d.reduceAction(s,{type:'decide_job',jobId:'job',decision:'apply'},'interface',at).state;
 const prefs=(s,changes)=>d.reduceAction(s,{type:'set_apply_settings',mode:'automatic',dailyLimit:20,minimumMatch:0,...changes},'interface',at).state;
 test('automatic mode needs prior explicit application authorization',()=>{const s=fixture();delete s.newApplicationAgent;assert.throws(()=>prefs(s,{}),/authorize automatic/);const authorized=prefs(s,{authorizeAutomatic:true});assert.equal(authorized.applicationSettings.autoConsentAt,at);assert.equal(apply(authorized).applications[0].status,'needs_action');});
-test('review holds automatic queues and an explicit reviewed request can run',()=>{const s=prefs(apply(fixture()),{mode:'review'});assert.equal(s.applications[0].status,'needs_action');assert.equal(s.applications[0].reason,'review_required');const q=d.reduceAction(s,{type:'queue_application_agent',applicationId:s.applications[0].id},'interface',at).state;const request=a.claimApplication(q,at);assert.ok(request);assert.equal(request.reviewedForSubmissionAt,at);assert.doesNotThrow(()=>a.assertApplicationModeCurrent(q,request));});
-test('a mode change during an automatic run blocks its submission authorization',()=>{const s=apply(fixture()),request=a.claimApplication(s,at);const changed=prefs(s,{mode:'review'});assert.throws(()=>a.assertApplicationModeCurrent(changed,changed.applications[0]),/mode changed to review/);assert.equal(changed.applications[0].status,'processing');});
 test('daily limits are consumed at claim and queued work waits for the next UTC day',()=>{let s=prefs(apply(fixture()),{dailyLimit:1});s.jobs.push({...s.jobs[0],id:'second',url:'https://employer.example/second',disposition:'open'});s=d.reduceAction(s,{type:'decide_job',jobId:'second',decision:'apply'},'interface',at).state;const first=a.claimApplication(s,at);a.completeApplication(s,{requestId:first.id,claimId:first.claim.id,status:'needs_attention',message:'Fictional missing detail.'},at);assert.equal(a.claimApplication(s,at),null);assert.equal(s.applications.find(x=>x.status==='queued').reason,'daily_limit');assert.ok(a.claimApplication(s,'2026-11-06T10:00:00Z'));assert.equal(d.applicationRunsToday(s,'2026-11-06T10:00:00Z'),1);});
 test('minimum match uses the request CV snapshot and does not invent a score',()=>{let s=apply(prefs(fixture(),{minimumMatch:80}));assert.equal(s.applications[0].reason,'below_minimum_match');s.profile.resumeText+=' Linux';assert.throws(()=>d.reduceAction(s,{type:'queue_application_agent',applicationId:s.applications[0].id},'interface',at),/minimum match/);s=prefs(s,{minimumMatch:50});assert.equal(d.reduceAction(s,{type:'queue_application_agent',applicationId:s.applications[0].id},'interface',at).state.applications[0].status,'queued');assert.equal(d.applicationMatchScore('evidence',{skills:[]}),null);});
 test('possible prior delivery remains protected even if an older status says unsent',()=>{const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={journey:{version:1,possible_delivery:true}};assert.throws(()=>d.reduceAction(s,{type:'queue_application_agent',applicationId:r.id},'interface',at),/may have delivered/);assert.equal(p.applicationProgress(r).canQueue,false);r.status='queued';assert.equal(a.claimApplication(s,at),null);assert.equal(r.status,'uncertain');});
 test('Actions removes confirmed ordinary answers but retains direct human verification',()=>{const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={unresolved:[{question:'Why this role?',field_type:'textarea'},{question:'Which best describes you?',field_type:'select',options:['I am a human','I am an AI']}]};r.confirmedAnswers=[{question:'Why this role?',value:'My reviewed answer.'}];const open=actions.openApplicationQuestions(s);assert.equal(open.length,1);assert.equal(open[0].manual,true);});
 test('answering the final ordinary question releases only an explicitly continued unsent request',()=>{let s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={unresolved:[{question:'Why this role?',field_type:'textarea'}]};s=d.reduceAction(s,{type:'answer_application_questions',applicationId:r.id,answers:[{question:'Why this role?',value:'Reviewed factual answer.'}],confirmation:'CONFIRMED'},'interface',at).state;assert.equal(actions.openApplicationQuestions(s).length,0);assert.equal(s.applications[0].status,'needs_action');s=d.reduceAction(s,{type:'queue_application_agent',applicationId:r.id},'interface',at).state;assert.equal(s.applications[0].status,'queued');assert.equal(s.applications[0].confirmedAnswers[0].value,'Reviewed factual answer.');});
 test('Actions never treats a possible prior delivery as a question to release',()=>{const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={journey:{possible_delivery:true},unresolved:[{question:'Question'}]};assert.deepEqual(actions.openApplicationQuestions(s),[]);});
+
+test('Automatic Apply is the only accepted mode and a removed review choice cannot change queues',()=>{
+ const s=apply(fixture()),before=structuredClone(s);
+ assert.throws(()=>prefs(s,{mode:'review'}));
+ assert.equal(d.actionSchema.safeParse({type:'set_apply_settings',mode:'review',dailyLimit:20,minimumMatch:0}).success,false);
+ assert.deepEqual(s,before);
+ assert.equal(d.getApplySettings(d.emptyState()).mode,'automatic');
+ assert.equal(d.getApplySettings(d.emptyState()).autoConsentAt,undefined);
+});
+test('legacy review settings normalize for new requests without rewriting or restarting older work',()=>{
+ const s=apply(fixture()),old=s.applications[0];old.status='needs_action';old.reason='review_required';delete old.agentAuthorizedAt;
+ s.applicationSettings={mode:'review',dailyLimit:12,minimumMatch:0,tutorialSeen:true,autoConsentAt:at};
+ const before=structuredClone(s);assert.equal(d.getApplySettings(s).mode,'automatic');assert.equal(d.getApplySettings(s).dailyLimit,12);assert.deepEqual(s,before);
+ s.jobs.push({...s.jobs[0],id:'new-job',url:'https://employer.example/new',disposition:'open'});
+ const next=d.reduceAction(s,{type:'decide_job',jobId:'new-job',decision:'apply'},'interface',at).state;
+ assert.equal(next.applications.find(r=>r.jobId==='new-job').status,'queued');
+ assert.deepEqual(next.applications.find(r=>r.id===old.id),old);
+});
+test('missing automatic authorization prevents new work from being queued or claimed',()=>{
+ const s=fixture();s.newApplicationAgent.issuedAt=undefined;
+ const next=apply(s),r=next.applications[0];assert.equal(r.status,'needs_action');assert.equal(r.reason,'authorization_required');
+ r.status='queued';r.agentVersion=2;r.agentAuthorizedAt=at;
+ assert.equal(a.claimApplication(next,at),null);assert.equal(r.status,'needs_action');assert.equal(r.agentAuthorizedAt,undefined);
+ assert.equal(p.applicationProgress(r).label,'Authorize Automatic Apply');
+});
+test('submission still requires current automatic authorization or an explicit request authorization',()=>{
+ const s=apply(fixture()),r=a.claimApplication(s,at);assert.ok(r);assert.doesNotThrow(()=>a.assertApplicationAuthorizationCurrent(s,r));
+ s.newApplicationAgent.issuedAt=undefined;assert.throws(()=>a.assertApplicationAuthorizationCurrent(s,r),/Authorize Automatic Apply/);
+ r.reviewedForSubmissionAt=at;assert.doesNotThrow(()=>a.assertApplicationAuthorizationCurrent(s,r));
+});
+test('saving Automatic Apply does not restart paused, uncertain or confirmed requests',()=>{
+ for(const status of ['needs_action','needs_attention','uncertain','applied']){
+  const s=apply(fixture());s.applications[0].status=status;
+  if(status==='uncertain')s.applications[0].report={journey:{possible_delivery:true}};
+  const before=structuredClone(s.applications),saved=prefs(s,{});assert.deepEqual(saved.applications,before);
+  assert.equal(a.claimApplication(saved,at),null);
+  if(status==='uncertain')assert.equal(p.applicationProgress(saved.applications[0]).canQueue,false);
+ }
+});
