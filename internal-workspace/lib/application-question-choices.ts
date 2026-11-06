@@ -11,6 +11,6 @@ export function applicationQuestionChoices(application:ApplicationRequest,entry:
  const direct=choices(entry.options),reported=choices(field?.options);
  const newerProfile=profile?.optionsCheckedAt&&Date.parse(profile.optionsCheckedAt)>Date.parse(application.result?.at||'');
  const options=newerProfile?choices(profile.options):direct.length?direct:reported.length?reported:choices(profile?.options);
- const kind=String(entry.field_type||field?.field_type||profile?.fieldType||'text');
+ const kind=String(['select','combobox'].includes(String(field?.field_type))?field?.field_type:entry.field_type||field?.field_type||profile?.fieldType||'text');
  return {isDropdown:['select','combobox'].includes(kind),options,truncated:!!(newerProfile?profile?.optionsTruncated:direct.length?entry.optionsTruncated:reported.length?field?.optionsTruncated:profile?.optionsTruncated)};
 }

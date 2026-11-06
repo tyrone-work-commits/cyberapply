@@ -473,13 +473,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 journey.data['form_found']=True
                 # Custom dropdown choices often exist only while their menu is open.
                 # Inspect bounded, explicitly linked menus without selecting an answer.
-                option_reads=0
+                option_deadline=time.monotonic()+20
                 for observed in fields:
-                    if observed['type']!='combobox' or observed.get('options') or observed.get('phoneCountry') or re.search(r'\b(?:city|country|location)\b',observed['label'],re.I):continue
-                    if option_reads>=20:break
-                    option_reads+=1
+                    if observed['type']!='combobox' or observed.get('options'):continue
+                    if time.monotonic()>=option_deadline:break
                     frame=frames[int(observed['id'].split(':',1)[0])]
-                    choices=capture_combobox_options(frame,controls[observed['id']])
+                    choices=capture_combobox_options(frame,controls[observed['id']],min(1500,max(50,int((option_deadline-time.monotonic())*1000))))
                     if choices:observed.update(options=choices[:100],optionsTruncated=len(choices)>100)
                 signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
                 step_identity=(tuple(frame.url for frame in frames),signature)

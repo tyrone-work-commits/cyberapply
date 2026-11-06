@@ -10,7 +10,7 @@ import { extractCandidateFacts } from './candidate-facts';
 import { extractResume } from './resume-extraction';
 import { discover, mergeDiscovery } from './job-discovery';
 import { defaultSearch } from './job-catalog';
-import {fetchEmployerQuestions,mergeEmployerQuestionChoices} from './employer-question-options';
+import {fetchEmployerQuestions,mergeEmployerQuestionChoices,mergeApplicationQuestionChoices} from './employer-question-options';
 import { liveSearchCooldown, type SearchCooldown } from './search-cooldown';
 import {verifyEmployerReceipts,applyVerifiedReceipts,type ReceiptMail} from './employer-receipts';
 
@@ -66,6 +66,19 @@ export async function refreshEmployerQuestionChoices(user:Identity,expected:numb
  const rows=await fetchEmployerQuestions(job);
  const message=mergeEmployerQuestionChoices(current.state,questionId,rows,new Date().toISOString());
  return {...await save(user,expected,current.state,'refresh_employer_question_choices'),message};
+}
+
+export async function refreshApplicationQuestionChoices(user:Identity,expected:number,applicationId:string){
+ const current=await load(user);
+ if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before refreshing choices.',409);
+ const application=current.state.applications?.find(a=>a.id===applicationId),job=current.state.jobs.find(j=>j.id===application?.jobId);
+ if(!application||!job)throw new DomainError('The original application and vacancy are no longer available.',404);
+ if(application.status==='processing')throw new DomainError('Wait for the active agent report before refreshing choices.',409);
+ if(Date.now()-Date.parse(String(application.report?.optionsRefreshedAt||''))<15000)throw new DomainError('These employer choices were just refreshed. Wait a few seconds before checking again.',429);
+ const at=new Date().toISOString(),rows=await fetchEmployerQuestions(job);
+ const message=mergeApplicationQuestionChoices(current.state,applicationId,rows,at);
+ application.report={...application.report,optionsRefreshedAt:at};
+ return {...await save(user,expected,current.state,'refresh_application_question_choices'),message};
 }
 
 export async function setReceiptChecking(user:Identity,enabled:boolean){

@@ -103,14 +103,38 @@ def _options(popup):
     return controls, choices
 
 
-def capture_combobox_options(frame,control,timeout=750):
+def capture_combobox_options(frame,control,timeout=1500):
     """Read a linked menu without typing, selecting, or triggering Continue."""
     if control.get_attribute('aria-multiselectable')=='true' or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
         return []
     try:
+        deadline=time.monotonic()+min(timeout,2500)/1000
         _open_dropdown(control,timeout)
-        _,choices=_options(_popup(frame,control,timeout))
-        return [re.sub(r'\s+',' ',label).strip()[:200] for _,label in choices]
+        popup=_popup(frame,control,max(50,int((deadline-time.monotonic())*1000)))
+        labels=[]
+        previous=None
+        stable=0
+        # React menus can mount the listbox before their options arrive. Scroll
+        # only this control's linked list to collect virtualized visible rows.
+        while time.monotonic()<deadline:
+            _,choices=_options(popup)
+            current=tuple(label for _,label in choices)
+            busy=popup.get_attribute('aria-busy')=='true' or control.get_attribute('aria-busy')=='true'
+            if current and not busy:
+                stable=stable+1 if current==previous else 0
+                if stable>=1:
+                    seen={}
+                    for label in current:
+                        label=re.sub(r'\s+',' ',label).strip()[:200]
+                        seen[label]=seen.get(label,0)+1
+                        if label and labels.count(label)<seen[label]:labels.append(label)
+                    if len(labels)>100:break
+                    moved=popup.evaluate("""e=>{const before=e.scrollTop;e.scrollTop=Math.min(e.scrollHeight,e.scrollTop+Math.max(100,e.clientHeight));return e.scrollTop!==before;}""")
+                    if not moved:break
+                    stable=0
+            previous=current
+            frame.wait_for_timeout(75)
+        return labels
     except Exception:
         return []
     finally:

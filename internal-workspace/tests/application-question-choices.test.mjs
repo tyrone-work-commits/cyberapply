@@ -27,3 +27,9 @@ test('missing choices stay empty and no option or human answer is automatically 
 test('truncated menus and malformed option entries are represented without executing content',()=>{
  const r=applicationQuestionChoices(app,{...entry,options:[' Day ',null,7,'Night'],optionsTruncated:true});assert.deepEqual(r.options,['Day','Night']);assert.equal(r.truncated,true);
 });
+
+test('a technical text fallback uses the actual dropdown captured for that exact question',()=>{
+ const report={...app,report:{questions:[{question:'Which shift?',field_type:'combobox',options:['Day','Night']}]}};
+ assert.equal(applicationQuestionChoices(report,{...entry,field_type:'text'}).isDropdown,true);
+ assert.deepEqual(applicationQuestionChoices(report,{...entry,field_type:'text'}).options,['Day','Night']);
+});
