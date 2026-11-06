@@ -1,0 +1,7 @@
+.cv-review-tools{min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:24px}
+.cv-review-tools>*{min-width:0}
+.cv-review-sections{display:flex;flex-wrap:wrap;gap:8px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.cv-review-sections button{border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:11px 16px;font:inherit;font-weight:600;cursor:pointer}
+.cv-review-sections button[aria-current=page]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.cv-review-sections button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:650px){.cv-review-sections{gap:6px}.cv-review-sections button{padding:10px 12px;font-size:12px}}

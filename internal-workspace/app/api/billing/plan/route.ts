@@ -1,0 +1,9 @@
+import {env} from 'cloudflare:workers';
+import {identity,load,response,failure} from '@/lib/cyber-store';
+import {DomainError} from '@/lib/cyber-domain';
+import {getCareer,createCareer,privateJson} from '@/lib/career-store';
+import {billingConfiguration,careerPlans,creditPacks,careerAddOns} from '@/lib/billing-scaffold';
+import {ownerCreditLedger} from '@/lib/billing-store';
+export const dynamic='force-dynamic';
+export async function GET(request:Request){try{const user=await identity(request),current=await load(user);let record;try{record=await getCareer<{plan:'internal';joinedAt:string}>(user,'userPlans','plan');}catch(e){if(!(e instanceof DomainError&&e.status===404))throw e;try{record=await createCareer(user,'userPlans',{plan:'internal',joinedAt:new Date().toISOString()},'plan');}catch{record=await getCareer(user,'userPlans','plan');}}const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(user.userId))),code='CA-'+Array.from(bytes.slice(0,6),b=>b.toString(16).padStart(2,'0')).join('').toUpperCase();return response({configuration:billingConfiguration(env as unknown as Record<string,unknown>),plan:record,plans:careerPlans,packs:creditPacks,addOns:careerAddOns,credits:null,ledger:await ownerCreditLedger(user),referral:{code,url:new URL('/?invite='+code,request.url).href,confirmed:0,cap:200,enabled:false},message:'Internal workspace access is unchanged. No payment, credit spend, referral bonus or subscription is active.'});}catch(e){return failure(e);}}
+export async function POST(request:Request){try{const user=await identity(request);await load(user);await privateJson(request);throw new DomainError('Commercial checkout, redemptions and rewards are disabled. No charge, credit change or access change was made.',409);}catch(e){return failure(e);}}

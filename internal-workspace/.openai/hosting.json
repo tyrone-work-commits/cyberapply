@@ -1,0 +1,8 @@
+{
+  "d1": "DB",
+  "r2": "BUCKET",
+  "capabilities": ["mcp"],
+  "plugins": [{"id":"plugin_connector_1p_95d39881713c8191931482a62d6edff9","connector_ids":["connector_2128aebfecb84f64a069897515042a44"]}],
+  "connectors": [{"id":"connector_2128aebfecb84f64a069897515042a44","action_selection_mode":"read_only"}],
+  "project_id": "appgprj_6ad0fe79362c81918b8d7a2280871bb1"
+}
