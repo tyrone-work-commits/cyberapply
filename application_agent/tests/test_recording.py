@@ -64,6 +64,7 @@ class RecordingTests(unittest.TestCase):
   calls=[];task={'requestId':'fixture','claimId':'claim'}
   def call(site,token,path,data=None,**kwargs):
    calls.append((path,data))
+   if path=='/api/application-agent/location-choices/claim':return {'task':None}
    if path.endswith('/claim'):return {'task':task}
    if '/cv?' in path:return b'fictional CV'
    return {}

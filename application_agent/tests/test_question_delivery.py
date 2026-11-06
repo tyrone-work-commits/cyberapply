@@ -25,6 +25,7 @@ class QuestionDeliveryTests(unittest.TestCase):
   paths=[]
   def call(site,token,path,data=None,**kwargs):
    paths.append(path)
+   if path=='/api/application-agent/location-choices/claim':return {'task':None}
    if path.endswith('/claim'):return {'task':{'requestId':'one','claimId':'claim'}}
    if path.startswith('/api/application-agent/cv?'):return b'fixture cv'
    if path.endswith('/questions'):return {'saved':1,'omitted':0}

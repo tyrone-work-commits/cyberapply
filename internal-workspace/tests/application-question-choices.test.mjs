@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {readFile,writeFile,mkdir} from 'node:fs/promises';
 const dir='.sites-runtime/application-choice-tests';await mkdir(dir,{recursive:true});
-for(const name of ['application-question-choices','employer-questions'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
+for(const name of ['employer-location-choices','application-question-choices','employer-questions'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
 const {applicationQuestionChoices}=await import('../'+dir+'/application-question-choices.mjs');
 const entry={question:'Which shift?*',field_type:'combobox'},app={jobId:'job',report:{questions:[]},result:{at:'2026-11-02T10:00:00Z'}};
 const memory=(extra={})=>({question:'Which shift?',fieldType:'combobox',jobId:'job',options:['Day','Night'],...extra});

@@ -1,3 +1,4 @@
+import {queueLocationCapture} from './application-choice-capture';
 import {enrichJob} from './job-extraction';
 import {configuredSearch} from './job-source-preferences';
 import {recordingPrefix} from './application-recordings';
@@ -214,3 +215,9 @@ export async function deleteAccount(user:Identity,expected:number){
 export function ownedFile(state: State, id: string): Attachment { const file = state.attachments.find(item=>item.id===id); if(!file) throw new DomainError('File not found in your workspace.',404); return file; }
 export function response(value: unknown, status = 200) { return Response.json(value,{status,headers:{'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}}); }
 export function failure(error: unknown) { if(error instanceof SearchCooldownError){const result=response({error:error.message,searchCooldown:error.cooldown},429);result.headers.set('Retry-After',String(Math.ceil(error.cooldown.remainingMs/1000)));return result;} if(error instanceof DomainError) return response({error:error.message},error.status); console.error('CyberApply request failed',error instanceof Error?error.name:'unknown'); return response({error:'The operation could not be completed. Your saved work has been retained.'},500); }
+
+export async function requestLocationChoiceCapture(user:Identity,expected:number,applicationId:string,cityQuery:string){
+ const current=await load(user);if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before reading menus.',409);
+ queueLocationCapture(current.state,applicationId,cityQuery);
+ return {...await save(user,expected,current.state,'queue_location_choice_capture'),message:'Read-only menu capture requested. Keep your background agent running. Your application was not restarted.'};
+}

@@ -1,3 +1,4 @@
+import {employerChoiceLimit} from './employer-location-choices';
 import type {State,ApplicationRequest} from './cyber-domain';
 export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;lastUsedAt?:string;options:string[];optionsTruncated?:boolean;optionsCompany?:string;optionsJobId?:string;optionsCheckedAt?:string;jobTitle?:string;company?:string;aiDraft?:boolean;generationNote?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
 export const isAutomationCheck=(question:string,choices:string[]=[])=>[question,...choices].some(text=>/\b(?:are you (?:a |an )?(?:human|robot|bot)|i am (?:a |an )?(?:human|ai|robot|bot|automated program)|(?:verify|confirm|prove) (?:that )?you(?: are|'re) (?:a )?human|captcha)\b/i.test(text));
@@ -22,7 +23,7 @@ export function rememberEmployerQuestions(state:State,request:ApplicationRequest
   if(!question||question.length>4000||/unlabelled field/i.test(question)||['file','password','hidden'].includes(fieldType)||/password|captcha|verification code|security code/i.test(question))continue;
   const scoped=jobBoundAnswer(question)||/why|this role|this position|company|cover.?letter|contribut|motivat/i.test(question);
   const old=bank.find(item=>item.source==='user'&&key(item.question)===key(question)&&answerControlGroup(item.fieldType)===answerControlGroup(fieldType))||bank.find(item=>key(item.question)===key(question)&&answerControlGroup(item.fieldType)===answerControlGroup(fieldType)&&(!scoped||item.jobId===request.jobId));
-  const options=Array.isArray(row.options)?[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean))].slice(0,100).map(v=>v.slice(0,200)):[];
+  const options=Array.isArray(row.options)?[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean))].slice(0,employerChoiceLimit(question)).map(v=>v.slice(0,200)):[];
   const choiceMetadata=options.length?{options,optionsTruncated:!!row.optionsTruncated,optionsCompany:job?.company,optionsJobId:request.jobId,optionsCheckedAt:at}:{};
   if(old&&(old.source==='user'||metadataOnly)){
    const reused=answers.some(a=>a.source==='saved_profile'&&key(String(a.question||''))===key(question));if(!options.length&&!reused)continue;

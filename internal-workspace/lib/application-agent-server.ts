@@ -1,3 +1,5 @@
+import {claimLocationCapture,completeLocationCapture} from './application-choice-capture';
+import {locationCapture} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
 import {recordingPrefix,recordingKey,recordingStatusKey,recordingRange,recordingClaimValid,MAX_RECORDING_SIZE} from './application-recordings';
 import { env } from 'cloudflare:workers';
@@ -78,7 +80,7 @@ export async function pair(request:Request){try{
 export async function claim(request:Request){try{
   const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==4)throw new DomainError('Update the browser runner: Ireland eligibility, names and residence must use the current Edit Profile policy.',409);
   for(let attempt=0;attempt<3;attempt++){
-    const current=await load(user);stillConnected(current.state,user);const before=JSON.stringify(current.state),item=claimApplication(current.state);
+    const current=await load(user);stillConnected(current.state,user);if(current.state.applications?.some(a=>locationCapture(a.report)?.state==='reading'&&Date.parse(locationCapture(a.report)!.expiresAt)>Date.now()))return response({task:null});const before=JSON.stringify(current.state),item=claimApplication(current.state);
     if(!item&&JSON.stringify(current.state)===before)return response({task:null});
     current.state.newApplicationAgent!.lastSeenAt=new Date().toISOString();
     let task:unknown=null;
@@ -280,4 +282,16 @@ export async function recordingStatus(request:Request){try{
  await files().put(key,JSON.stringify({state:body.state,code:body.code,parts:body.parts,partial:body.partial,at:new Date().toISOString(),attempt:body.claimId}));
  try{const latest=await load(user);stillConnected(latest.state,user);recordingOwnerItem(latest.state,body.requestId);}catch(error){await files().delete(key);throw error;}
  return response({saved:true});
+}catch(error){return failure(error);}}
+
+// Separate read-only leases never authorize an application claim, CV upload or Submit.
+export async function locationChoicesClaim(request:Request){try{
+ const user=await worker(request);z.object({version:z.literal(1)}).strict().parse(await json(request));
+ for(let attempt=0;attempt<3;attempt++){const current=await load(user);stillConnected(current.state,user);const before=JSON.stringify(current.state),task=claimLocationCapture(current.state);if(JSON.stringify(current.state)===before)return response({task});try{await save(user,current.revision,current.state,'claim_location_choice_capture');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}}
+ throw new DomainError('Workspace changed. Read-only capture will wait.',409);
+}catch(error){return failure(error);}}
+export async function locationChoicesResult(request:Request){try{
+ const user=await worker(request),body=z.object({applicationId:z.string().min(1).max(300),captureId:z.string().uuid(),code:z.enum(['','unavailable','verification','no_results']),questions:z.array(z.object({question:z.string().min(1).max(1000),field_type:z.enum(['combobox','select']),options:z.array(z.string().min(1).max(200)).max(400),optionsTruncated:z.boolean().optional(),lookupQuery:z.string().max(120).optional(),phoneCountry:z.boolean().optional()}).strict()).max(12)}).strict().parse(await json(request));
+ for(let attempt=0;attempt<3;attempt++){const current=await load(user);stillConnected(current.state,user);const message=completeLocationCapture(current.state,body.applicationId,body.captureId,body.questions,body.code);try{await save(user,current.revision,current.state,'complete_location_choice_capture');return response({recorded:true,message});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}}
+ throw new DomainError('Menu metadata was not saved. Application outcome is unchanged.',409);
 }catch(error){return failure(error);}}

@@ -103,7 +103,7 @@ def _options(popup):
     return controls, choices
 
 
-def capture_combobox_options(frame,control,timeout=1500):
+def capture_combobox_options(frame,control,timeout=1500,option_limit=100):
     """Read a linked menu without typing, selecting, or triggering Continue."""
     if control.get_attribute('aria-multiselectable')=='true' or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
         return []
@@ -128,7 +128,7 @@ def capture_combobox_options(frame,control,timeout=1500):
                         label=re.sub(r'\s+',' ',label).strip()[:200]
                         seen[label]=seen.get(label,0)+1
                         if label and labels.count(label)<seen[label]:labels.append(label)
-                    if len(labels)>100:break
+                    if len(labels)>max(1,min(option_limit,400)):break
                     moved=popup.evaluate("""e=>{const before=e.scrollTop;e.scrollTop=Math.min(e.scrollHeight,e.scrollTop+Math.max(100,e.clientHeight));return e.scrollTop!==before;}""")
                     if not moved:break
                     stable=0

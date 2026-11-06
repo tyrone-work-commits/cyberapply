@@ -1,3 +1,4 @@
+import {employerChoiceLimit} from './employer-location-choices';
 import {DomainError,record,type State,type Job} from './cyber-domain';
 import {rememberEmployerQuestions,employerQuestionKey} from './employer-questions';
 import {jsonFeed} from './job-discovery';
@@ -21,7 +22,7 @@ export async function fetchEmployerQuestions(job:Job,fetcher:typeof fetch=fetch)
 }
 
 /** Refresh only exact-vacancy question metadata, never answers or submission state. */
-export function mergeApplicationQuestionChoices(state:State,applicationId:string,rows:Record<string,unknown>[],at:string){
+export function mergeApplicationQuestionChoices(state:State,applicationId:string,rows:Record<string,unknown>[],at:string,source:'employer_question_feed'|'browser_read_only'='employer_question_feed'){
  const request=state.applications?.find(a=>a.id===applicationId);
  if(!request)throw new DomainError('This application is no longer available.',404);
  if(request.status==='processing')throw new DomainError('The agent is currently reading this form. Wait for its report before refreshing choices.',409);
@@ -29,11 +30,11 @@ export function mergeApplicationQuestionChoices(state:State,applicationId:string
  let refreshed=0,omitted=0;
  for(const row of rows.slice(0,100)){
   if(!['select','combobox'].includes(String(row.field_type))||!Array.isArray(row.options)||!row.options.length)continue;
-  const options=[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim().slice(0,200)).filter(Boolean))].slice(0,100);
+  const options=[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim().slice(0,200)).filter(Boolean))].slice(0,employerChoiceLimit(String(row.question||'')));
   if(!options.length)continue;
   const key=employerQuestionKey(String(row.question||''));if(!key)continue;
   const existing=questions.find(q=>employerQuestionKey(String(q.question||''))===key&&['select','combobox'].includes(String(q.field_type)));
-  const update={...row,options,optionsCheckedAt:at,optionsSource:'employer_question_feed'};
+  const update={...row,options,optionsCheckedAt:at,optionsSource:source};
   if(existing)Object.assign(existing,update);else if(questions.length<200)questions.push(update);else{omitted++;continue;}
   refreshed++;
  }

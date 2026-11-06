@@ -132,6 +132,11 @@ def maybe_refresh_sources(site,token,site_access_token=None,now=None):
 
 
 def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None):
+    from .location_choices import run_location_capture
+    try:
+        if run_location_capture(site,token,call_site,site_access_token,browser_channel,on_state):return True
+    except HTTPError as error:
+        if error.code!=404:raise
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
     except Exception:pass
