@@ -2,6 +2,14 @@
 
 The new agent uses the exact uploaded CV attached to an Apply request. When enabled in Settings, swiping right queues a new request and keeps the user in Explore. A separate Python browser runner must be running on a computer; the hosted Site does not contain a browser. No new paid hosting or model API was activated.
 
+## Current answer sources — 7 November 2026
+
+The agent uses all three existing sources together: the exact original CV selected for the Apply request, saved responses managed in Settings → Answers library, and saved Account Profile details. Moving the questions UI out of Edit Profile did not move or disconnect the owner-scoped question bank: it remains included in the authenticated claim payload alongside profile fields. The CV bytes/text are loaded separately from the selected original file and checked by digest.
+
+The planner already resolves these sources together. Explicit saved answers retain their existing priority for matching questions and compatible offered choices; draft-only answers are not promoted to personal facts. Account Profile supplies its supported personal, location, salary and eligibility fields, and CV evidence supplies professional facts and grounded prose under the existing per-field rules. This update does not change conflict precedence, introduce guessed facts, authorize verification/consent or trigger an application. New claims use the current saved profile/library; edits during a claim invalidate stale submission authorization. The warning now identifies either an Account Profile change or an Answers library response update.
+
+Regression checks exercise a single application using CV email/tool evidence, a saved shift dropdown answer and profile name/city/converted salary, then verify changed sources affect a subsequent plan and an unknown personal fact remains unanswered. A claim-state test verifies the library is a detached snapshot and later answer edits block stale submission. No browser runner logic or startup settings are changed by this clarification, so a worker restart is unnecessary.
+
 ## Setup and workflow
 
 1. Upload and choose a CV in CV review. The old Candidate Facts editor and manual review are retired. Personal details belong in Edit Profile; CV review and the agent read the chosen original CV.

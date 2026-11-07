@@ -36,3 +36,19 @@ test('Ireland choices persist independently, default to unknown, and revoke stal
 });
 
 test('state is included in fresh claims and edits revoke stale authorization',()=>{const s=apply(fixture());s.accountProfile={fullName:'QA',headline:'',targetRole:'SOC Analyst',completedAt:at,state:'Texas',city:'Dallas',country:'USA'};const request=claimApplication(s,at);assert.equal(request.applicantProfile.state,'Texas');s.accountProfile.state='California';assert.throws(()=>assertApplicationProfileCurrent(s,request),/Edit Profile changed/);});
+
+
+test('claim includes the answer library and library edits block stale submission',()=>{
+ const s=apply(fixture());
+ s.accountProfile={fullName:'QA',headline:'',targetRole:'SOC Analyst',completedAt:at,city:'Abuja',employerQuestions:[{id:'shift',question:'Which shift do you prefer?',fieldType:'select',answer:'Evening',source:'user',evidence:'Explicit saved answer',status:'answered',jobSpecific:false,jobId:'job',updatedAt:at,options:['Morning','Evening'],reusePolicy:'exact_question'}]};
+ const request=claimApplication(s,at);
+ assert.equal(request.cv.fileId,'cv');
+ assert.equal(request.applicantProfile.city,'Abuja');
+ assert.equal(request.applicantProfile.employerQuestions[0].answer,'Evening');
+ assertApplicationProfileCurrent(s,request);
+ s.accountProfile.employerQuestions[0].answer='Morning';
+ assert.equal(request.applicantProfile.employerQuestions[0].answer,'Evening');
+ assert.throws(()=>assertApplicationProfileCurrent(s,request),/Answers library/);
+ assert.equal(request.status,'processing');
+ assert.equal(request.result,undefined);
+});
