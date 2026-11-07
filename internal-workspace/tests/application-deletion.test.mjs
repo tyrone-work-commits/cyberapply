@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 const dir='.sites-runtime/application-deletion-tests';await mkdir(dir,{recursive:true});
-for(const name of ['employer-questions','features','candidate-facts','cover-letter','cyber-domain','application-deletion']){
+for(const name of ['employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain','application-deletion']){
  const source=await readFile(`lib/${name}.ts`,'utf8');
  const code=ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[\w-]+)'/g,"from '$1.mjs'");
  await writeFile(`${dir}/${name}.mjs`,code);

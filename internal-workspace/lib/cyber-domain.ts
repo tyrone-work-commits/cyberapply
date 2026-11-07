@@ -1,3 +1,5 @@
+import {applicationFormQuestions,canEditApplicationQuestions} from './application-form-questions';
+import {applicationQuestionChoices} from './application-question-choices';
 import { z } from 'zod';
 import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
@@ -84,7 +86,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
   z.object({ type: z.literal('refresh_application_materials'), applicationId: id }).strict(),
   z.object({ type: z.literal('queue_application_agent'), applicationId: id }).strict(),
-  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(4000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(40),confirmation:z.literal('CONFIRMED') }).strict(),
+  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(4000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(200),confirmation:z.literal('CONFIRMED') }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
@@ -320,11 +322,12 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     message=CANDIDATE_FACTS_ENABLED?`${cv.name} and current candidate facts attached to the unsent Apply request. No employer has received it.`:`${cv.name} attached to the unsent Apply request. Review its draft before using it. No employer has received it.`;
   } else if (action.type === 'answer_application_questions') {
     const request=state.applications?.find(item=>item.id===action.applicationId);
-    if(!request||!['needs_action','needs_attention'].includes(request.status))throw new DomainError('Answers can be saved only before a known unsent application.',409);
-    const questions=Array.isArray(request.report?.unresolved)?request.report.unresolved as {question:string}[]:[];
+    if(!request||!canEditApplicationQuestions(request))throw new DomainError('Answers can be saved only before a known unsent application.',409);
+    const questions=applicationFormQuestions(request,state.accountProfile?.employerQuestions||[]);
     if(action.answers.some(answer=>!questions.some(item=>item.question===answer.question)))throw new DomainError('Answer only the questions recorded for this application.',409);
+    for(const answer of action.answers){const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);if(choices.isDropdown&&(!choices.options.length||!choices.options.includes(answer.value)))throw new DomainError('Choose an option captured from this employer dropdown before saving.',409);}
     const combined=new Map((request.confirmedAnswers||[]).map(answer=>[answer.question,answer]));action.answers.forEach(answer=>combined.set(answer.question,answer));
-    request.confirmedAnswers=[...combined.values()].slice(-40);request.status='needs_action';delete request.agentAuthorizedAt;
+    request.confirmedAnswers=[...combined.values()].slice(-200);request.status='needs_action';delete request.agentAuthorizedAt;
     message='Your answers are saved for these exact questions on this application. Queue the request when you are ready.';
   } else if (action.type === 'queue_application_agent') {
     const request=state.applications?.find(item=>item.id===action.applicationId);

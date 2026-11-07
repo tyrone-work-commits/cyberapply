@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 await mkdir('.sites-runtime/new-agent-tests',{recursive:true});
-for(const name of ['employer-questions','features','candidate-facts','cover-letter','cyber-domain','application-agent-state']){
+for(const name of ['employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain','application-agent-state']){
  const code=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(`.sites-runtime/new-agent-tests/${name}.mjs`,code);
 }
