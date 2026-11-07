@@ -32,6 +32,10 @@ test('current dropdown metadata wins over a text helper when saving the reusable
  const s=emptyState();s.applications=[fixture({report:{unresolved:[{question:'Preferred shift?',field_type:'text'}],questions:[{question:'Preferred shift?',field_type:'combobox',options:['Day','Night']}]}})];
  const result=saveAnswers(s,[{question:'Preferred shift?',value:'Night'}]);assert.equal(result.state.accountProfile.employerQuestions[0].fieldType,'combobox');assert.deepEqual(result.state.accountProfile.employerQuestions[0].options,['Day','Night']);
 });
+test('older generated reports retain draft origin even when the question has not reached the library',()=>{
+ const s=emptyState();s.applications=[fixture({report:{unresolved:[{question:'Why this role?',field_type:'textarea',source:'generated',suggested_value:'Generated fixture draft.'}]}})];
+ const result=saveAnswers(s,[{question:'Why this role?',value:'Generated fixture draft.'}]);assert.equal(result.state.accountProfile.employerQuestions[0].aiDraft,true);assert.equal(result.state.accountProfile.employerQuestions[0].source,'user');
+});
 test('consent and human-verification responses are references rather than reusable authorization',()=>{
  for(const question of ['I agree to the employer privacy terms','Which best describes you?']){
   const s=emptyState(),options=question.startsWith('I agree')?['Yes','No']:['I am a human.','I am an AI, bot, or automated program.'];s.applications=[fixture({report:{questions:[{question,field_type:'select',options}]}})];
