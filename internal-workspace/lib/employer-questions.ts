@@ -8,6 +8,24 @@ export const manualAnswerOnly=(question:string,choices:string[]=[])=>authorshipC
 export const jobBoundAnswer=(question:string)=>/\b(?:salary|compensation|remuneration|wage|pay|this (?:role|position|job|company|country)|country (?:in )?which|country.*(?:applying|posted))\b/i.test(question);
 export const employerQuestionKey=(q:string)=>q.replace(/\s+/g,' ').trim().replace(/[\s*]+$/,'').toLowerCase();
 export const answerControlGroup=(kind:string)=>['select','radio','combobox','checkbox'].includes(kind)?'choice':['text','textarea'].includes(kind)?'text':kind;
+export type ConfirmedEmployerAnswer={question:string;value:string;fieldType:string;options:string[];optionsTruncated?:boolean};
+/** Save the same explicitly confirmed answer in the application and owned library. */
+export function rememberConfirmedEmployerAnswers(state:State,request:ApplicationRequest,answers:ConfirmedEmployerAnswer[],at:string){
+ if(!state.accountProfile)return false;
+ const prior=state.accountProfile.employerQuestions||[];let bank=structuredClone(prior);
+ const job=state.jobs.find(item=>item.id===request.jobId);
+ for(const answer of answers){
+  const matches=bank.filter(row=>employerQuestionKey(row.question)===employerQuestionKey(answer.question)&&answerControlGroup(row.fieldType)===answerControlGroup(answer.fieldType));
+  const old=[...matches].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))[0];
+  const reference=manualAnswerOnly(answer.question,[...matches.flatMap(row=>row.options),...answer.options,answer.value]);
+  const item:EmployerQuestion={...old,id:old?.id||crypto.randomUUID(),question:answer.question,fieldType:answer.fieldType,answer:answer.value,source:'user',status:'answered',aiDraft:!!old?.aiDraft||old?.source==='cv_and_job',jobSpecific:false,reusePolicy:reference?'manual_only':'exact_question',evidence:reference?'Personal reference confirmed in Applications; not automatic verification or employer consent.':'Answer explicitly confirmed in Applications and saved to Answers library for matching questions.',jobId:request.jobId,originRequestId:request.id,jobTitle:job?.title,company:job?.company,updatedAt:at,options:answer.options,optionsTruncated:!!answer.optionsTruncated,optionsJobId:request.jobId,optionsCompany:job?.company,optionsCheckedAt:at};
+  delete item.generationNote;
+  bank=[item,...bank.filter(row=>!matches.includes(row))];
+ }
+ const bytes=(value:unknown)=>new TextEncoder().encode(JSON.stringify(value)).length;
+ if(bytes(state)-bytes(prior)+bytes(bank)>1650000)return false;
+ state.accountProfile.employerQuestions=bank;return true;
+}
 const key=employerQuestionKey;
 export function rememberEmployerQuestions(state:State,request:ApplicationRequest,report:Record<string,unknown>,at:string,metadataOnly=false){
  if(!state.accountProfile)return;

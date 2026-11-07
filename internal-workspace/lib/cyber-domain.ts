@@ -5,7 +5,7 @@ import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
 import { coverLetter } from './cover-letter';
 import { CANDIDATE_FACTS_ENABLED } from './features';
-import {manualAnswerOnly,employerQuestionKey,answerControlGroup,draftEmployerProse,openEndedQuestion,type EmployerQuestion} from './employer-questions';
+import {manualAnswerOnly,employerQuestionKey,answerControlGroup,draftEmployerProse,openEndedQuestion,rememberConfirmedEmployerAnswers,type EmployerQuestion} from './employer-questions';
 
 // Legacy appearance metadata stays in saved records; the UI uses one fixed palette.
 export type Theme = 'paper' | 'midnight' | 'ocean' | 'forest' | 'ember';
@@ -74,7 +74,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
   z.object({type:z.literal('draft_employer_answers'),questionId:id.optional()}).strict(),
-  z.object({type:z.literal('save_employer_answer'),questionId:id,answer:z.string().trim().max(2000)}).strict(),
+  z.object({type:z.literal('save_employer_answer'),questionId:id,answer:z.string().trim().max(20000)}).strict(),
   z.object({ type: z.literal('complete_tutorial') }).strict(),
   z.object({ type:z.literal('clear_applications'), confirmation:z.literal('CLEAR_APPLICATIONS') }).strict(),
   z.object({ type:z.literal('restore_applications') }).strict(),
@@ -324,11 +324,14 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const request=state.applications?.find(item=>item.id===action.applicationId);
     if(!request||!canEditApplicationQuestions(request))throw new DomainError('Answers can be saved only before a known unsent application.',409);
     const questions=applicationFormQuestions(request,state.accountProfile?.employerQuestions||[]);
+    if(!state.accountProfile)throw new DomainError('Save your Account Profile before saving reusable employer answers.',409);
     if(action.answers.some(answer=>!questions.some(item=>item.question===answer.question)))throw new DomainError('Answer only the questions recorded for this application.',409);
     for(const answer of action.answers){const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);if(choices.isDropdown&&(!choices.options.length||!choices.options.includes(answer.value)))throw new DomainError('Choose an option captured from this employer dropdown before saving.',409);}
     const combined=new Map((request.confirmedAnswers||[]).map(answer=>[answer.question,answer]));action.answers.forEach(answer=>combined.set(answer.question,answer));
     request.confirmedAnswers=[...combined.values()].slice(-200);request.status='needs_action';delete request.agentAuthorizedAt;
-    message='Your answers are saved for these exact questions on this application. Queue the request when you are ready.';
+    const remembered=action.answers.map(answer=>{const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);return {...answer,fieldType:choices.isDropdown?(entry.field_type==='select'?'select':'combobox'):String(entry.field_type||'text'),options:choices.options,optionsTruncated:choices.truncated};});
+    if(!rememberConfirmedEmployerAnswers(state,request,remembered,at))throw new DomainError('Your saved answers exceed the workspace size limit. Shorten answers or remove unused library entries, then save again.',409);
+    message='Answers saved to this application and Answers library. Future matching questions can reuse them; verification and employer consent remain reference-only. No application was queued or submitted.';
   } else if (action.type === 'queue_application_agent') {
     const request=state.applications?.find(item=>item.id===action.applicationId);
     if(request?.report?.journey&&typeof request.report.journey==='object'&&(request.report.journey as Record<string,unknown>).possible_delivery===true)throw new DomainError('The previous run may have delivered this application. Verify the employer outcome before any retry.',409);
