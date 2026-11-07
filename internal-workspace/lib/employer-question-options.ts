@@ -57,7 +57,7 @@ export function mergeEmployerQuestionChoices(state:State,questionId:string,rows:
  const bank=state.accountProfile!.employerQuestions!,freeText=(kind:string)=>['text','textarea','tel','email','url'].includes(kind);
  for(let i=bank.length-1;i>=0;i--){const q=bank[i];if(q.source==='missing'&&!q.answer&&!q.options.length&&freeText(q.fieldType)&&bank.some(other=>other.id!==q.id&&other.jobId===q.jobId&&!!other.answer&&freeText(other.fieldType)&&employerQuestionKey(other.question)===employerQuestionKey(q.question)))bank.splice(i,1);}
  const counts=report.answerMemory as {saved:number;omitted:number};
- const message=`Refreshed employer questions and choices in Edit Profile (${counts.saved} updated${counts.omitted?`, ${counts.omitted} could not fit`:''}). Your existing answers are unchanged. No application was queued or submitted.`;
+ const message=`Refreshed employer questions and choices in Answers library (${counts.saved} updated${counts.omitted?`, ${counts.omitted} could not fit`:''}). Your existing answers are unchanged. No application was queued or submitted.`;
  record(state,'refresh_employer_question_choices',message,'interface',at);
  return message;
 }

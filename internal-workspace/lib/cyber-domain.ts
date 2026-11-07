@@ -167,7 +167,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     for(const row of matches){
       row.jobSpecific=false;row.reusePolicy=reference?'manual_only':'exact_question';
       row.aiDraft=row.aiDraft||row.source==='cv_and_job';row.answer=action.answer;row.source='user';row.status=action.answer?'answered':'needs_details';
-      row.evidence=reference?'Personal reference supplied in Account Profile; not automatic verification or employer consent.':'Answer supplied directly in Account Profile for this question across employers.';
+      row.evidence=reference?'Personal reference supplied in Answers library; not automatic verification or employer consent.':'Answer supplied directly in Answers library for this question across employers.';
       row.updatedAt=at;delete row.originRequestId;delete row.generationNote;
     }
     message=reference?'Reference answer saved. The agent still pauses for employer verification or consent.':'Answer saved for all employers. The agent will reuse it wherever this question appears and the offered choices match.';
