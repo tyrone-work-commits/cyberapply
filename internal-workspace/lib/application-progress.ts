@@ -46,10 +46,10 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     group='applied';label='Applied';tone='success';description='Employer confirmation is recorded. Review the confirmation details below.';
   }else if(checkOutcome){
     group='check_outcome';label='Awaiting confirmation';tone='neutral';
-    description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or inbox before trying again.':
-      status==='applied'?'This saved record has no confirmation evidence. Check the employer website or inbox to establish its outcome.':
-      'The employer may have received all or part of this application. Check the employer website or inbox before trying again.';
-    if(/six-step limit/i.test(application.result?.message||''))description='The previous runner stopped at its form-navigation limit. This report does not establish that Submit was clicked. The outcome remains unverified; check the employer website or inbox before any retry.';
+    description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or your email account before trying again.':
+      status==='applied'?'This saved record has no confirmation evidence. Check the employer website or your email account to establish its outcome.':
+      'The employer may have received all or part of this application. Check the employer website or your email account before trying again.';
+    if(/six-step limit/i.test(application.result?.message||''))description='The previous runner stopped at its form-navigation limit. This report does not establish that Submit was clicked. The outcome remains unverified; check the employer website or your email account before any retry.';
   }else if(status==='queued'){
     group='in_progress';label='Queued';tone='active';description=application.reason==='daily_limit'?'Your daily agent-run allowance is used. This queued request can continue after the UTC day changes.':'Waiting for your browser runner to pick up this request. Keep the runner open on your computer.';
   }else if(status==='processing'){

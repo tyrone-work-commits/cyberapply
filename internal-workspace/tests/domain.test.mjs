@@ -252,3 +252,15 @@ test('current reads retire legacy pairing and preserve confirmed receipts',()=>{
  assert.equal(retired.applications[2].status,'applied');assert.equal(retired.applications[2].result.receipt,'REAL-123');
  assert.equal(s.agentPairing.tokenHash,'test-only-hash','historical input is unchanged');
 });
+
+
+test('retired mailbox preferences disappear without changing saved employer confirmations',()=>{
+ const s=apply(ready());s.receiptChecksEnabled=true;
+ const item=s.applications[0];item.status='applied';
+ item.result={at:'2026-11-01T12:00:00Z',message:'Previously confirmed',receipt:'Employer acknowledgment',evidence:{url:'https://employer.example/receipt',text:'Application received'}};
+ item.receiptVerification={requestId:item.id,messageId:'historical-message',mailbox:'candidate@example.test',sender:'employer.example',receivedAt:'2026-11-01T11:00:00Z',url:'https://employer.example/receipt',excerpt:'Application received',policy:'historical-verified-receipt',verifiedAt:'2026-11-01T12:00:00Z'};
+ const before=structuredClone(s),cleaned=liveState(s);
+ assert.equal('receiptChecksEnabled' in cleaned,false);
+ assert.deepEqual(cleaned.applications,before.applications);
+ assert.deepEqual(s,before);
+});

@@ -1,6 +1,0 @@
-import {z} from 'zod';
-import {identity,load,response,failure} from '@/lib/cyber-store';
-import {DomainError} from '@/lib/cyber-domain';
-import {getCareer,createCareer,updateCareer,privateJson} from '@/lib/career-store';
-export const dynamic='force-dynamic';
-export async function POST(request:Request){try{const user=await identity(request),current=await load(user),body=z.object({messageId:z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/),applicationId:z.string().max(100).nullable()}).strict().parse(await privateJson(request));if(body.applicationId&&!current.state.applications?.some(a=>a.id===body.applicationId))throw new DomainError('Choose an application in your own account.',404);const id='mail-'+Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(body.messageId))),b=>b.toString(16).padStart(2,'0')).join('');let old;try{old=await getCareer(user,'inboxLinks',id);}catch(e){if(!(e instanceof DomainError&&e.status===404))throw e;}const data={messageId:body.messageId,applicationId:body.applicationId,archived:false};return response({record:old?await updateCareer(user,old,old.version,data):await createCareer(user,'inboxLinks',data,id)});}catch(e){return failure(e);}}
