@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 
-export type TourArea = 'search'|'explore'|'saved'|'applications'|'inbox'|'workspace'|'activity'|'account';
-const areaLabel:Record<TourArea,string>={search:'Search',explore:'Explore',saved:'Saved',applications:'Applications',inbox:'Inbox',workspace:'CV review',activity:'Activity',account:'Settings'};
+export type TourArea = 'search'|'explore'|'saved'|'applications'|'workspace'|'activity'|'account';
+const areaLabel:Record<TourArea,string>={search:'Search',explore:'Explore',saved:'Saved',applications:'Applications',workspace:'CV review',activity:'Activity',account:'Settings'};
 type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string};
 export const tourSteps:ReadonlyArray<Step>=[
  {area:'explore',title:'Explore: find your next role',description:'Explore shows cybersecurity vacancies from your chosen employer boards. Review each role here before deciding. This guide only points to controls; it does not change jobs.',target:'.explore-preferences-button'},
@@ -12,15 +12,13 @@ export const tourSteps:ReadonlyArray<Step>=[
  {area:'saved',title:'Saved: revisit roles',description:'Saved keeps jobs you bookmarked so you can compare them later. Saving a role does not apply for it.',target:'.page-heading'},
  {area:'saved',title:'Use saved job actions',description:'Open a role and its original listing, remove the bookmark, or choose Apply when ready. If this page is empty, save a card in Explore first.',target:'.list-grid .listing-row .row-actions',fallback:'.list-grid .empty-state'},
  {area:'applications',title:'Applications: follow your agent',description:'Track each job from your Apply swipe to the agent’s result. Use the filters to see work in progress, jobs needing your input and confirmed applications.',target:'.page-heading'},
- {area:'applications',title:'Check progress and respond',description:'Each job keeps its own CV, agent report and confirmation. Answer missing questions under Needs you. Awaiting confirmation means delivery is not verified yet. Use the top-right Applications settings sliders for your agent, chosen CV and employer receipt checks. Only a recorded confirmation means Applied; do not submit the same application again.',target:'.application-overview-card',fallback:'.application-overview'},
- {area:'inbox',title:'Inbox: see application mail',description:'Inbox shows recent Gmail messages related to jobs in your Applications list. The connected Gmail address must match your CyberApply sign-in.',target:'.inbox-page .inbox-intro'},
- {area:'inbox',title:'Refresh and open messages',description:'Use Refresh to check again, then open a related message in Gmail. Other mail stays hidden here, and no message contents are stored in CyberApply.',target:'.inbox-page .inbox-intro button',fallback:'.inbox-page'},
+ {area:'applications',title:'Check progress and respond',description:'Each job keeps its own CV, agent report and confirmation. Answer missing questions in Answer this employer’s questions. Awaiting confirmation means delivery is not verified yet. Use the top-right Applications settings sliders for your agent, chosen CV and employer receipt checks. Only a recorded confirmation means Applied; do not submit the same application again.',target:'.application-overview-card',fallback:'.application-overview'},
  {area:'workspace',title:'CV review: improve your CV',description:'CV review keeps your files, readiness recommendations, job matching, CV optimization and LinkedIn Optimizer together. Choose a section above to review or improve your CV.',target:'.page-heading'},
  {area:'workspace',title:'Upload and assess',description:'Upload a searchable PDF, DOCX or TXT file. The page gives a score out of 100 and recommendations; this is guidance, not an employer ATS decision.',target:'.cv-upload-button'},
  {area:'workspace',title:'Choose your application CV',description:'Use the saved CV list to view, download, choose or delete a file. The chosen CV is attached to new Apply requests.',target:'#saved-cv-files'},
  {area:'activity',title:'Activity: see what changed',description:'Activity records actions and earlier saved versions, so you can review what happened in the workspace and show evidence of your work.',target:'.page-heading'},
  {area:'activity',title:'Review history and export',description:'View recent actions and earlier versions below. Export evidence to download your workspace records for your own review.',target:'.evidence-strip > a',fallback:'.activity-grid'},
- {area:'account',title:'Settings: manage your account',description:'Settings holds your profile and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
+ {area:'account',title:'Settings: manage your account',description:'Settings holds Account Profile, Answers library and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
  {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. Manage your connected application runner, private notifications and Help. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
 ];
 type Box={top:number;left:number;width:number;height:number};
