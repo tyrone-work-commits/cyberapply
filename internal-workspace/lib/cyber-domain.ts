@@ -37,7 +37,7 @@ export type AccountProfile = AccountDetails & { employerQuestions?:EmployerQuest
 export type ApplicationArchive = { applications:ApplicationRequest[]; drafts:Draft[]; at:string };
 export type LastDecision = { jobId:string; decision:'pass'|'apply'|'save'; operationId:string; previousDisposition:Job['disposition']; previousSaved?:boolean; at:string; applicationId?:string; createdDraftId?:string };
 export function savedJobListings(state:Pick<State,'jobs'|'applications'>){const requested=new Set(state.applications?.map(item=>item.jobId));return state.jobs.filter(job=>job.saved&&job.disposition==='open'&&!requested.has(job.id));}
-export type State = { applicationSettings?:(Omit<ApplySettings,'mode'>&{mode:'automatic'|'review'}); applicationUsage?:{day:string;started:number}; receiptChecksEnabled?:boolean; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
+export type State = { applicationSettings?:ApplySettings; applicationUsage?:{day:string;started:number}; receiptChecksEnabled?:boolean; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 // Legacy stored mode values are read as Automatic Apply; reads never requeue old requests.
 export type ApplySettings={mode:'automatic';dailyLimit:number;minimumMatch:number;autoConsentAt?:string;tutorialSeen:boolean};
@@ -397,6 +397,7 @@ export const connectionStatus = { jobDiscovery: {greenhouse:'available',lever:'a
 export function liveState(input: State): State {
   const state = structuredClone(input) as State & {demo?: boolean; submissions?: unknown};
   delete state.demo; delete state.submissions;
+  if(state.applicationSettings)state.applicationSettings.mode='automatic';
   state.jobs = state.jobs.filter(job => !job.sample);
   const jobs = new Set(state.jobs.map(job => job.id));
   state.drafts = state.drafts.filter(draft => jobs.has(draft.jobId));

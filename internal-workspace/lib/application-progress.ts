@@ -59,7 +59,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   }else if(application.reason==='materials_changed'||application.reason==='candidate_review_required'){
     label='Update request';description='Review the chosen CV and update this request before queuing the agent.';
   }else if(application.reason==='authorization_required'){label='Authorize Automatic Apply';description='Open application settings and authorize Automatic Apply. No employer form has been submitted for this request.';
-  }else if(application.reason==='review_required'){label='Previous request paused';description='This older request was held before Automatic Apply became the only mode. It has not been restarted. Check it before choosing to continue.';
+  }else if(application.reason==='review_required'){label='Previous request paused';description='This saved request is paused. Continue the automatic application when its saved details and outstanding questions are ready.';
   }else if(application.reason==='daily_limit'){label='Daily limit reached';description='Your daily agent-run allowance is used. Continue after the UTC day changes.';
   }else if(application.reason==='below_minimum_match'){label='Below your match setting';description='This CV does not establish the minimum keyword match you chose. Review the CV or lower the setting if appropriate.';
   }else if(status==='needs_attention'){

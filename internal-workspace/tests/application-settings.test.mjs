@@ -22,10 +22,10 @@ test('Automatic Apply is the only accepted mode and a removed review choice cann
 test('legacy review settings normalize for new requests without rewriting or restarting older work',()=>{
  const s=apply(fixture()),old=s.applications[0];old.status='needs_action';old.reason='review_required';delete old.agentAuthorizedAt;
  s.applicationSettings={mode:'review',dailyLimit:12,minimumMatch:0,tutorialSeen:true,autoConsentAt:at};
- const before=structuredClone(s);assert.equal(d.getApplySettings(s).mode,'automatic');assert.equal(d.getApplySettings(s).dailyLimit,12);assert.deepEqual(s,before);
+ const before=structuredClone(s);const loaded=d.liveState(s);assert.equal(loaded.applicationSettings.mode,'automatic');assert.equal(loaded.applicationSettings.dailyLimit,12);assert.equal(loaded.applicationSettings.autoConsentAt,at);assert.deepEqual(loaded.applications,before.applications);assert.equal(d.getApplySettings(s).mode,'automatic');assert.equal(d.getApplySettings(s).dailyLimit,12);assert.deepEqual(s,before);
  s.jobs.push({...s.jobs[0],id:'new-job',url:'https://employer.example/new',disposition:'open'});
  const next=d.reduceAction(s,{type:'decide_job',jobId:'new-job',decision:'apply'},'interface',at).state;
- assert.equal(next.applications.find(r=>r.jobId==='new-job').status,'queued');
+ assert.equal(next.applicationSettings.mode,'automatic');assert.equal(next.applications.find(r=>r.jobId==='new-job').status,'queued');
  assert.deepEqual(next.applications.find(r=>r.id===old.id),old);
 });
 test('missing automatic authorization prevents new work from being queued or claimed',()=>{
@@ -47,5 +47,21 @@ test('saving Automatic Apply does not restart paused, uncertain or confirmed req
   const before=structuredClone(s.applications),saved=prefs(s,{});assert.deepEqual(saved.applications,before);
   assert.equal(a.claimApplication(saved,at),null);
   if(status==='uncertain')assert.equal(p.applicationProgress(saved.applications[0]).canQueue,false);
+ }
+});
+
+
+test('normalizing stored settings does not grant consent or resume pending applications',()=>{
+ for(const legacy of ['review','manual','unrecognized',undefined]){
+  const s=apply(fixture());s.applications[0].status='needs_action';delete s.applications[0].agentAuthorizedAt;
+  s.newApplicationAgent.issuedAt=undefined;
+  s.applicationSettings={mode:legacy,dailyLimit:7,minimumMatch:25,tutorialSeen:false};
+  const before=structuredClone(s),loaded=d.retireLocalAgent(s);
+  assert.equal(loaded.applicationSettings.mode,'automatic');
+  assert.equal(loaded.applicationSettings.dailyLimit,7);
+  assert.equal(loaded.applicationSettings.minimumMatch,25);
+  assert.equal(d.getApplySettings(loaded).autoConsentAt,undefined);
+  assert.deepEqual(loaded.applications,before.applications);assert.deepEqual(s,before);
+  assert.equal(a.claimApplication(loaded,at),null);
  }
 });
