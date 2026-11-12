@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8794';
+if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Loopback QA only.');
+const owner='answer-continuation-'+randomUUID(),auth={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':'answers@example.test'};let count=0;
+const eq=(a,b)=>{assert.equal(a,b);count++;};
+async function call(path,{body,headers=auth}={}){const r=await fetch(base+path,{method:body===undefined?'GET':'POST',headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,data:await r.json()};}
+let current=(await call('/api/workspace')).data;
+async function act(action){const r=await call('/api/workspace',{body:{revision:current.revision,action}});eq(r.status,200);current=r.data;return r;}
+await act({type:'complete_onboarding',fullName:'Answer QA',headline:'SOC analyst',targetRole:'SOC Analyst'});
+const upload=new FormData();upload.set('revision',String(current.revision));upload.set('file',new File(['Answer QA\nanswers@example.test\nSOC Analyst 2023 - 2025\nInvestigated Splunk alerts.'],'answer-qa.txt',{type:'text/plain'}));current=(await call('/api/files',{body:upload})).data;
+const paired=await call('/api/application-agent/pair',{body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(paired.status,200);const worker={Authorization:'Bearer '+JSON.parse(paired.data.token).token};current=(await call('/api/workspace')).data;
+await act({type:'add_job',title:'SOC Analyst',company:'Answer Fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Fictional answer-continuation test. No real employer is contacted.',skills:['Splunk']});
+await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
+let task=(await call('/api/application-agent/claim',{headers:worker,body:{profileAnswersVersion:4}})).data.task;
+const ordinary={questions:[{question:'Preferred shift?',field_type:'combobox',options:['Day','Night']}],unresolved:[{question:'Preferred shift?',field_type:'combobox'}]};
+eq((await call('/api/application-agent/result',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional ordinary question; no submission.',report:ordinary}})).status,200);
+current=(await call('/api/workspace')).data;
+await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Night'}],confirmation:'CONFIRMED',continueAgent:true});
+eq(current.state.applications[0].status,'queued');eq(current.state.applications.length,1);
+task=(await call('/api/application-agent/claim',{headers:worker,body:{profileAnswersVersion:4}})).data.task;eq(task.confirmedAnswers[0].value,'Night');
+const verification={...ordinary,questions:[...ordinary.questions,{question:'Which best describes you?',field_type:'combobox',options:['I am a human','I am an AI, bot, or automated program']}],unresolved:[{question:'Which best describes you?',field_type:'combobox',source:'verification'}]};
+eq((await call('/api/application-agent/result',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional employer verification; no submission.',report:verification}})).status,200);
+current=(await call('/api/workspace')).data;
+await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Day'}],confirmation:'CONFIRMED',continueAgent:true});
+eq(current.state.applications[0].status,'needs_attention');eq(current.state.applications[0].agentAuthorizedAt,undefined);eq(current.state.applications[0].confirmedAnswers[0].value,'Day');eq(current.state.accountProfile.employerQuestions.find(q=>q.question==='Preferred shift?').answer,'Day');eq(current.state.applications.length,1);
+eq((await call('/api/application-agent/claim',{headers:worker,body:{profileAnswersVersion:4}})).data.task,null);
+current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'needs_attention');assert.match(current.state.applications[0].result.message,/verification/);count++;
+const foreign={'oai-authenticated-user-id':'other-'+randomUUID(),'oai-authenticated-user-email':'other@example.test'},other=await call('/api/workspace',{headers:foreign});
+eq((await call('/api/workspace',{headers:foreign,body:{revision:other.data.revision,action:{type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Night'}],confirmation:'CONFIRMED',continueAgent:true}}})).status,409);
+console.log(`PASS ${count} answer-continuation HTTP checks: same-request normal continuation, saved answers, explicit verification pause, no repeated claim and owner isolation.`);

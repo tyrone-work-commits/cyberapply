@@ -1,9 +1,28 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {mkdir,readFile,writeFile} from 'node:fs/promises';
 const dir='.sites-runtime/form-question-tests';await mkdir(dir,{recursive:true});
 for(const name of ['features','candidate-facts','cover-letter','employer-location-choices','employer-questions','application-form-questions','application-question-choices','cyber-domain'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
-const {applicationFormQuestions,canEditApplicationQuestions}=await import('../'+dir+'/application-form-questions.mjs');
+const {applicationFormQuestions,canEditApplicationQuestions,applicationAnswerStage,applicationVerificationQuestions}=await import('../'+dir+'/application-form-questions.mjs');
 const {emptyState:baseState,reduceAction,actionSchema}=await import('../'+dir+'/cyber-domain.mjs');
 const at='2026-11-07T12:00:00Z';
+test('queued/running questions are progress, not another editable approval form',()=>{
+ for(const status of ['queued','processing'])assert.equal(applicationAnswerStage(fixture({status,report:{unresolved:[{question:'Are you a human?',source:'verification'}]}})),'in_progress');
+ for(const status of ['uncertain','applied','failed'])assert.equal(applicationAnswerStage(fixture({status})),'reference');
+ assert.equal(applicationAnswerStage(fixture()),'editable');
+});
+test('verification is detected from its report source or captured choices, without treating normal dropdowns as verification',()=>{
+ const app=fixture({report:{unresolved:[{question:'Which describes you?*'}],questions:[{question:'Which describes you?',field_type:'combobox',options:['I am a human','I am an AI, bot, or automated program']}]}});
+ assert.equal(applicationAnswerStage(app),'verification');assert.deepEqual(applicationVerificationQuestions(app),['Which describes you?*']);
+ assert.equal(applicationAnswerStage(fixture({report:{unresolved:[{question:'Preferred shift?'}],questions:[{question:'Preferred shift?',field_type:'select',options:['Day','Night']}]}})),'editable');
+});
+test('saving ordinary answers with a known verification block retains answers but does not queue another futile run',()=>{
+ const s=emptyState();s.applications=[fixture({report:{unresolved:[{question:'Which describes you?',source:'verification'}],questions:[{question:'Preferred shift?',field_type:'select',options:['Day','Night']},{question:'Which describes you?',field_type:'combobox',options:['I am a human','I am an AI, bot, or automated program']}]}})];
+ const saved=reduceAction(s,{type:'answer_application_questions',applicationId:'application',answers:[{question:'Preferred shift?',value:'Night'}],confirmation:'CONFIRMED',continueAgent:true},'interface',at);
+ assert.equal(saved.state.applications[0].status,'needs_attention');assert.equal(saved.state.applications[0].agentAuthorizedAt,undefined);
+ assert.equal(saved.state.applications[0].confirmedAnswers[0].value,'Night');assert.equal(saved.state.accountProfile.employerQuestions.find(q=>q.question==='Preferred shift?').answer,'Night');
+ assert.match(saved.message,/verification/);assert.match(saved.message,/not restarted/);
+ const again=reduceAction(saved.state,{type:'answer_application_questions',applicationId:'application',answers:[{question:'Preferred shift?',value:'Day'}],confirmation:'CONFIRMED',continueAgent:true},'interface',at);
+ assert.equal(again.state.applications[0].status,'needs_attention');assert.equal(again.state.applications.length,1);assert.equal(again.state.applications[0].confirmedAnswers[0].value,'Day');
+});
 function emptyState(){const s=baseState();s.accountProfile={fullName:'Fictional applicant',headline:'Analyst',targetRole:'SOC Analyst',completedAt:at};s.jobs=[{id:'job',title:'Fixture analyst',company:'Fictional test company',sample:false,disposition:'apply_requested',url:'https://employer.example/job',description:'Isolated fixture',skills:[]}];return s;}
 const fixture=(extra={})=>({id:'application',jobId:'job',at,status:'needs_attention',report:{unresolved:[{question:'Why this role?',field_type:'textarea'}],questions:[{question:'Preferred shift?',field_type:'combobox',options:['Day','Night']},{question:'Work arrangement',field_type:'select',options:['Office','Remote']}]},...extra});
 test('answered and optional dropdowns join unresolved prose without inventing answers or mutating records',()=>{const app=fixture(),before=structuredClone(app),rows=applicationFormQuestions(app);assert.deepEqual(rows.map(q=>q.question),['Why this role?','Preferred shift?','Work arrangement']);assert.deepEqual(app,before);assert.ok(rows.every(q=>q.value===undefined));});

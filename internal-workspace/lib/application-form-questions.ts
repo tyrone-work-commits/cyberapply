@@ -1,5 +1,5 @@
 import type {ApplicationRequest} from './cyber-domain';
-import {employerQuestionKey,type EmployerQuestion} from './employer-questions';
+import {employerQuestionKey,isAutomationCheck,type EmployerQuestion} from './employer-questions';
 
 export const MAX_APPLICATION_QUESTIONS=200;
 const dropdown=(kind:unknown)=>kind==='select'||kind==='combobox';
@@ -28,4 +28,21 @@ export function applicationFormQuestions(application:ApplicationRequest,memory:E
 export function canEditApplicationQuestions(application:ApplicationRequest){
  const journey=application.report?.journey;
  return ['needs_action','needs_attention'].includes(application.status)&&!(journey&&typeof journey==='object'&&(journey as Record<string,unknown>).possible_delivery===true);
+}
+
+/** A saved profile answer does not complete an employer's verification check. */
+export function applicationVerificationQuestions(application:ApplicationRequest,memory:EmployerQuestion[]=[]){
+ const unresolved=rows(application.report?.unresolved),catalog=applicationFormQuestions(application,memory);
+ return unresolved.filter(row=>{
+  const question=String(row.question||''),key=employerQuestionKey(question);
+  const offered=rows(application.report?.questions).find(q=>employerQuestionKey(String(q.question||''))===key&&Array.isArray(q.options)&&q.options.length)||catalog.find(q=>employerQuestionKey(String(q.question||''))===key);
+  const choices=Array.isArray(offered?.options)?offered.options.filter((v):v is string=>typeof v==='string'):[];
+  return row.source==='verification'||isAutomationCheck(question,choices);
+ }).map(row=>String(row.question||'')).filter(Boolean);
+}
+
+export function applicationAnswerStage(application:ApplicationRequest,memory:EmployerQuestion[]=[]){
+ if(['queued','processing'].includes(application.status))return 'in_progress' as const;
+ if(!canEditApplicationQuestions(application))return 'reference' as const;
+ return applicationVerificationQuestions(application,memory).length?'verification' as const:'editable' as const;
 }
