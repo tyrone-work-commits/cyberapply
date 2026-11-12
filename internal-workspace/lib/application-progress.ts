@@ -64,7 +64,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   }else if(application.reason==='below_minimum_match'){label='Below your match setting';description='This CV does not establish the minimum keyword match you chose. Review the CV or lower the setting if appropriate.';
   }else if(status==='needs_attention'){
     label='Needs your input';tone='warning';if(Array.isArray(application.report?.unresolved)&&application.report.unresolved.some(item=>item&&typeof item==='object'&&(item as Record<string,unknown>).source==='generated')){label='Approval needed';}
-    description='The agent paused this unsent application. Review its questions and preparation report, save any answers you can confirm, then queue it again.';
+    description='The agent paused this unsent application. Review its questions and preparation report, then approve and save answers to continue automatically.';
   }else if(status==='failed'){
     label='Needs review';tone='warning';description='The agent could not finish this form. Review its report before trying again.';
   }
