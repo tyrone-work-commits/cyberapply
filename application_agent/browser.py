@@ -12,7 +12,8 @@ import re
 import socket
 import time
 from urllib.parse import urlsplit, parse_qsl
-from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection, capture_combobox_options
+from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
+from .form_choices import capture_application_choices, choice_limit
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 from .uploads import GreenhouseUploads, UploadRejected, UPLOAD_HOST
 from .journey import Journey, greenhouse_source, matching_greenhouse_embed
@@ -478,8 +479,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if observed['type']!='combobox' or observed.get('options'):continue
                     if time.monotonic()>=option_deadline:break
                     frame=frames[int(observed['id'].split(':',1)[0])]
-                    choices=capture_combobox_options(frame,controls[observed['id']],min(1500,max(50,int((option_deadline-time.monotonic())*1000))))
-                    if choices:observed.update(options=choices[:100],optionsTruncated=len(choices)>100)
+                    choices,truncated=capture_application_choices(frame,controls[observed['id']],observed,payload.get('applicantProfile') or {},min(1500,max(50,int((option_deadline-time.monotonic())*1000))))
+                    if choices:observed.update(options=choices,optionsTruncated=truncated)
                 signature = tuple((f["id"], f["label"], f["type"], f['required']) for f in fields)
                 step_identity=(tuple(frame.url for frame in frames),signature)
                 if step_identity in seen_steps:
@@ -491,7 +492,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 for observed in fields:
                     label=str(observed.get('label','')).strip();kind=str(observed.get('type','text'))
                     if not label or kind in {'file','hidden','password'} or re.search(r'password|captcha|verification code|security code|unlabelled field',label,re.I):continue
-                    choices=(observed.get('options') or [])[:100]
+                    limit=choice_limit(label)
+                    choices=(observed.get('options') or [])[:limit]
+                    observed['optionsTruncated']=bool(observed.get('optionsTruncated')) or len(observed.get('options') or [])>limit
                     if (label,kind) not in known:
                         questions.append({'question':label,'field_type':kind,'options':choices,'optionsTruncated':bool(observed.get('optionsTruncated'))});known.add((label,kind))
                     elif choices:

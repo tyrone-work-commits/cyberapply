@@ -11,6 +11,31 @@ test('Actions removes confirmed ordinary answers but retains direct human verifi
 test('answering the final ordinary question releases only an explicitly continued unsent request',()=>{let s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={unresolved:[{question:'Why this role?',field_type:'textarea'}]};s=d.reduceAction(s,{type:'answer_application_questions',applicationId:r.id,answers:[{question:'Why this role?',value:'Reviewed factual answer.'}],confirmation:'CONFIRMED'},'interface',at).state;assert.equal(actions.openApplicationQuestions(s).length,0);assert.equal(s.applications[0].status,'needs_action');s=d.reduceAction(s,{type:'queue_application_agent',applicationId:r.id},'interface',at).state;assert.equal(s.applications[0].status,'queued');assert.equal(s.applications[0].confirmedAnswers[0].value,'Reviewed factual answer.');});
 test('Actions never treats a possible prior delivery as a question to release',()=>{const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={journey:{possible_delivery:true},unresolved:[{question:'Question'}]};assert.deepEqual(actions.openApplicationQuestions(s),[]);});
 
+test('Approve and save continues the same request with its selected CV, confirmed answers and library',()=>{
+ const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={unresolved:[{question:'Preferred shift?',field_type:'select',options:['Day','Night']}]};
+ const cv=structuredClone(r.cv),action=d.actionSchema.parse({type:'answer_application_questions',applicationId:r.id,answers:[{question:'Preferred shift?',value:'Night'}],confirmation:'CONFIRMED',continueAgent:true});
+ const result=d.reduceAction(s,action,'interface',at),next=result.state;assert.equal(next.applications.length,1);assert.equal(next.applications[0].id,r.id);assert.equal(next.applications[0].status,'queued');assert.deepEqual(next.applications[0].cv,cv);assert.match(result.message,/continue automatically/);assert.equal(next.accountProfile.employerQuestions[0].answer,'Night');
+ const claimed=a.claimApplication(next,at);assert.equal(claimed.confirmedAnswers[0].value,'Night');assert.equal(claimed.applicantProfile.employerQuestions[0].answer,'Night');assert.equal(a.claimApplication(next,at),null);
+ const before=structuredClone(next);assert.throws(()=>d.reduceAction(next,action,'interface',at),/known unsent/);assert.deepEqual(next,before);
+});
+
+test('blocked continuation saves the answers and explains the actual dependency',()=>{
+ for(const blocker of ['disconnected','missing_cv','minimum_match']){
+  const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={unresolved:[{question:'Why this role?',field_type:'textarea'}]};
+  if(blocker==='disconnected')s.newApplicationAgent.enabled=false;if(blocker==='missing_cv')s.attachments=[];if(blocker==='minimum_match')s.applicationSettings={mode:'automatic',dailyLimit:20,minimumMatch:100,tutorialSeen:true};
+  const result=d.reduceAction(s,{type:'answer_application_questions',applicationId:r.id,answers:[{question:'Why this role?',value:'Reviewed fictional answer.'}],confirmation:'CONFIRMED',continueAgent:true},'interface',at);
+  assert.equal(result.state.applications[0].status,'needs_action');assert.equal(result.state.applications[0].agentAuthorizedAt,undefined);assert.equal(result.state.accountProfile.employerQuestions[0].answer,'Reviewed fictional answer.');assert.match(result.message,/could not continue yet/);assert.equal(result.state.applications[0].result,undefined);
+ }
+});
+
+test('automatic continuation rejects possible delivery and invalid choices without mutation',()=>{
+ for(const extra of [{status:'uncertain'},{status:'applied'},{status:'needs_attention',report:{journey:{possible_delivery:true}}}]){
+  const s=apply(fixture()),r=s.applications[0];Object.assign(r,extra);const before=structuredClone(s);assert.throws(()=>d.reduceAction(s,{type:'answer_application_questions',applicationId:r.id,answers:[{question:'Question?',value:'Yes'}],confirmation:'CONFIRMED',continueAgent:true},'interface',at),/known unsent/);assert.deepEqual(s,before);
+ }
+ const s=apply(fixture()),r=s.applications[0];r.status='needs_attention';r.report={unresolved:[{question:'Preferred shift?',field_type:'select',options:['Day','Night']}]};const before=structuredClone(s);
+ assert.throws(()=>d.reduceAction(s,{type:'answer_application_questions',applicationId:r.id,answers:[{question:'Preferred shift?',value:'Invented'}],confirmation:'CONFIRMED',continueAgent:true},'interface',at),/captured/);assert.deepEqual(s,before);
+});
+
 test('Automatic Apply is the only accepted mode and a removed review choice cannot change queues',()=>{
  const s=apply(fixture()),before=structuredClone(s);
  assert.throws(()=>prefs(s,{mode:'review'}));

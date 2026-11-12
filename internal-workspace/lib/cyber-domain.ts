@@ -86,7 +86,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
   z.object({ type: z.literal('refresh_application_materials'), applicationId: id }).strict(),
   z.object({ type: z.literal('queue_application_agent'), applicationId: id }).strict(),
-  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(4000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(200),confirmation:z.literal('CONFIRMED') }).strict(),
+  z.object({ type: z.literal('answer_application_questions'), applicationId:id, answers:z.array(z.object({question:z.string().trim().min(1).max(4000),value:z.string().trim().min(1).max(20000)}).strict()).min(1).max(200),confirmation:z.literal('CONFIRMED'),continueAgent:z.boolean().optional() }).strict(),
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
@@ -332,6 +332,16 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const remembered=action.answers.map(answer=>{const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);return {...answer,fieldType:choices.isDropdown?(entry.field_type==='select'?'select':'combobox'):String(entry.field_type||'text'),options:choices.options,optionsTruncated:choices.truncated};});
     if(!rememberConfirmedEmployerAnswers(state,request,remembered,at))throw new DomainError('Your saved answers exceed the workspace size limit. Shorten answers or remove unused library entries, then save again.',409);
     message='Answers saved to this application and Answers library. Future matching questions can reuse them; verification and employer consent remain reference-only. No application was queued or submitted.';
+    if(action.continueAgent){
+      try{
+        const queued=reduceAction(state,{type:'queue_application_agent',applicationId:request.id},source,at);
+        Object.assign(state,queued.state);
+        message='Answers saved to this application and Answers library. Your application agent will continue automatically with these answers.';
+      }catch(error){
+        if(!(error instanceof DomainError))throw error;
+        message='Answers saved to this application and Answers library. The agent could not continue yet: '+error.message;
+      }
+    }
   } else if (action.type === 'queue_application_agent') {
     const request=state.applications?.find(item=>item.id===action.applicationId);
     if(request?.report?.journey&&typeof request.report.journey==='object'&&(request.report.journey as Record<string,unknown>).possible_delivery===true)throw new DomainError('The previous run may have delivered this application. Verify the employer outcome before any retry.',409);

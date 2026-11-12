@@ -54,6 +54,23 @@ def test_labelled_dropdowns_ignore_helpers_and_select_profile_answers():
     assert b'United States +1' in posts[0] and b'Dallas, Texas, United States' in posts[0]
 
 
+def test_country_and_search_only_city_choices_are_captured_during_the_application_run():
+    countries=[f'Fictional country {i}' for i in range(120)]+['United States +1']
+    definitions=[{'label':'Country','options':countries},{'label':'Location (City)','options':['Dallas, Texas, United States'],'searchOnly':True}]
+    result,posts=run(dropdowns(definitions),payload={**PAYLOAD,'applicantProfile':{'country':'USA','city':'Dallas'}},planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1,result
+    catalog={q['question']:q for q in result['report']['questions']}
+    assert catalog['Country']['options']==countries and not catalog['Country']['optionsTruncated']
+    assert catalog['Location (City)']['options']==['Dallas, Texas, United States']
+
+
+def test_ambiguous_city_choices_are_recorded_without_guessing_or_submitting():
+    choices=['Dallas, Texas, United States','Dallas, Oregon, United States']
+    result,posts=run(dropdowns([{'label':'Location (City)','options':choices,'searchOnly':True}]),payload={**PAYLOAD,'applicantProfile':{'city':'Dallas','country':'USA'}},planner=build_plan)
+    assert result['status']=='needs_attention' and not posts,result
+    assert next(q for q in result['report']['questions'] if q['question']=='Location (City)')['options']==choices
+
+
 def test_duplicate_and_nonmatching_options_do_not_select_first_suggestion():
     for options in [['No','No'],['Not authorized','Maybe']]:
         result,posts=run(dropdowns([{'label':'Are you authorized to work in UK or Ireland?','options':options}]),payload={**PAYLOAD,'applicantProfile':{}},planner=build_plan)

@@ -76,13 +76,15 @@ def deliver_questions(site,token,task,report,site_access_token=None):
 
     Only metadata calls are retried. This never retries an employer or result POST.
     """
+    from .form_choices import choice_limit
     answers={str(row.get('question','')).strip().casefold():row for row in report.get('answers',[]) if isinstance(row,dict)}
     rows=[]
     for question in report.get('questions',[]):
         if not isinstance(question,dict):continue
         label=str(question.get('question','')).strip();kind=str(question.get('field_type','text'))
         if not label or len(label)>4000 or kind in {'file','password','hidden'} or re.search(r'password|captcha|verification code|security code|unlabelled field',label,re.I):continue
-        row={'question':label,'field_type':kind[:50],'options':[str(v)[:200] for v in question.get('options',[])[:100]],'optionsTruncated':bool(question.get('optionsTruncated'))}
+        limit=choice_limit(label)
+        row={'question':label,'field_type':kind[:50],'options':[str(v)[:200] for v in question.get('options',[])[:limit]],'optionsTruncated':bool(question.get('optionsTruncated')) or len(question.get('options',[]))>limit}
         answer=answers.get(label.casefold(),{})
         if answer.get('source') in {'cv','cv_and_job','edit_profile'} and isinstance(answer.get('value'),str):
             row.update(value=answer['value'][:2000],source=answer['source'],evidence=str(answer.get('evidence',''))[:600])
