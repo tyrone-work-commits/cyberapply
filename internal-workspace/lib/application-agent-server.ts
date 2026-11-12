@@ -119,7 +119,9 @@ export async function result(request:Request){try{
 // Metadata-only overflow delivery while the exact original claim is still active.
 // It never queues, submits, authorizes a form or changes an application outcome.
 export async function learnQuestions(request:Request){try{
- const user=await worker(request),body=claimBody.extend({questions:z.array(z.object({question:z.string().trim().min(1).max(4000),field_type:z.string().max(50),options:z.array(z.string().max(200)).max(400).optional(),optionsTruncated:z.boolean().optional(),value:z.string().max(2000).optional(),source:z.enum(['cv','cv_and_job','edit_profile','missing']).optional(),evidence:z.string().max(600).optional()}).strict().superRefine((row,ctx)=>{if((row.options?.length||0)>employerChoiceLimit(row.question))ctx.addIssue({code:'custom',message:'Too many employer choices.'});})).max(100)}).strict().parse(await json(request));
+ const user=await worker(request),parsed=claimBody.extend({questions:z.array(z.object({question:z.string().trim().min(1).max(4000),field_type:z.string().max(50),options:z.array(z.string().max(200)).max(400).optional(),optionsTruncated:z.boolean().optional(),value:z.string().max(2000).optional(),source:z.enum(['cv','cv_and_job','edit_profile','missing']).optional(),evidence:z.string().max(600).optional()}).strict().superRefine((row,ctx)=>{if((row.options?.length||0)>employerChoiceLimit(row.question))ctx.addIssue({code:'custom',message:'Too many employer choices.'});})).max(100)}).strict().safeParse(await json(request));
+ if(!parsed.success)throw new DomainError('Invalid employer question choices. Check the question and catalog limits.');
+ const body=parsed.data;
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,body.requestId,body.claimId);
   const report:Record<string,unknown>={questions:body.questions,answers:body.questions.filter(row=>row.value!==undefined)};
