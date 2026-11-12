@@ -135,7 +135,7 @@ INSPECT = """() => {
         (groupParent?.getAttribute('aria-labelledby')||'').split(/\\s+/).map(x=>document.getElementById(x)?.innerText||'').join(' ')).trim();
       const peers=type==='radio'&&e.name?[...document.querySelectorAll('input[type=radio]')].filter(x=>visible(x)&&x.name===e.name&&x.form===e.form):[];
       const label=type==='radio'&&groupQuestion?groupQuestion:optionLabel;
-      return {id,label,type,phoneCountry:!!phoneCountry,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
+      return {id,domId:e.id||'',label,type,phoneCountry:!!phoneCountry,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
         nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
         required:e.required||e.getAttribute('aria-required')==='true',
         options:e.options?[...e.options].map(o=>o.text):peers.map(x=>[...(x.labels||[])].map(labelText).join(' ').trim()),
@@ -684,6 +684,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         report["answers"].append({**answer, "question":field["label"]})
                     elif field["required"] and not any(item.get('field_id')==field['id'] for item in unresolved):
                         unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV or saved Edit Profile does not establish an answer."})
+                # Menus may load only after phone/country or earlier answers settle.
+                # Refresh metadata before returning a pause; no answers are replayed.
+                from .form_choices import refresh_missing_choices
+                refresh_missing_choices(frames,controls,fields,report,payload.get('applicantProfile') or {})
                 # De-duplicate and ignore planner file omissions once the exact CV was uploaded.
                 if submit:
                     try:uploads.settle(page,timeout)

@@ -1,9 +1,26 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {readFile,writeFile,mkdir} from 'node:fs/promises';
 const dir='.sites-runtime/location-choice-tests';await mkdir(dir,{recursive:true});
 for(const name of ['application-form-questions','employer-location-choices','application-choice-capture','features','candidate-facts','cover-letter','cyber-domain','employer-questions','application-agent-state','application-deletion','job-catalog','job-discovery','job-extraction','scan-taxonomy','provider-jobs','employer-question-options','application-question-choices'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
-const {queueLocationCapture,claimLocationCapture,completeLocationCapture}=await import('../'+dir+'/application-choice-capture.mjs');
+const {queueLocationCapture,claimLocationCapture,completeLocationCapture,queueMissingLocationChoices}=await import('../'+dir+'/application-choice-capture.mjs');
 const {emptyState}=await import('../'+dir+'/cyber-domain.mjs');const {applicationQuestionChoices}=await import('../'+dir+'/application-question-choices.mjs');
 const at='2026-11-06T21:00:00Z';
+test('missing location menus recover automatically once without application replay or disclosure of CV/answers',()=>{
+ const s=fixture(),before=structuredClone(s.applications[0]);s.accountProfile.city='Dallas';
+ assert.equal(queueMissingLocationChoices(s,'app',at),true);
+ assert.equal(queueMissingLocationChoices(s,'app',at),false);
+ for(const key of ['status','cv','candidate','confirmedAnswers','claim','result'])assert.deepEqual(s.applications[0][key],before[key]);
+ const task=claimLocationCapture(s,at);assert.equal(task.cityQuery,'Dallas');assert.equal(task.cv,undefined);assert.equal(task.candidate,undefined);
+ completeLocationCapture(s,'app',task.captureId,[],'unavailable',at);
+ assert.equal(queueMissingLocationChoices(s,'app',at),false);assert.equal(s.applications[0].status,'needs_attention');
+});
+test('automatic recovery never restarts uncertain, applied or active requests and uses no residence search for a phone-country menu',()=>{
+ for(const status of ['queued','processing','uncertain','applied'])assert.equal(queueMissingLocationChoices(fixture(status),'app',at),false);
+ const s=fixture();s.accountProfile.city='Dallas';s.applications[0].report.questions.splice(1);
+ assert.equal(queueMissingLocationChoices(s,'app',at),true);assert.equal(claimLocationCapture(s,at).cityQuery,'');
+ const disconnected=fixture();delete disconnected.newApplicationAgent;assert.equal(queueMissingLocationChoices(disconnected,'app',at),false);
+ const other=fixture();other.jobs[0].source.provider='lever';assert.equal(queueMissingLocationChoices(other,'app',at),false);
+ assert.throws(()=>queueMissingLocationChoices(fixture(),'another-owner',at),/no longer available/);
+});
 function fixture(status='needs_attention'){
  const s=emptyState();s.newApplicationAgent={enabled:true,expiresAt:'2026-12-01T00:00:00Z'};
  s.accountProfile={fullName:'Fixture',headline:'',targetRole:'',completedAt:at,employerQuestions:[{id:'country',question:'Country*',fieldType:'combobox',answer:'Saved answer',source:'user',status:'answered',evidence:'',jobId:'job',options:[],updatedAt:at,jobSpecific:false}]};

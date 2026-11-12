@@ -1,4 +1,4 @@
-import {queueLocationCapture} from './application-choice-capture';
+import {queueLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {enrichJob} from './job-extraction';
 import {configuredSearch} from './job-source-preferences';
 import {recordingPrefix} from './application-recordings';
@@ -76,7 +76,8 @@ export async function refreshApplicationQuestionChoices(user:Identity,expected:n
  if(application.status==='processing')throw new DomainError('Wait for the active agent report before refreshing choices.',409);
  if(Date.now()-Date.parse(String(application.report?.optionsRefreshedAt||''))<15000)throw new DomainError('These employer choices were just refreshed. Wait a few seconds before checking again.',429);
  const at=new Date().toISOString(),rows=await fetchEmployerQuestions(job);
- const message=mergeApplicationQuestionChoices(current.state,applicationId,rows,at);
+ let message=mergeApplicationQuestionChoices(current.state,applicationId,rows,at);
+ if(queueMissingLocationChoices(current.state,applicationId,at))message+=' The background agent will read the missing location menus without restarting this application.';
  application.report={...application.report,optionsRefreshedAt:at};
  return {...await save(user,expected,current.state,'refresh_application_question_choices'),message};
 }

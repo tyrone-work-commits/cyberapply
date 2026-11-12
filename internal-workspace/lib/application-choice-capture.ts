@@ -2,8 +2,19 @@ import {DomainError,record,type State} from './cyber-domain';
 import {employerQuestionKey} from './employer-questions';
 import {isLocationMenu,employerChoiceLimit,locationCapture,type LocationChoiceCapture as Capture} from './employer-location-choices';
 import {mergeApplicationQuestionChoices} from './employer-question-options';
+import {applicationQuestionChoices} from './application-question-choices';
 
 const pending=(c?:Capture)=>c&&['queued','reading'].includes(c.state);
+/** One metadata-only recovery per paused run; never requeue the application. */
+export function queueMissingLocationChoices(state:State,id:string,at=new Date().toISOString()){
+ const request=owned(state,id);
+ if(request.status!=='needs_attention'||locationCapture(request.report))return false;
+ const rows=Array.isArray(request.report?.questions)?request.report.questions as Record<string,unknown>[]:[];
+ const missing=rows.filter(q=>isLocationMenu(String(q.question||''))&&['combobox','select'].includes(String(q.field_type))&&!applicationQuestionChoices(request,q,state.accountProfile?.employerQuestions||[]).options.length);
+ if(!missing.length)return false;
+ const query=missing.some(q=>/city|^location\s*\*?$/i.test(String(q.question)))?state.accountProfile?.city||'':'';
+ try{queueLocationCapture(state,id,query,at);return true;}catch(error){if(error instanceof DomainError)return false;throw error;}
+}
 function owned(state:State,id:string){const request=state.applications?.find(a=>a.id===id);if(!request)throw new DomainError('This application is no longer available.',404);return request;}
 function source(state:State,id:string){const request=owned(state,id),job=state.jobs.find(j=>j.id===request.jobId),s=job?.source;if(!job||s?.provider!=='greenhouse'||!/^\w[\w-]{0,79}$/.test(s.board)||!/^\d{1,30}$/.test(s.externalId)||s.region==='eu')throw new DomainError('Read-only location capture is currently available for these Greenhouse forms only.',409);return job;}
 function idle(request:ReturnType<typeof owned>){if(['processing','queued'].includes(request.status))throw new DomainError('Wait for the active application run to finish before reading its menus.',409);}

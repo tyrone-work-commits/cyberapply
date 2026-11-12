@@ -4,6 +4,12 @@ for(const name of ['application-form-questions','application-question-choices','
 const {fetchEmployerQuestions,mergeEmployerQuestionChoices,mergeApplicationQuestionChoices}=await import('../'+dir+'/employer-question-options.mjs');const {emptyState}=await import('../'+dir+'/cyber-domain.mjs');
 const job={id:'job',company:'Fixture',source:{provider:'greenhouse',board:'fixture',externalId:'123'}};
 const data={id:123,questions:[{label:'Which best describes you?',fields:[{type:'multi_value_single_select',values:[{label:'I am an AI, bot, or automated program.'},{label:'I am a human.'}]}]},{label:'Resume',fields:[{type:'input_file'},{type:'textarea'}]}]};
+test('large country catalogs survive the public-feed refresh while ordinary choices remain bounded',async()=>{
+ const values=Array.from({length:181},(_,i)=>({label:`Offered option ${i}`}));
+ const rows=await fetchEmployerQuestions(job,async()=>Response.json({id:123,questions:[{label:'Country',fields:[{type:'multi_value_single_select',values}]},{label:'Preferred shift?',fields:[{type:'multi_value_single_select',values}]}]}));
+ assert.equal(rows[0].options.length,181);assert.equal(rows[0].optionsTruncated,false);
+ assert.equal(rows[1].options.length,100);assert.equal(rows[1].optionsTruncated,true);
+});
 test('refresh uses only the selected fixed public GET endpoint and learns exact choices',async()=>{
  const rows=await fetchEmployerQuestions(job,async(url,init)=>{assert.equal(url,'https://boards-api.greenhouse.io/v1/boards/fixture/jobs/123?questions=true');assert.equal(init.method,'GET');assert.equal(init.redirect,'manual');assert.equal(init.body,undefined);return Response.json(data);});
  assert.equal(rows.length,1);assert.deepEqual(rows[0].options,data.questions[0].fields[0].values.map(v=>v.label));

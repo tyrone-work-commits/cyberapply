@@ -14,8 +14,8 @@ export async function fetchEmployerQuestions(job:Job,fetcher:typeof fetch=fetch)
   // A resume question can offer both a file and text control. Do not learn it as prose.
   if(q.fields.some((f:Record<string,unknown>)=>f?.type==='input_file'))continue;
   for(const field of q.fields.filter((f:Record<string,unknown>)=>['input_text','textarea','multi_value_single_select','multi_value_multi_select'].includes(String(f?.type))).slice(0,5)){
-  const values=Array.isArray(field.values)?field.values:[];
-  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':field.type==='multi_value_multi_select'?'checkbox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label).slice(0,100),optionsTruncated:values.length>100});
+  const values=Array.isArray(field.values)?field.values:[],limit=employerChoiceLimit(q.label);
+  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':field.type==='multi_value_multi_select'?'checkbox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label).slice(0,limit),optionsTruncated:values.length>limit});
   }
  }
  return rows.slice(0,100);

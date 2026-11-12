@@ -1,8 +1,21 @@
 """React-select style fixtures: all employer requests are intercepted locally."""
 import json
+from unittest.mock import patch
 
 from application_agent.reasoning import build_plan
 from application_agent.tests.test_browser import FORM, PAYLOAD, run
+
+
+def test_late_country_catalog_is_saved_when_initial_inspection_was_empty():
+    html=dropdowns([{'label':'Country','options':['Nigeria','Ghana']}])
+    # Simulate an initial capture before the asynchronous menu was ready. The
+    # actual selection and late read use the real browser widget implementation.
+    with patch('application_agent.browser.capture_application_choices',return_value=([],False)):
+        result,posts=run(html,payload={**PAYLOAD,'applicantProfile':{'country':'Nigeria'}},planner=build_plan,submit=False)
+    assert not posts
+    country=next(q for q in result['report']['questions'] if q['question']=='Country')
+    assert country['options']==['Nigeria','Ghana'],result
+    assert any(a.get('selected_option')=='Nigeria' for a in result['report']['answers'])
 
 
 def dropdowns(definitions, extra_script=''):
