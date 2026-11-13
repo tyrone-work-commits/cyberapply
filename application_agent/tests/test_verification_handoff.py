@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 import pytest
 from application_agent.browser import execute_application
-from application_agent.verification_handoff import BrowserHandoff,verification_family
+from application_agent.verification_handoff import BrowserHandoff,identity_dropdown
 from application_agent.tests.test_browser import FORM,PAYLOAD,CV,dns,plan,browser_factory
 
 @contextmanager
@@ -27,7 +27,7 @@ class FixtureHandoff(BrowserHandoff):
             if body['event']=='opened' and self.mutate:
                 # Simulated human actor on this isolated fixture; production never selects it.
                 assert self.page.locator('input[type=file]').evaluate('e=>e.files[0].name')=='chosen.pdf'
-                self.page.get_by_label('Fixture manual verification').select_option(label='Manually completed')
+                self.page.get_by_label('Which of the following best describes you?').select_option(label='I am a human')
                 if self.tamper:self.page.get_by_label('Email').fill('changed@example.test')
                 if self.attempt_submit:self.page.get_by_role('button',name='Submit application').click()
                 if self.replace_cv:self.page.locator('input[type=file]').set_input_files({'name':'chosen.pdf','mimeType':'application/pdf','buffer':b'X'*len(CV)})
@@ -37,25 +37,32 @@ class FixtureHandoff(BrowserHandoff):
 
 def manual_plan(payload,fields,research):
     result=plan(payload,fields,research)
-    result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label']=='Fixture manual verification']
+    result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label']=='Which of the following best describes you?']
     return result
 
-def run_fixture(handoff,success=True):
-    html=FORM.replace('{extra}','<label>Fixture manual verification<select name="manual" required><option value="">Choose</option><option value="done">Manually completed</option></select></label>')
+def run_fixture(handoff,success=True,planner=manual_plan):
+    html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>')
     posts=[]
-    result=execute_application(PAYLOAD,CV,submit=True,planner=manual_plan,research_fn=lambda _: {},resolver=dns,timeout=500,
+    result=execute_application(PAYLOAD,CV,submit=True,planner=planner,research_fn=lambda _: {},resolver=dns,timeout=500,
       before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts,success),verification_handler=handoff)
     return result,posts
 
 def test_exact_page_context_and_cv_survive_manual_handoff_then_one_submit_confirms():
     handoff=FixtureHandoff();result,posts=run_fixture(handoff)
     assert result['status']=='applied',result
-    assert len(posts)==1 and CV in posts[0] and b'Manually completed' not in posts[0] and b'done' in posts[0]
+    assert len(posts)==1 and CV in posts[0] and b'I am a human' not in posts[0] and b'done' in posts[0]
     assert handoff.events==['begin','opened','resumed']
     assert handoff.windows==['minimized','normal','minimized']
     assert result['report']['journey']['submit_click_attempts']==1
     assert result['report']['verification_handoffs'][0]['same_browser'] is True
-    assert not any(a.get('question')=='Fixture manual verification' for a in result['report']['answers'])
+    assert not any(a.get('question')=='Which of the following best describes you?' for a in result['report']['answers'])
+
+def test_production_planner_leaves_identity_dropdown_for_the_person_then_resumes_once():
+    from application_agent.reasoning import build_plan
+    h=FixtureHandoff();result,posts=run_fixture(h,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert h.events==['begin','opened','resumed']
+    assert result['report']['journey']['submit_click_attempts']==1
 
 def test_cancelled_handoff_never_submits_or_launches_another_window():
     h=FixtureHandoff(cancel=True);result,posts=run_fixture(h)
@@ -91,11 +98,6 @@ def test_same_name_and_size_cannot_hide_a_changed_cv_during_manual_control():
     assert result['status']=='needs_attention' and not posts,result
     assert 'attachment bytes changed' in result['message']
 
-def test_known_challenge_paths_have_exact_hosts_not_wildcards_or_private_urls():
-    assert verification_family('https://www.google.com/recaptcha/api2/anchor?private=not-logged')
-    for url in ['https://www.google.com.evil.test/recaptcha/api2/anchor','https://www.google.com/drive/','http://www.google.com/recaptcha/api2/anchor','https://user:pass@www.google.com/recaptcha/api2/anchor','https://127.0.0.1/recaptcha/api2/anchor']:
-        assert not verification_family(url)
-
 def test_custom_dropdown_keeps_the_humans_committed_selection_without_agent_selection():
     from application_agent.tests.test_combobox import dropdowns
     class CustomHandoff(FixtureHandoff):
@@ -104,31 +106,42 @@ def test_custom_dropdown_keeps_the_humans_committed_selection_without_agent_sele
             result=super().api(path,body)
             if body and body['event']=='opened':
                 self.page.get_by_role('combobox').click()
-                self.page.get_by_role('option',name='Manually completed',exact=True).click()
+                self.page.get_by_role('option',name='I am a human',exact=True).click()
             return result
-    h=CustomHandoff();posts=[];html=dropdowns([{'label':'Fixture manual verification','options':['Manually completed','Not completed']}])
+    h=CustomHandoff();posts=[];html=dropdowns([{'label':'Which of the following best describes you?','options':['I am a human','I am an AI agent']}])
     result=execute_application(PAYLOAD,CV,submit=True,planner=manual_plan,research_fn=lambda _: {},resolver=dns,timeout=1000,
       before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
     assert result['status']=='applied' and len(posts)==1,result
     assert result['report']['journey']['submit_click_attempts']==1
 
-def test_blocked_provider_iframe_reloads_only_its_original_child_frame_after_approval():
-    from types import SimpleNamespace
-    url='https://www.google.com/recaptcha/api2/anchor?fixture=only'
-    visits=[]
-    frame=SimpleNamespace(url='chrome-error://chromewebdata/',goto=lambda target,**kw:visits.append(target))
-    element=SimpleNamespace(evaluate=lambda _:url,content_frame=lambda:frame)
-    page=SimpleNamespace(frames=[frame],locator=lambda _:SimpleNamespace(all=lambda:[element]))
-    h=FixtureHandoff();h.resources={url:'document'};h.approved={'www.google.com'}
-    h._reload_challenge_resources(page)
-    assert visits==[url] and not h.resources
+def test_only_the_requested_dropdown_with_both_identity_options_is_eligible():
+    question='Which of the following best describes you?'
+    options=['Please select','I am a human','I am an AI agent']
+    for kind in ['select','combobox']:
+        assert identity_dropdown({'label':question,'type':kind,'options':options})
+    for field in [
+        {'label':'Are you a human?','type':'select','options':options},
+        {'label':question,'type':'radio','options':options},
+        {'label':question,'type':'text','options':options},
+        {'label':question,'type':'select','options':['I am a human']},
+        {'label':question,'type':'select','options':['Human Resources','AI Engineer']},
+        {'label':'Salary expectations','type':'select','options':options},
+    ]:assert not identity_dropdown(field)
 
-def test_challenge_access_needs_explicit_host_approval_and_provider_posts_cannot_carry_employer_writes():
-    from types import SimpleNamespace
-    h=FixtureHandoff();h.pins={'www.google.com','www.recaptcha.net','www.gstatic.com'}
-    req=SimpleNamespace(url='https://www.google.com/recaptcha/api2/reload',method='POST',resource_type='xhr',frame=SimpleNamespace(url='https://employer.example/apply'))
-    assert h.challenge_request(req) is False
-    h.approved=set(h.pins)
-    assert h.challenge_request(req) is False
-    req.frame.url='https://www.google.com/recaptcha/api2/anchor'
-    assert h.challenge_request(req) is True
+@pytest.mark.parametrize('extra',[
+    '<label>Are you a human?<select name="manual" required><option value="">Choose</option><option>Yes</option><option>No</option></select></label>',
+    '<label>Which of the following best describes you?<input name="manual" required></label>',
+    '<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option>I am a human</option></select></label>',
+    '<div data-sitekey="isolated-fixture-only">Unrelated verification challenge</div>',
+])
+def test_other_verifications_do_not_open_a_handoff_or_submit(extra):
+    h=FixtureHandoff();posts=[]
+    def verification_plan(payload,fields,research):
+        result=plan(payload,fields,research)
+        result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label'] not in {'Email','Resume'}]
+        return result
+    result=execute_application(PAYLOAD,CV,submit=True,planner=verification_plan,research_fn=lambda _: {},resolver=dns,timeout=500,
+      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(FORM.replace('{extra}',extra),posts),verification_handler=h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert not h.events and 'normal' not in h.windows
+    assert result['report']['journey']['submit_click_attempts']==0

@@ -185,7 +185,6 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     context = None
     session_active = False
     human_proofs={}
-    challenge_completed=False
     def finish(*args,**kwargs):
         journey.data['possible_delivery'] = submitted
         if live_watch:
@@ -214,10 +213,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         asset_candidates=static_asset_hosts(job)
         read_candidates={CITY_LOOKUP_HOST} if application_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
         upload_candidates={UPLOAD_HOST} if application_host in APPLICATION_HOST_GROUPS[0] else set()
-        from .verification_handoff import VERIFICATION_HOSTS,manual_value
-        verification_candidates=VERIFICATION_HOSTS if verification_handler else set()
-        verification_pins=set()
-        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *verification_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        from .verification_handoff import manual_value,identity_dropdown
+        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
         assets=set()
         reads=set()
@@ -228,12 +225,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 validate_public_url("https://" + host, resolver=resolver)
                 addresses = resolver(host,443,type=socket.SOCK_STREAM)
             except ApplicationAttention:
-                if host in automatic|asset_candidates|read_candidates|upload_candidates|verification_candidates and host!=original_host:
+                if host in automatic|asset_candidates|read_candidates|upload_candidates and host!=original_host:
                     continue  # An unavailable optional alias must not stop the selected board.
                 raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
-            (verification_pins if host in verification_candidates else upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
+            (upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
         report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets),'form_read_hosts':sorted(reads),'attachment_upload_hosts':sorted(upload_hosts)}
@@ -245,7 +242,6 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         with playwright_factory() as runtime:
             launch_options=dict(headless=verification_handler is None, args=(['--start-minimized'] if verification_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
             browser = runtime.chromium.launch(**launch_options)
-            if verification_handler:verification_handler.pins=verification_pins
             saved_session=session_store.load(job,hosts) if session_store else None
             session_active=bool(saved_session)
             report['login_session']={'reused':session_active,'saved':False}
@@ -281,11 +277,6 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     return
                 try:
                     if verification_handler:
-                        decision=verification_handler.challenge_request(req)
-                        if decision is not None:
-                            if decision:validate_public_url(req.url,verification_pins,resolver);route.continue_()
-                            else:route.abort()
-                            return
                         if verification_handler.active:
                             # Human owns verification only. Never allow a manual
                             # employer submit/advance or navigation to another form.
@@ -403,8 +394,6 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
                     raise ApplicationAttention("This employer form uses an unsupported application destination. Open its original page to continue manually.")
-                if verification_handler and verification_handler.pending:
-                    human_pause(['Complete the employer verification in this exact browser window.'],lambda:True,'challenge');challenge_completed=True
                 frames = []
                 for frame in page.frames:
                     if frame.url in ("about:blank", ""):
@@ -464,17 +453,16 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     page.wait_for_timeout(500)
                     continue
                 for frame in frames:
-                    if not challenge_completed and frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
-                        human_pause(['Complete the employer verification in this exact browser window.'],lambda:True,'challenge');challenge_completed=True
+                    if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                        raise ApplicationAttention('The employer requires a verification challenge. The dropdown handoff does not handle CAPTCHA or other verification checks.')
                 def read_forms():
-                    nonlocal challenge_completed
                     # An embedded application can appear after the shell page.
                     # Rediscover frames only before any controls are filled.
                     frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','') and (urlsplit(frame.url).hostname or '').lower() in hosts]
                     for frame in frames:
                         validate_public_url(frame.url,hosts,resolver)
-                        if not challenge_completed and frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
-                            human_pause(['Complete the employer verification in this exact browser window.'],lambda:True,'challenge');challenge_completed=True
+                        if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                            raise ApplicationAttention('The employer requires a verification challenge. The dropdown handoff does not handle CAPTCHA or other verification checks.')
                     found=[(idx,frame,frame.evaluate(INSPECT)) for idx,frame in enumerate(frames)]
                     if not any(items for _,_,items in found) and not page.get_by_role('link',name=re.compile(r'^apply(?: now| for (?:this )?(?:job|role|position))?$',re.I)).count():
                         page.wait_for_timeout(300)
@@ -752,21 +740,20 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             control.evaluate("e=>e.selectedOptions[0]?.text||''") if kind=='select' else control.input_value())
                         if (kind in {'combobox','phone'} and actual is not True) or (kind not in {'combobox','phone'} and actual!=expected):
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
-                        if kind=='file' and (human_proofs or challenge_completed):
+                        if kind=='file' and human_proofs:
                             checksum=control.evaluate("""async e=>{const f=e.files?.[0];if(!f)return '';const b=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');}""")
                             if checksum!=attachment_hashes.get(field_id):raise ApplicationAttention('The chosen attachment bytes changed during verification. No submit was attempted.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
                 if report['unresolved'] and all(item.get('source')=='verification' for item in report['unresolved']):
                     manual_fields=[f for f in fields if f['id'] in {item['field_id'] for item in report['unresolved']}]
+                    if not manual_fields or not all(identity_dropdown(f) for f in manual_fields):
+                        raise ApplicationAttention('This verification is not the human-versus-AI dropdown. The agent paused without opening a handoff or submitting.')
                     def completed_manually():
                         observed={}
-                        radio_groups={}
                         for field in manual_fields:
                             control=controls[field['id']];value=manual_value(field,control)
                             if value is None:return False
-                            if field['type']=='radio':radio_groups.setdefault(field.get('group'),[]).append(value[1])
                             observed[control.evaluate(CONTROL_IDENTITY)]=value
-                        if any(not any(group) for group in radio_groups.values()):return False
                         human_proofs.update(observed);return True
                     human_pause([f['label'] for f in manual_fields],completed_manually)
                     for field in manual_fields:

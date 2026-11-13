@@ -55,7 +55,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   }else if(status==='processing'){
     group='in_progress';label='Agent working';tone='active';description='The agent has claimed this request and is working through the employer form. Submission is not confirmed yet.';
     const h=application.verificationHandoff;
-    if(h&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
+    if(h&&h.kind==='question'&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
       label=h.state==='resuming'?'Resuming after verification':'Verification paused';tone='warning';description='The exact employer browser is waiting for you. Use the verification panel to open that window, complete the check yourself and resume the same form.';
     }
   }else if(!application.cv||application.reason==='cv_required'){

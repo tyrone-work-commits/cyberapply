@@ -3,7 +3,7 @@ import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
 import {recordingPrefix,recordingKey,recordingStatusKey,recordingRange,recordingClaimValid,MAX_RECORDING_SIZE} from './application-recordings';
 import {applicationEmployerLink} from './application-employer-link';
-import {currentHandoff,handoffCommand,VERIFICATION_HOSTS} from './verification-handoff';
+import {currentHandoff,handoffCommand,isHumanAgentQuestion} from './verification-handoff';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
@@ -77,12 +77,12 @@ export async function verificationWorker(request:Request){try{
   assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
   if(!body)return response({handoff:currentHandoff(item)});
   if(body.event==='begin'){
+   if(body.kind&&body.kind!=='question'||body.challengeHosts?.length||!body.questions?.length||!body.questions.every(isHumanAgentQuestion))throw new DomainError('This handoff is only for the human-versus-AI dropdown, without external verification services.',409);
    if(item.verificationHandoff?.id===body.id)return response({handoff:item.verificationHandoff});
    if(currentHandoff(item)&&['waiting','opening','opened','resuming'].includes(item.verificationHandoff!.state))throw new DomainError('Another handoff is active for this exact browser.',409);
-   const hosts=[...new Set(body.challengeHosts||[])].sort();if(hosts.some(host=>!VERIFICATION_HOSTS.includes(host)))throw new DomainError('Unsupported verification-service destination.',409);
    const turn=item.verificationHandoff?.claimId===ids.claimId?item.verificationHandoff.turn+1:1;if(turn>2)throw new DomainError('This application reached its bounded verification handoff limit.',409);
    const now=Date.now(),expiresAt=Math.min(Date.parse(item.claim!.expiresAt)-90000,now+240000);if(expiresAt<=now)throw new DomainError('Not enough time remains in this exact claim. No new browser was started.',409);
-   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',kind:body.kind||'question',questions:body.questions||[],challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
+   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',kind:'question',questions:body.questions,challengeHosts:[],approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
   }else{
    const h=item.verificationHandoff;if(!h||h.id!==body.id||h.claimId!==ids.claimId)throw new DomainError('This handoff does not belong to the current browser claim.',409);
    if(['resumed','cancelled','expired','failed'].includes(h.state))return response({handoff:h});
