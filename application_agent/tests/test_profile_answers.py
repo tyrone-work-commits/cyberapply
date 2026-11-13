@@ -127,3 +127,21 @@ def test_state_comes_from_current_profile_and_never_from_the_cv():
         assert profile_field(question)=='state'
         assert saved_profile_answer({'applicantProfile':{'state':'Texas'},'cv':{'text':'California'}},question,{'type':'text'})[0]=='Texas'
         assert saved_profile_answer({'cv':{'text':'Texas'}},question,{'type':'text'})[0] is None
+
+
+def test_combined_city_state_and_zip_uses_only_complete_current_profile_parts():
+    from application_agent.profile_answers import saved_profile_answer,profile_field
+    for label in ['City, State & Zip Code*','City, State and postal code','City / Province / Postcode']:
+        assert profile_field(label)=='cityStateZipCode'
+        payload={'applicantProfile':{'city':'Example City','state':'Example State','zipCode':'00123'},'cv':{'text':'Different City, Different State 99999'}}
+        assert saved_profile_answer(payload,label,{'type':'text'})[0]=='Example City, Example State 00123'
+        payload['applicantProfile'].pop('state')
+        assert saved_profile_answer(payload,label,{'type':'text'})[0] is None
+    assert profile_field('Are you willing to move to a different city, state & zip code?') is None
+
+
+def test_combined_address_plan_does_not_reuse_old_library_or_cv_address():
+    q='City, State & Zip Code*'
+    profile=PROFILE|{'city':'Current City','state':'Current State','zipCode':'00123','employerQuestions':[{'question':q,'answer':'Old City, Old State 99999','fieldType':'text','source':'user'}]}
+    answer=plan([field(q)],profile)['answers'][0]
+    assert answer['value']=='Current City, Current State 00123' and answer['source']=='edit_profile'

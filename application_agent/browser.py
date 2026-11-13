@@ -614,7 +614,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         if unique and answer and answer.get('source')=='edit_profile' and profile_field(field['label']):
                             expected,_,_=saved_profile_answer(payload,field['label'],field)
                             from .choice_matching import unique_option
-                            mapped=unique_option(field['label'],expected,field.get('options') or [],payload.get('applicantProfile') or {}) if expected is not None and field.get('options') else expected
+                            mapped=unique_option(field['label'],expected,field.get('options') or [],payload.get('applicantProfile') or {}) if expected is not None and field.get('options') and not field.get('phoneCountry') else expected
                             permitted=mapped is not None and mapped==answer.get('value')
                         elif unique and answer and answer.get('source')=='saved_profile':
                             from .answer_memory import remembered_answer

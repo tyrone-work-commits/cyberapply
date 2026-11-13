@@ -80,6 +80,7 @@ def profile_field(question):
     if text in {'name','full name','legal name','first and last name','first name','last name','given name','family name','surname','preferred first name','preferred name','first name(s)','given name(s)','firstname','lastname','fullname'} or re.fullmatch(r'(?:legal |preferred )?(?:first|last|given|family|full) name(?: \(legal\))?',text):return 'fullName'
     if re.fullmatch(r'(?:zip|zip code|zipcode|postal|postal code|postcode|post code)(?: / postal code)?',text):return 'zipCode'
     if re.fullmatch(r'(?:street |mailing |residential |home |full )?address(?: line 1| 1)?',text):return 'address'
+    if re.fullmatch(r'city\s*[,/]\s*(?:state|province)\s*(?:&|and|,|/)\s*(?:zip(?: code)?|postal(?: code)?|postcode)',text):return 'cityStateZipCode'
     if text in {'city','town','city / town','city/town','city or town','location (city)','location(city)','city / location','city/location'}:return 'city'
     if text in {'state','province','state / province','state/province','state or province','region (state)'}:return 'state'
     if text in {'country','country of residence','country of residency','country where you reside'}:return 'country'
@@ -93,6 +94,12 @@ def saved_profile_answer(payload,question,field):
     key='phone' if field.get('phoneCountry') is True else profile_field(question)
     profile=payload.get('applicantProfile')
     profile=profile if isinstance(profile,dict) else {}
+    if key=='cityStateZipCode':
+        parts={name:profile.get(name) for name in ('city','state','zipCode')}
+        missing=[name for name,value in parts.items() if not isinstance(value,str) or not value.strip() or re.search(r'[\x00-\x1f]',value)]
+        if missing:return None,'','Add '+', '.join(missing)+' in Edit Profile before answering this combined location field. No address parts are inferred.'
+        value=parts['city'].strip()+', '+parts['state'].strip()+' '+parts['zipCode'].strip()
+        return value,'Edit Profile — exact saved city, state and ZIP/postal code combined in the requested order.',''
     if key=='residenceQuestion':return residence_answer(profile,question)
     if key=='ukIrelandRightToWork':
         values=[profile.get('ukRightToWork'),profile.get('irelandRightToWork')]

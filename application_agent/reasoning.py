@@ -186,7 +186,10 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
-        if remembered and not user_supplied:
+        if field.get('phoneCountry') is True or profile_key=='cityStateZipCode':
+            value,proof,profile_reason=saved_profile_answer(payload,question,field)
+            source='edit_profile'
+        elif remembered and not user_supplied:
             value,proof=remembered;source='saved_profile'
         elif profile_key and kind not in {"password","hidden","file"}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)
@@ -240,7 +243,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
             options = field.get("options") or []
-            if options:
+            if options and not field.get('phoneCountry'):
                 value = unique_option(question, value, options, payload.get('applicantProfile') or {},
                     years=source=='cv' and experience['established'] and not experience['approximate'] and
                     bool(re.search(r'years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?', normalized)))
