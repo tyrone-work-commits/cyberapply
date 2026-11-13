@@ -58,6 +58,9 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     if(h&&h.kind==='question'&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
       label=h.state==='resuming'?'Resuming after verification':'Verification paused';tone='warning';description='The exact employer browser is waiting for you. Use the verification panel to open that window, complete the check yourself and resume the same form.';
     }
+    if(h&&h.kind==='recaptcha'&&h.questions.length===1&&h.questions[0]==='Complete the employer reCAPTCHA in this browser.'&&h.challengeHosts.every(host=>['www.google.com','www.recaptcha.net','www.gstatic.com'].includes(host))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
+      label=h.state==='resuming'?'Checking after reCAPTCHA':'reCAPTCHA needs you';tone='warning';description=h.phase==='after_submit'?'Complete only the employer verification in the exact agent browser. Submit was already clicked once; the agent will check that attempt without repeating it.':'The agent needs you to permit the employer reCAPTCHA connection and complete any visible check personally in its existing browser.';
+    }
   }else if(!application.cv||application.reason==='cv_required'){
     label='Choose a CV';description='Choose an uploaded CV and attach it to this request before queuing the agent.';
   }else if(application.reason==='materials_changed'||application.reason==='candidate_review_required'){

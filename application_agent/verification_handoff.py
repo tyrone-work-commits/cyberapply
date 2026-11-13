@@ -3,6 +3,7 @@ import re
 import time
 from urllib.parse import urlencode
 from uuid import uuid4
+from .employer_verification import recaptcha_resource
 
 def identity_question(label):
     text=re.sub(r'\s+',' ',str(label).strip()).casefold()
@@ -20,6 +21,7 @@ class BrowserHandoff:
     def __init__(self,call,task,clock=time.monotonic):
         self.call=call;self.ids={k:task[k] for k in ('requestId','claimId')};self.clock=clock
         self.active=False;self.turns=0
+        self.kind='question';self.phase='before_submit';self.recaptcha=None
         self.blocked_navigation=False
     def window(self,context,page,state):
         session=context.new_cdp_session(page)
@@ -28,17 +30,20 @@ class BrowserHandoff:
             session.send('Browser.setWindowBounds',{'windowId':info['windowId'],'bounds':{'windowState':state}})
             if state=='normal':page.bring_to_front()
         finally:session.detach()
-    def __call__(self,context,page,questions,authorize,completed,watch=None,kind='question'):
-        if kind!='question' or not questions or not all(identity_question(q) for q in questions) or self.turns>=2:return False
+    def __call__(self,context,page,questions,authorize,completed,watch=None,kind='question',phase='before_submit'):
+        if kind not in {'question','recaptcha'} or not questions or (kind=='question' and not all(identity_question(q) for q in questions)) or self.turns>=2:return False
+        if kind=='recaptcha' and (not self.recaptcha or questions!=['Complete the employer reCAPTCHA in this browser.']):return False
         self.turns+=1;pause_id=str(uuid4());self.active=True;self.blocked_navigation=False
+        self.kind=kind;self.phase=phase
         endpoint='/api/application-agent/handoff'
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
         started=self.clock();opened=False;ended=False;resume_capture=False
         if watch:watch.detach()
         try:
-            h=event('begin',kind='question',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[])
+            h=event('begin',kind=kind,phase=phase,questions=[str(q)[:300] for q in questions[:10]],challengeHosts=sorted(self.recaptcha.pending) if kind=='recaptcha' else [])
             # Human control is limited to the existing employer dropdown.
             for frame in page.frames:
+                if recaptcha_resource(frame.url):continue
                 try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
                 except Exception:pass
             while self.clock()-started<240:
@@ -49,11 +54,16 @@ class BrowserHandoff:
                 if h['state'] in {'cancelled','expired','failed'}:ended=True;return False
                 if h['state']=='opening':
                     if authorize() is not True:event('failed',code='session_changed');ended=True;return False
-                    try:self.window(context,page,'normal')
+                    try:
+                        if kind=='recaptcha':
+                            self.recaptcha.approved.update(h['approvedHosts']);self.recaptcha.pending.difference_update(self.recaptcha.approved)
+                        self.window(context,page,'normal')
+                        if kind=='recaptcha':self.recaptcha.restore(page)
                     except Exception:event('failed',code='window_unavailable');ended=True;return False
                     h=event('opened');opened=True
                 if h['state']=='resuming' and opened:
                     if authorize() is not True:event('failed',code='session_changed');ended=True;return False
+                    if kind=='recaptcha' and self.recaptcha.pending-self.recaptcha.approved:event('failed',code='session_changed');ended=True;return False
                     if page.locator('input[type="password"]:visible,input[autocomplete="one-time-code"]:visible').count() or not completed():event('opened',code='incomplete')
                     else:
                         confirmed=event('resumed')
@@ -66,6 +76,7 @@ class BrowserHandoff:
                 except Exception:pass
             self.active=False
             for frame in page.frames:
+                if recaptcha_resource(frame.url):continue
                 try:frame.evaluate('()=>{window.__cyberapplyHumanPause=false;}')
                 except Exception:pass
             if opened:

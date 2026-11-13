@@ -17,6 +17,7 @@ from .form_choices import capture_application_choices, choice_limit
 from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 from .uploads import GreenhouseUploads, UploadRejected, UPLOAD_HOST
 from .journey import Journey, greenhouse_source, matching_greenhouse_embed
+from .employer_verification import RECAPTCHA_HOSTS,RecaptchaAccess,recaptcha_resource,record_recaptcha,observed_recaptcha_error,visible_recaptcha_challenge
 
 # Exact provider domains only: never trust lookalike suffixes or private DNS.
 # These aliases are part of one supported application service, so the user
@@ -185,6 +186,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     context = None
     session_active = False
     human_proofs={}
+    manual_interaction=False
     def finish(*args,**kwargs):
         journey.data['possible_delivery'] = submitted
         if live_watch:
@@ -214,7 +216,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         read_candidates={CITY_LOOKUP_HOST} if application_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
         upload_candidates={UPLOAD_HOST} if application_host in APPLICATION_HOST_GROUPS[0] else set()
         from .verification_handoff import manual_value,identity_dropdown
-        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        recaptcha_candidates=RECAPTCHA_HOSTS if verification_handler else set();recaptcha_pins=set()
+        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *recaptcha_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
         assets=set()
         reads=set()
@@ -225,12 +228,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 validate_public_url("https://" + host, resolver=resolver)
                 addresses = resolver(host,443,type=socket.SOCK_STREAM)
             except ApplicationAttention:
-                if host in automatic|asset_candidates|read_candidates|upload_candidates and host!=original_host:
+                if host in automatic|asset_candidates|read_candidates|upload_candidates|recaptcha_candidates and host!=original_host:
                     continue  # An unavailable optional alias must not stop the selected board.
                 raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
-            (upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
+            (recaptcha_pins if host in recaptcha_candidates else upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
         report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets),'form_read_hosts':sorted(reads),'attachment_upload_hosts':sorted(upload_hosts)}
@@ -242,6 +245,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         with playwright_factory() as runtime:
             launch_options=dict(headless=verification_handler is None, args=(['--start-minimized'] if verification_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
             browser = runtime.chromium.launch(**launch_options)
+            if verification_handler:verification_handler.recaptcha=RecaptchaAccess(recaptcha_pins)
             saved_session=session_store.load(job,hosts) if session_store else None
             session_active=bool(saved_session)
             report['login_session']={'reused':session_active,'saved':False}
@@ -277,12 +281,20 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     return
                 try:
                     if verification_handler:
+                        permission=verification_handler.recaptcha.permit(req)
+                        if permission is not None:
+                            if permission:validate_public_url(req.url,recaptcha_pins,resolver);route.continue_()
+                            else:
+                                phase='after_submit' if journey.data['submit_click_attempts'] else 'after_continue' if journey.data['continue_click_attempts'] else 'preparation'
+                                record_recaptcha(report,phase,'resource_blocked');route.abort()
+                            return
                         if verification_handler.active:
                             # Human owns verification only. Never allow a manual
                             # employer submit/advance or navigation to another form.
-                            if req.method not in ('GET','HEAD','OPTIONS'):
+                            after_captcha=verification_handler.kind=='recaptcha' and verification_handler.phase=='after_submit'
+                            if req.method not in ('GET','HEAD','OPTIONS') and not after_captcha:
                                 route.abort();return
-                            if req.is_navigation_request() and req.url.split('#')[0]!=req.frame.url.split('#')[0]:
+                            if req.is_navigation_request() and req.url.split('#')[0]!=req.frame.url.split('#')[0] and not after_captcha:
                                 verification_handler.blocked_navigation=True;route.abort();return
                     if (feed_source and req.resource_type=='document' and (urlsplit(req.url).hostname or '').lower() in APPLICATION_HOST_GROUPS[0]
                             and urlsplit(req.url).path=='/embed/job_app' and not matching_greenhouse_embed(req.url,feed_source)):
@@ -331,6 +343,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         submitted = True  # Some forms autosave as fields change.
                     route.continue_()
                 except ApplicationAttention:
+                    if recaptcha_resource(req.url):
+                        phase='after_submit' if journey.data['submit_click_attempts'] else 'after_continue' if journey.data['continue_click_attempts'] else 'preparation'
+                        record_recaptcha(report,phase,'resource_blocked')
                     if req.method not in ('GET','HEAD','OPTIONS') or req.resource_type in ('document','xhr','fetch'):
                         # An aborted optional read must not hide an otherwise
                         # usable form. Missing essential data will still fail
@@ -355,18 +370,24 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             recovery=FormRecovery(report,
                 can_retry=lambda:not submitted and not blocked and (not submit or before_submit is not None and before_submit() is True),
                 wait=page.wait_for_timeout)
-            def human_pause(labels,completed,kind='question'):
-                if not submit or not verification_handler or journey.data['submit_click_attempts']:
+            def human_pause(labels,completed,kind='question',phase='before_submit'):
+                nonlocal manual_interaction
+                if not submit or not verification_handler or (journey.data['submit_click_attempts'] and kind!='recaptcha'):
                     raise ApplicationAttention('The employer requires verification by you. No new application or browser was started.')
                 started=time.monotonic()
-                try:success=verification_handler(context,page,labels,before_submit,completed,live_watch,kind)
+                try:success=verification_handler(context,page,labels,before_submit,completed,live_watch,kind,phase)
                 except Exception:success=False
                 # The existing form budget excludes bounded human waiting time.
                 journey.started+=time.monotonic()-started
-                report.setdefault('verification_handoffs',[]).append({'same_browser':True,'completed_by_user':bool(success),'kind':kind})
+                report.setdefault('verification_handoffs',[]).append({'same_browser':True,**({'user_returned_control':bool(success)} if kind=='recaptcha' else {'completed_by_user':bool(success)}),'kind':kind})
                 if not success:raise ApplicationAttention('The same-browser verification was cancelled, expired or lost its session. No action will be replayed automatically.')
+                manual_interaction=True
                 validate_public_url(page.url,hosts,resolver)
                 if blocked:raise ApplicationAttention('The employer changed destination during verification. Check this application before retrying.')
+            def captcha_pause(phase='before_submit'):
+                if not verification_handler:raise ApplicationAttention(record_recaptcha(report,'preparation',report.get('employer_verification',{}).get('state','employer_error')))
+                human_pause(['Complete the employer reCAPTCHA in this browser.'],lambda:not visible_recaptcha_challenge([f for f in page.frames if (urlsplit(f.url).hostname or '').lower() in hosts]),'recaptcha',phase)
+                record_recaptcha(report,'after_submit' if phase=='after_submit' else 'preparation','user_returned')
             def open_initial_page():
                 response=page.goto(url, wait_until="domcontentloaded", timeout=timeout * 2)
                 if response and response.status in {502,503,504}:
@@ -453,7 +474,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     page.wait_for_timeout(500)
                     continue
                 for frame in frames:
-                    if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                    if visible_recaptcha_challenge([frame]):captcha_pause()
+                    if frame.locator('iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible,[data-sitekey]:visible:not([data-size="invisible"]):not(.g-recaptcha)').count():
                         raise ApplicationAttention('The employer requires a verification challenge. The dropdown handoff does not handle CAPTCHA or other verification checks.')
                 def read_forms():
                     # An embedded application can appear after the shell page.
@@ -461,7 +483,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','') and (urlsplit(frame.url).hostname or '').lower() in hosts]
                     for frame in frames:
                         validate_public_url(frame.url,hosts,resolver)
-                        if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                        if visible_recaptcha_challenge([frame]):captcha_pause()
+                        if frame.locator('iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible,[data-sitekey]:visible:not([data-size="invisible"]):not(.g-recaptcha)').count():
                             raise ApplicationAttention('The employer requires a verification challenge. The dropdown handoff does not handle CAPTCHA or other verification checks.')
                     found=[(idx,frame,frame.evaluate(INSPECT)) for idx,frame in enumerate(frames)]
                     if not any(items for _,_,items in found) and not page.get_by_role('link',name=re.compile(r'^apply(?: now| for (?:this )?(?:job|role|position))?$',re.I)).count():
@@ -740,7 +763,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             control.evaluate("e=>e.selectedOptions[0]?.text||''") if kind=='select' else control.input_value())
                         if (kind in {'combobox','phone'} and actual is not True) or (kind not in {'combobox','phone'} and actual!=expected):
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
-                        if kind=='file' and human_proofs:
+                        if kind=='file' and manual_interaction:
                             checksum=control.evaluate("""async e=>{const f=e.files?.[0];if(!f)return '';const b=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');}""")
                             if checksum!=attachment_hashes.get(field_id):raise ApplicationAttention('The chosen attachment bytes changed during verification. No submit was attempted.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
@@ -813,6 +836,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if before_submit is None or before_submit() is not True:
                         raise ApplicationAttention("This request no longer has current authorization to advance the employer form.")
                     verify_expected()
+                    if report.get('employer_verification',{}).get('state')=='resource_blocked':captcha_pause();verify_expected()
+                    if observed_recaptcha_error(frames) or report.get('employer_verification',{}).get('state')=='resource_blocked':
+                        raise ApplicationAttention(record_recaptcha(report,'preparation',report.get('employer_verification',{}).get('state','employer_error')))
                     submitted = True  # Some ATS save a partial application on Continue.
                     journey.data['continue_click_attempts']+=1
                     button.click()
@@ -822,6 +848,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     while True:
                         page.wait_for_timeout(150)
                         validate_public_url(page.url,hosts,resolver)
+                        if report.get('employer_verification',{}).get('state')=='resource_blocked':
+                            journey.data['stop_reason']='employer_verification_required'
+                            return finish('uncertain',record_recaptcha(report,'after_continue','resource_blocked'),report)
                         if blocked:raise ApplicationAttention('The employer changed destination after Continue. Check its outcome before retrying.')
                         current_frames=[f for f in page.frames if f.url not in ('about:blank','') and (urlsplit(f.url).hostname or '').lower() in hosts]
                         current_fields=[]
@@ -831,6 +860,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if match:
                                 return finish('applied','The employer displayed an application confirmation after Continue.',report,receipt=match.group(0),evidence={'url':frame.url,'text':match.group(0)})
                             current_fields.extend((f'{idx}:{f["id"]}',f['label'],f['type'],f['required']) for f in frame.evaluate(INSPECT))
+                        if observed_recaptcha_error(current_frames):
+                            journey.data['stop_reason']='employer_verification_required'
+                            return finish('uncertain',record_recaptcha(report,'after_continue','employer_error'),report)
                         if current_fields and (tuple(f.url for f in current_frames),tuple(current_fields))!=step_identity:break
                         if time.monotonic()>=transition_deadline:
                             journey.data['stop_reason']='continue_did_not_advance'
@@ -841,6 +873,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 if before_submit is None or before_submit() is not True:
                     raise ApplicationAttention("This request no longer has current submission authorization. Review it in CyberApply.")
                 verify_expected()
+                if report.get('employer_verification',{}).get('state')=='resource_blocked':captcha_pause();verify_expected()
+                if observed_recaptcha_error(frames) or report.get('employer_verification',{}).get('state')=='resource_blocked':
+                    raise ApplicationAttention(record_recaptcha(report,'preparation',report.get('employer_verification',{}).get('state','employer_error')))
                 # Authorization is checked immediately before the irreversible click.
                 for frame in frames:
                     if frame.locator('input:invalid:visible, textarea:invalid:visible, select:invalid:visible').count():
@@ -855,6 +890,13 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     page.wait_for_timeout(150)
                     if live_watch:live_watch.capture()
                     validate_public_url(page.url, hosts, resolver)
+                    check_frames=[f for f in page.frames if f.url not in ('about:blank','') and (urlsplit(f.url).hostname or '').lower() in hosts]
+                    if verification_handler and not observed_recaptcha_error(check_frames) and (report.get('employer_verification',{}).get('state')=='resource_blocked' or visible_recaptcha_challenge(check_frames)):
+                        pause_started=time.monotonic();captcha_pause('after_submit');deadline+=time.monotonic()-pause_started
+                    if report.get('employer_verification',{}).get('state')=='resource_blocked':
+                        report['confirmation_wait']['outcome']='verification_required'
+                        journey.data['stop_reason']='employer_verification_required'
+                        return finish('uncertain',record_recaptcha(report,'after_submit','resource_blocked'),report)
                     if blocked:
                         report['confirmation_wait']['outcome']='blocked_redirect'
                         return finish("uncertain", "The employer may have received the application, but a redirect prevented confirmation. Check before retrying.", report)
@@ -866,6 +908,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             text=confirmation.group(0)
                             report['confirmation_wait']['outcome']='confirmed'
                             return finish('applied','The employer displayed an application confirmation.',report,receipt=text,evidence={'url':frame.url,'text':text})
+                    current_frames=[f for f in page.frames if f.url not in ('about:blank','') and (urlsplit(f.url).hostname or '').lower() in hosts]
+                    if observed_recaptcha_error(current_frames):
+                        report['confirmation_wait']['outcome']='verification_required'
+                        journey.data['stop_reason']='employer_verification_required'
+                        return finish('uncertain',record_recaptcha(report,'after_submit','employer_error'),report)
                     if time.monotonic()>=deadline:break
                 report['confirmation_wait']['outcome']='not_confirmed'
                 return finish("uncertain", "Submit was clicked, but no explicit employer confirmation was found. Check the employer or inbox before retrying.", report)
