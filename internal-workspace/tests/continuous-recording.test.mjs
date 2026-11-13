@@ -18,7 +18,12 @@ test('three checkpoints become one continuous six-second MP4, preserving all fra
  await writeFile(`${dir}/combined.mp4`,new Uint8Array(result));
 });
 test('invalid, incomplete and oversized inputs fail rather than skipping footage',()=>{
- assert.throws(()=>combineRecordingParts([]),/limit/);assert.throws(()=>combineRecordingParts(Array(62).fill(parts[0])),/limit/);
+ assert.throws(()=>combineRecordingParts([]),/limit/);assert.throws(()=>combineRecordingParts(Array(361).fill(parts[0])),/limit/);
  assert.throws(()=>combineRecordingParts([new ArrayBuffer(48_000_001)]),/limit/);
  assert.throws(()=>combineRecordingParts([parts[0],parts[1].slice(0,25)]),/read|format|incomplete/);
+});
+
+test('a paused run and a resumed run extend the same seekable video beyond the old per-run limit',()=>{
+ const result=combineRecordingParts(Array(62).fill(parts[0])),info=parse(result).getInfo();
+ assert.equal(info.videoTracks[0].nb_samples,62*16);assert.equal(info.duration/info.timescale,124);
 });

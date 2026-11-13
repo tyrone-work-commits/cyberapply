@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';import {randomUUID,createHash} from 'node:crypto';
+import {readFile,mkdir,writeFile} from 'node:fs/promises';import ts from 'typescript';import {createFile} from 'mp4box';
+const testDir='.sites-runtime/application-recording-http-tests';await mkdir(testDir,{recursive:true});
+for(const name of ['continuous-recording','recording-view-state'])await writeFile(`${testDir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText);
+const {combineRecordingParts}=await import('../'+testDir+'/continuous-recording.mjs'),{applicationRecordingTimeline}=await import('../'+testDir+'/recording-view-state.mjs');
 const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8792';if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Local isolated Worker only.');
 const owner='watch-'+randomUUID(),auth={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':'watch@example.test'};let checks=0;
 const eq=(a,b)=>{assert.equal(a,b);checks++;};
@@ -12,7 +16,7 @@ await act({type:'add_job',title:'SOC Analyst',company:'Watch fixture',location:'
 
 const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
 const ids={requestId:task.requestId,claimId:task.claimId},query=new URLSearchParams(ids),uploadPath='/api/application-agent/recording?'+query,view='/api/applications/recordings?requestId='+task.requestId;
-const bytes=Buffer.from('0000ftypiso6fixture-recording-media'),sha=createHash('sha256').update(bytes).digest('hex');
+const bytes=await readFile('tests/fixtures/recording-parts/part-0.mp4'),sha=createHash('sha256').update(bytes).digest('hex');
 async function send(headers={}){const r=await fetch(base+uploadPath,{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(bytes.length),'X-Recording-Duration':'2','X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':sha,...headers},body:bytes});return {status:r.status,data:await r.json()};}
 eq((await call(uploadPath,{headers:worker})).data.saved,false);
 eq((await send({'X-Recording-SHA256':'0'.repeat(64)})).status,400);
@@ -42,7 +46,7 @@ for(const range of ['bytes=9999-','bytes=0-1,4-5','bytes=-0','bytes=5-2'])eq((aw
 const other={'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'};
 eq((await call(view,{headers:other})).status,404);eq((await call(media,{headers:other})).status,404);eq((await call(view,{headers:{}})).status,401);eq((await call(uploadPath.replace(task.claimId,randomUUID()),{headers:worker})).status,409);
 current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'needs_attention');
-// Continue only this fictional known-unsent request; the prior recording stays historical.
+// Continue only this fictional known-unsent request; later work extends its single video.
 await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Day'}],confirmation:'CONFIRMED',continueAgent:true});
 r=await call(view);eq(r.data.applicationStatus,'queued');eq(r.data.currentAttempt,null);eq(r.data.items[0].attempt,task.claimId);
 const resumed=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
@@ -51,9 +55,13 @@ eq(resumed.confirmedAnswers.find(answer=>answer.question==='Preferred shift?').v
 r=await call(view);eq(r.data.currentAttempt,resumed.claimId);eq(r.data.items.some(item=>item.attempt===resumed.claimId),false);
 eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:resumed.requestId,claimId:resumed.claimId,status:'uncertain',message:'Fictional Submit clicked; no employer was contacted.'}})).status,200);
 const resumedQuery=new URLSearchParams({requestId:resumed.requestId,claimId:resumed.claimId});
-r=await fetch(base+'/api/application-agent/recording?'+resumedQuery+'&part=0',{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(bytes.length),'X-Recording-Duration':'9','X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':sha},body:bytes});eq(r.status,200);
+const resumedBytes=await readFile('tests/fixtures/recording-parts/part-1.mp4'),resumedSha=createHash('sha256').update(resumedBytes).digest('hex');
+r=await fetch(base+'/api/application-agent/recording?'+resumedQuery+'&part=0',{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(resumedBytes.length),'X-Recording-Duration':'3','X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':resumedSha},body:resumedBytes});eq(r.status,200);
 eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:{requestId:resumed.requestId,claimId:resumed.claimId,state:'saved',code:'',parts:1,partial:false}})).status,200);
-r=await call(view);eq(r.data.currentAttempt,resumed.claimId);eq(r.data.applicationStatus,'uncertain');eq(r.data.status.attempt,resumed.claimId);eq(r.data.items.length,2);eq(r.data.items.find(item=>item.attempt===resumed.claimId).duration,9);
+r=await call(view);eq(r.data.currentAttempt,resumed.claimId);eq(r.data.applicationStatus,'uncertain');eq(r.data.status.attempt,resumed.claimId);eq(r.data.items.length,2);eq(r.data.items.find(item=>item.attempt===resumed.claimId).duration,3);
+const timeline=applicationRecordingTimeline(r.data);eq(timeline.duration,5);assert.deepEqual(timeline.parts.map(part=>part.attempt),[task.claimId,resumed.claimId]);checks++;
+const buffers=[];for(const part of timeline.parts){const result=await call(view+'&attempt='+part.attempt+(part.part===null?'':'&part='+part.part));eq(result.status,200);buffers.push(result.data.buffer.slice(result.data.byteOffset,result.data.byteOffset+result.data.byteLength));}
+const combined=createFile(true);combined.appendBuffer(Object.assign(combineRecordingParts(buffers),{fileStart:0}));combined.flush();const info=combined.getInfo();eq(info.duration/info.timescale,5);eq(info.videoTracks[0].nb_samples,40);
 eq((await call(view+'&attempt='+resumed.claimId+'&part=0')).status,200);
 current=(await call('/api/workspace')).data;eq(current.state.applications.length,1);eq(current.state.applications[0].status,'uncertain');
 await act({type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'});eq((await call(media)).status,200);
