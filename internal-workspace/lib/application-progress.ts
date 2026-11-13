@@ -54,6 +54,10 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     group='in_progress';label='Queued';tone='active';description=application.reason==='daily_limit'?'Your daily agent-run allowance is used. This queued request can continue after the UTC day changes.':'Waiting for your browser runner to pick up this request. Keep the runner open on your computer.';
   }else if(status==='processing'){
     group='in_progress';label='Agent working';tone='active';description='The agent has claimed this request and is working through the employer form. Submission is not confirmed yet.';
+    const h=application.verificationHandoff;
+    if(h&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
+      label=h.state==='resuming'?'Resuming after verification':'Verification paused';tone='warning';description='The exact employer browser is waiting for you. Use the verification panel to open that window, complete the check yourself and resume the same form.';
+    }
   }else if(!application.cv||application.reason==='cv_required'){
     label='Choose a CV';description='Choose an uploaded CV and attach it to this request before queuing the agent.';
   }else if(application.reason==='materials_changed'||application.reason==='candidate_review_required'){

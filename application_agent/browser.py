@@ -169,7 +169,7 @@ def restrict_transports(context):
 
 def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), playwright_factory=None,
                         research_fn=None, planner=None, resolver=socket.getaddrinfo, timeout=15000, before_submit=None,
-                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None):
+                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None, verification_handler=None):
     """Inspect/fill a single claim. No application is retried after final click."""
     if planner is None:
         from .reasoning import build_plan
@@ -184,6 +184,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     browser = None
     context = None
     session_active = False
+    human_proofs={}
+    challenge_completed=False
     def finish(*args,**kwargs):
         journey.data['possible_delivery'] = submitted
         if live_watch:
@@ -212,7 +214,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         asset_candidates=static_asset_hosts(job)
         read_candidates={CITY_LOOKUP_HOST} if application_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
         upload_candidates={UPLOAD_HOST} if application_host in APPLICATION_HOST_GROUPS[0] else set()
-        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
+        from .verification_handoff import VERIFICATION_HOSTS,manual_value
+        verification_candidates=VERIFICATION_HOSTS if verification_handler else set()
+        verification_pins=set()
+        requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *verification_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
         assets=set()
         reads=set()
@@ -223,12 +228,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 validate_public_url("https://" + host, resolver=resolver)
                 addresses = resolver(host,443,type=socket.SOCK_STREAM)
             except ApplicationAttention:
-                if host in automatic|asset_candidates|read_candidates|upload_candidates and host!=original_host:
+                if host in automatic|asset_candidates|read_candidates|upload_candidates|verification_candidates and host!=original_host:
                     continue  # An unavailable optional alias must not stop the selected board.
                 raise
             if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
                 raise ApplicationAttention('The employer address changed to a non-public network.')
-            (upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
+            (verification_pins if host in verification_candidates else upload_hosts if host in upload_candidates else reads if host in read_candidates else assets if host in asset_candidates else hosts).add(host)
             address = next((row[4][0] for row in addresses if ':' not in row[4][0]), addresses[0][4][0])
             pins.append(f"MAP {host} {'[' + address + ']' if ':' in address else address}")
         report['navigation']={'automatic_application_hosts':sorted(hosts.intersection(automatic)),'static_asset_hosts':sorted(assets),'form_read_hosts':sorted(reads),'attachment_upload_hosts':sorted(upload_hosts)}
@@ -238,8 +243,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             from playwright.sync_api import sync_playwright
             playwright_factory = sync_playwright
         with playwright_factory() as runtime:
-            launch_options=dict(headless=True, args=['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
+            launch_options=dict(headless=verification_handler is None, args=(['--start-minimized'] if verification_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
             browser = runtime.chromium.launch(**launch_options)
+            if verification_handler:verification_handler.pins=verification_pins
             saved_session=session_store.load(job,hosts) if session_store else None
             session_active=bool(saved_session)
             report['login_session']={'reused':session_active,'saved':False}
@@ -274,6 +280,19 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     route.abort()
                     return
                 try:
+                    if verification_handler:
+                        decision=verification_handler.challenge_request(req)
+                        if decision is not None:
+                            if decision:validate_public_url(req.url,verification_pins,resolver);route.continue_()
+                            else:route.abort()
+                            return
+                        if verification_handler.active:
+                            # Human owns verification only. Never allow a manual
+                            # employer submit/advance or navigation to another form.
+                            if req.method not in ('GET','HEAD','OPTIONS'):
+                                route.abort();return
+                            if req.is_navigation_request() and req.url.split('#')[0]!=req.frame.url.split('#')[0]:
+                                verification_handler.blocked_navigation=True;route.abort();return
                     if (feed_source and req.resource_type=='document' and (urlsplit(req.url).hostname or '').lower() in APPLICATION_HOST_GROUPS[0]
                             and urlsplit(req.url).path=='/embed/job_app' and not matching_greenhouse_embed(req.url,feed_source)):
                         raise ApplicationAttention('The embedded form does not match the selected employer and vacancy.')
@@ -337,11 +356,26 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
 
             context.route("**/*", guard)
             page = context.new_page()
+            if verification_handler:
+                try:verification_handler.window(context,page,'minimized')
+                except Exception:pass
             if live_watch:live_watch.attach(context,page)
             page.set_default_timeout(timeout)
             recovery=FormRecovery(report,
                 can_retry=lambda:not submitted and not blocked and (not submit or before_submit is not None and before_submit() is True),
                 wait=page.wait_for_timeout)
+            def human_pause(labels,completed,kind='question'):
+                if not submit or not verification_handler or journey.data['submit_click_attempts']:
+                    raise ApplicationAttention('The employer requires verification by you. No new application or browser was started.')
+                started=time.monotonic()
+                try:success=verification_handler(context,page,labels,before_submit,completed,live_watch,kind)
+                except Exception:success=False
+                # The existing form budget excludes bounded human waiting time.
+                journey.started+=time.monotonic()-started
+                report.setdefault('verification_handoffs',[]).append({'same_browser':True,'completed_by_user':bool(success),'kind':kind})
+                if not success:raise ApplicationAttention('The same-browser verification was cancelled, expired or lost its session. No action will be replayed automatically.')
+                validate_public_url(page.url,hosts,resolver)
+                if blocked:raise ApplicationAttention('The employer changed destination during verification. Check this application before retrying.')
             def open_initial_page():
                 response=page.goto(url, wait_until="domcontentloaded", timeout=timeout * 2)
                 if response and response.status in {502,503,504}:
@@ -369,6 +403,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
                     raise ApplicationAttention("This employer form uses an unsupported application destination. Open its original page to continue manually.")
+                if verification_handler and verification_handler.pending:
+                    human_pause(['Complete the employer verification in this exact browser window.'],lambda:True,'challenge');challenge_completed=True
                 frames = []
                 for frame in page.frames:
                     if frame.url in ("about:blank", ""):
@@ -419,22 +455,26 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     context.route('**/*',guard)
                     blocked.clear()
                     page=context.new_page()
+                    if verification_handler:
+                        try:verification_handler.window(context,page,'minimized')
+                        except Exception:pass
                     if live_watch:live_watch.attach(context,page)
                     page.set_default_timeout(timeout)
                     page.goto(url,wait_until='domcontentloaded',timeout=timeout*2)
                     page.wait_for_timeout(500)
                     continue
                 for frame in frames:
-                    if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
-                        raise ApplicationAttention("The employer requires a verification challenge. Please complete it yourself.")
+                    if not challenge_completed and frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                        human_pause(['Complete the employer verification in this exact browser window.'],lambda:True,'challenge');challenge_completed=True
                 def read_forms():
+                    nonlocal challenge_completed
                     # An embedded application can appear after the shell page.
                     # Rediscover frames only before any controls are filled.
                     frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','') and (urlsplit(frame.url).hostname or '').lower() in hosts]
                     for frame in frames:
                         validate_public_url(frame.url,hosts,resolver)
-                        if frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
-                            raise ApplicationAttention('The employer requires a verification challenge. Please complete it yourself.')
+                        if not challenge_completed and frame.locator('[data-sitekey]:visible, iframe[src*="recaptcha"]:visible, iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible').count():
+                            human_pause(['Complete the employer verification in this exact browser window.'],lambda:True,'challenge');challenge_completed=True
                     found=[(idx,frame,frame.evaluate(INSPECT)) for idx,frame in enumerate(frames)]
                     if not any(items for _,_,items in found) and not page.get_by_role('link',name=re.compile(r'^apply(?: now| for (?:this )?(?:job|role|position))?$',re.I)).count():
                         page.wait_for_timeout(300)
@@ -503,10 +543,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 report["experience"] = plan.get("experience", {})
                 report["cover_letter"] = plan.get("cover_letter", "")
                 unresolved = list(plan.get("unresolved") or [])
+                verification_ids={item['field_id'] for item in unresolved if item.get('source')=='verification'}
                 answers = {a["field_id"]: a for a in plan.get("answers", [])}
                 form_interaction = True
                 handled_confirmed = set()
                 expected_values = {}
+                attachment_hashes = {}
                 def exact_confirmed(field, answer):
                     normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
                     same_question=[f for f in fields if f['type']==field['type'] and normalize(f['label'])==normalize(field['label'])]
@@ -543,6 +585,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     kind, label = field["type"], field["label"].lower()
                     answer = answers.get(field["id"])
                     identity=control.evaluate(CONTROL_IDENTITY)
+                    if field['id'] in verification_ids:
+                        proof=human_proofs.get(identity)
+                        if proof and manual_value(field,control)==proof:
+                            expected_values[field['id']]=proof;handled_confirmed.add(field['id'])
+                        continue  # Only the person may fill this control.
                     def same_question(operation):
                         if control.evaluate(CONTROL_IDENTITY)!=identity:
                             raise ApplicationAttention('The employer changed this question during preparation. The old answer was not replayed; inspect the changed form before continuing.')
@@ -564,11 +611,13 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                                 uploads.arm('cover_letter',letter_name,letter_type,letter_bytes)
                                 control.set_input_files({"name":letter_name,"mimeType":letter_type,"buffer":letter_bytes})
                                 expected_values[field['id']]=('file',{'name':letter_name,'size':len(letter_bytes)})
+                                attachment_hashes[field['id']]=hashlib.sha256(letter_bytes).hexdigest()
                         elif re.search(r"resume|résumé|\bcv\b", label):
                             name = str(cv.get("name") or "CV.pdf").replace('\\','/').split('/')[-1]
                             uploads.arm('resume',name,cv.get('type') or 'application/octet-stream',cv_bytes)
                             control.set_input_files({"name":name,"mimeType":cv.get("type") or "application/octet-stream","buffer":cv_bytes})
                             expected_values[field['id']]=('file',{'name':name,'size':len(cv_bytes)})
+                            attachment_hashes[field['id']]=hashlib.sha256(cv_bytes).hexdigest()
                             journey.data['cv_attached']=True
                         elif field["required"]:
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This required attachment is not the selected CV."})
@@ -703,7 +752,28 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             control.evaluate("e=>e.selectedOptions[0]?.text||''") if kind=='select' else control.input_value())
                         if (kind in {'combobox','phone'} and actual is not True) or (kind not in {'combobox','phone'} and actual!=expected):
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
+                        if kind=='file' and (human_proofs or challenge_completed):
+                            checksum=control.evaluate("""async e=>{const f=e.files?.[0];if(!f)return '';const b=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');}""")
+                            if checksum!=attachment_hashes.get(field_id):raise ApplicationAttention('The chosen attachment bytes changed during verification. No submit was attempted.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
+                if report['unresolved'] and all(item.get('source')=='verification' for item in report['unresolved']):
+                    manual_fields=[f for f in fields if f['id'] in {item['field_id'] for item in report['unresolved']}]
+                    def completed_manually():
+                        observed={}
+                        radio_groups={}
+                        for field in manual_fields:
+                            control=controls[field['id']];value=manual_value(field,control)
+                            if value is None:return False
+                            if field['type']=='radio':radio_groups.setdefault(field.get('group'),[]).append(value[1])
+                            observed[control.evaluate(CONTROL_IDENTITY)]=value
+                        if any(not any(group) for group in radio_groups.values()):return False
+                        human_proofs.update(observed);return True
+                    human_pause([f['label'] for f in manual_fields],completed_manually)
+                    for field in manual_fields:
+                        proof=human_proofs.get(controls[field['id']].evaluate(CONTROL_IDENTITY))
+                        if not proof:raise ApplicationAttention('The employer changed its verification control. No old answer was replayed.')
+                        expected_values[field['id']]=proof
+                    report['unresolved']=[]
                 if report["unresolved"]:
                     technical=any(item.get('source')=='agent_recovery' for item in report['unresolved'])
                     return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "Automatic form repairs could not confirm an employer control. Saved details are preserved; review the technical reason in the report." if technical else "The form needs answers or choices missing from the CV or saved Edit Profile. Review the saved agent report.", report)

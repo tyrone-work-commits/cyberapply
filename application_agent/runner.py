@@ -153,6 +153,8 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         cv_bytes = call_site(site, token, "/api/application-agent/cv?" + query, binary=True, site_access_token=site_access_token)
         cover_letter_bytes=call_site(site,token,"/api/application-agent/cv?"+query+"&document=cover_letter",binary=True,site_access_token=site_access_token) if task.get("coverLetter") else None
         from .live_watch import LiveWatch
+        from .verification_handoff import BrowserHandoff
+        handoff=BrowserHandoff(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None
         try:
             delivery=RecordingDelivery(site,token,task,site_access_token)
             watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'],record=True,on_part=delivery.part)
@@ -167,7 +169,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
             sessions=LoginSessions(site,token.split('.')[1])
         result = execute_application(task, cv_bytes, submit=submit, allowed_hosts=allowed_hosts, before_submit=authorize,
                                      browser_channel=None if browser_channel=='chromium' else browser_channel,
-                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes)
+                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes,verification_handler=handoff)
     except Exception:
         result = {"status":"failed", "message":"The selected CV or reviewed cover letter could not be read. No employer submission was attempted."}
     finally:

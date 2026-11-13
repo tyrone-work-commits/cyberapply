@@ -3,6 +3,7 @@ import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
 import {recordingPrefix,recordingKey,recordingStatusKey,recordingRange,recordingClaimValid,MAX_RECORDING_SIZE} from './application-recordings';
 import {applicationEmployerLink} from './application-employer-link';
+import {currentHandoff,handoffCommand,VERIFICATION_HOSTS} from './verification-handoff';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
@@ -51,6 +52,48 @@ async function original(user:Identity&{agentHash:string},requestId:string,claimI
 }
 const claimBody=z.object({requestId:z.string().max(300),claimId:z.string().uuid()}).strict();
 const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','uncertain','failed']),message:z.string().trim().min(1).max(1500),receipt:z.string().max(1500).optional(),evidence:z.object({url:z.string().max(2000),text:z.string().trim().min(1).max(3000)}).strict().optional(),report:z.record(z.string(),z.unknown()).optional()}).strict();
+
+// Same-claim commands contain no cookies, passwords, verification tokens or remote controls.
+export async function verificationOwner(request:Request){try{
+ const user=await identity(request),url=new URL(request.url);
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','resume','cancel']),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
+ if(body)sameOrigin(request);
+ const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await load(user),item=current.state.applications?.find(item=>item.id===id);if(!item)throw new DomainError('This application is not in your workspace.',404);
+  if(!body){const h=currentHandoff(item);return response({active:!!h&&['waiting','opening','opened','resuming'].includes(h.state),handoff:h||null});}
+  assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
+  const handoff=handoffCommand(item,body.id,body.command,body.approvedHosts);
+  try{await save(user,current.revision,current.state,'verification_handoff_'+body.command);return response({active:!['cancelled'].includes(handoff.state),handoff});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
+ }
+ throw new DomainError('The handoff changed. Refresh its status before trying another command.',409);
+}catch(error){return failure(error);}}
+export async function verificationWorker(request:Request){try{
+ const user=await worker(request),url=new URL(request.url);
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['begin','opened','resumed','cancelled','expired','failed']),kind:z.enum(['question','challenge']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
+ const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,ids.requestId,ids.claimId);
+  assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
+  if(!body)return response({handoff:currentHandoff(item)});
+  if(body.event==='begin'){
+   if(item.verificationHandoff?.id===body.id)return response({handoff:item.verificationHandoff});
+   if(currentHandoff(item)&&['waiting','opening','opened','resuming'].includes(item.verificationHandoff!.state))throw new DomainError('Another handoff is active for this exact browser.',409);
+   const hosts=[...new Set(body.challengeHosts||[])].sort();if(hosts.some(host=>!VERIFICATION_HOSTS.includes(host)))throw new DomainError('Unsupported verification-service destination.',409);
+   const turn=item.verificationHandoff?.claimId===ids.claimId?item.verificationHandoff.turn+1:1;if(turn>2)throw new DomainError('This application reached its bounded verification handoff limit.',409);
+   const now=Date.now(),expiresAt=Math.min(Date.parse(item.claim!.expiresAt)-90000,now+240000);if(expiresAt<=now)throw new DomainError('Not enough time remains in this exact claim. No new browser was started.',409);
+   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',kind:body.kind||'question',questions:body.questions||[],challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
+  }else{
+   const h=item.verificationHandoff;if(!h||h.id!==body.id||h.claimId!==ids.claimId)throw new DomainError('This handoff does not belong to the current browser claim.',409);
+   if(['resumed','cancelled','expired','failed'].includes(h.state))return response({handoff:h});
+   if(body.event==='opened'&&!['opening','resuming'].includes(h.state)||body.event==='resumed'&&h.state!=='resuming')throw new DomainError('The browser handoff command changed.',409);
+   if(['opened','resumed'].includes(body.event)&&!currentHandoff(item))throw new DomainError('This browser handoff expired.',409);
+   h.state=body.event;h.code=body.code;h.at=new Date().toISOString();
+  }
+  try{await save(user,current.revision,current.state,'verification_handoff_'+body.event);return response({handoff:item.verificationHandoff});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
+ }
+ throw new DomainError('The exact browser handoff changed. No action was replayed.',409);
+}catch(error){return failure(error);}}
 
 export async function pair(request:Request){try{
   const user=await identity(request),current=await load(user),config=current.state.newApplicationAgent;

@@ -11,6 +11,7 @@ import {applicationFormQuestions,applicationAnswerStage} from '@/lib/application
 import {ApplicationQuestionAnswers} from './application-question-answers';
 import {similarJobs} from '@/lib/job-browse';
 import {applicationEmployerLink} from '@/lib/application-employer-link';
+import {ApplicationVerificationHandoff} from './application-verification-handoff';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -78,6 +79,7 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
     {!!progress.actionEvidence.length&&<section className="application-detail-section" aria-label="Recorded agent actions"><h4>Recorded agent actions</h4><ul>{progress.actionEvidence.map(text=><li key={text}>{text}</li>)}</ul></section>}
     <dl className="application-request-facts"><div><dt>CV for this application</dt><dd>{application.cv?.name||'No CV attached'}{application.cv&&!attachedFile&&<small>Original file unavailable</small>}</dd></div><div><dt>Vacancy source</dt><dd>{sourceName(job)}{sourceUrl&&<a href={sourceUrl} target="_blank" rel="noopener noreferrer">View vacancy<ExternalLink size={12}/></a>}</dd></div><div><dt>Requested</dt><dd>{timestamp(application.at)}</dd></div></dl>
     {progress.group==='applied'&&<div className="application-confirmation"><ShieldCheck size={19}/><div><strong>Confirmation saved</strong><p>{application.result?.receipt||confirmation?.text}</p>{confirmationUrl&&<a href={confirmationUrl} target="_blank" rel="noopener noreferrer">Open confirmation page<ExternalLink size={12}/></a>}<small>{application.receiptVerification?`Matched the role, employer, recipient, date and authenticated sender. Received ${timestamp(application.receiptVerification.receivedAt)}.`:'The browser agent recorded this evidence. Check your email for any employer follow-up.'}</small></div></div>}
+    {application.status==='processing'&&<ApplicationVerificationHandoff requestId={application.id}/>}
     {(!!applicationFormQuestions(application,employerQuestions).length||!!application.confirmedAnswers?.length)&&<ApplicationQuestionAnswers key={`${application.id}-${application.cv?.fileId||''}`} application={application} employerQuestions={employerQuestions} accountProfile={accountProfile} busy={busy} onRefreshChoices={()=>onRefreshChoices(application.id)} onSave={answers=>onAnswer(application.id,answers)}/>}
     {!!application.confirmedAnswers?.length&&<details className="application-saved-draft"><summary>Review your saved answers ({application.confirmedAnswers.length})</summary><dl>{application.confirmedAnswers.map((answer,index)=><div className="application-detail-section" key={`${answer.question}-${index}`}><dt><strong>{answer.question}</strong></dt><dd style={{margin:0,whiteSpace:'pre-wrap'}}>{answer.value}</dd></div>)}</dl></details>}
     <div className="application-overview-actions">

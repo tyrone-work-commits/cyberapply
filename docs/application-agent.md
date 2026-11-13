@@ -31,6 +31,18 @@ For a new checkout create a Python virtual environment and install `application_
 
 ## Operational boundaries
 
+### Same-browser manual verification — 13 November 2026
+
+New authorized runs use a private, normally minimized Chrome window so a verification handoff can retain the exact page, form fields and original CV. When verification is the remaining missing step, Applications shows **Verification paused** and **Open exact agent browser**. This opens the existing window on the computer running the worker, not another employer tab. A phone can request the handoff, but the person must complete it on that computer.
+
+Complete the check yourself, then choose **I completed verification — resume agent** in CyberApply. Recording is detached while you control the window. The worker observes your actual native/custom dropdown selection without choosing it, validates prepared answers and attachment bytes again, and continues the same form. The existing single-submit and new employer-confirmation requirements remain. Human verification answers are not saved as reusable authorization.
+
+Known verification-service destinations are disabled until their exact listed hosts are explicitly approved for that browser session. The handoff may reload an already observed, approved provider script/child iframe; it never reloads or recreates the employer form. It never reads/relays CAPTCHA response tokens, passwords or cookies through CyberApply. Unknown hosts, unsupported transports and non-provider POSTs to challenge services remain blocked. Employer writes and form Submit/Continue are blocked while the person has control.
+
+Each handoff waits at most four minutes, with at most two per original claim and time reserved for the final receipt check. Cancel, expiry, browser loss, changed profile/library or changed prepared fields stop the handoff honestly. A possibly delivered application is never requeued. Challenges appearing after Submit was already clicked still require outcome checking; the agent does not replay Submit. Provider-specific live behavior and physical foreground-window behavior require user acceptance testing; no universal CAPTCHA compatibility is claimed.
+
+Existing installations must reload the updated worker while idle. Keep the current encrypted connection and startup registration; do not rotate tokens or restart an active/uncertain application to test this feature. Other computers should pull the latest code and restart their own idle worker. Older closed sessions cannot be reconstructed, and paused/uncertain requests are not restarted by deployment.
+
 ### Dropdown matching — 2 November 2026
 
 Native selects and labelled single-choice ARIA dropdowns use the same fact-backed matching rules. City/country/state options can use equivalent country names and US state abbreviations, with saved State distinguishing cities sharing a name. The selected original CV supplies tool-experience evidence, professional links and dated cybersecurity duration. An unambiguous years-of-experience range can be selected only from an established, non-approximate CV duration. Total professional experience is not substituted for cybersecurity experience.
