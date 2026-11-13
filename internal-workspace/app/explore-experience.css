@@ -1,0 +1,64 @@
+.explore-page-main{background:#f5f5f6;padding:10px 20px 95px!important;min-height:calc(100svh - 65px)}
+.explore-page-main>.page-heading{display:none}
+.explore-topbar{background:#f5f5f6;border-bottom:0}
+.explore-preferences-button{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid #e5e6e9;border-radius:50%;color:#202123;background:#fff;box-shadow:0 3px 14px #20212308}
+.explore-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.explore-reference{width:100%;max-width:1120px;margin:0 auto}
+.explore-reference-cards{max-width:760px}
+.explore-card-layout{position:relative}
+.explore-card-layout .save-swipe-hint{font-size:10px;color:#8b909a;margin:0 0 8px}
+.explore-card-layout .swipe-card{touch-action:pan-y pinch-zoom}
+.explore-card-layout .explore-vacancy-card{height:clamp(300px,calc(100svh - 265px),720px)}
+.explore-vacancy-card{display:flex;flex-direction:column;height:clamp(460px,calc(100svh - 165px),780px);background:#fff;border-radius:28px;box-shadow:0 5px 30px #20212310;overflow:hidden;min-width:0;color:#202123}
+.explore-card-header{padding:22px 24px 0;flex-shrink:0;touch-action:pan-y pinch-zoom}
+.explore-card-layout .explore-card-header{touch-action:pan-down pinch-zoom}
+.explore-card-top{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:17px}
+.explore-company-mark{display:flex;align-items:center;justify-content:center;width:52px;height:52px;border:1px solid #dedfe3;border-radius:16px;font-size:30px;font-weight:650;background:#f5f5f6;color:#464a52}
+.explore-card-top>div{display:flex;align-items:center;gap:9px}
+.explore-round-action{display:flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:50%;background:#f5f5f6;color:#202123}
+.explore-card-header h2{font-size:27px;line-height:1.3;font-weight:500;letter-spacing:-.6px;overflow-wrap:anywhere;margin:0 0 15px}
+.explore-company-meta{display:flex;align-items:center;gap:8px;color:#858b97;font-size:14px;margin:0;min-width:0}
+.explore-company-meta span{white-space:nowrap;text-overflow:ellipsis;overflow:hidden;min-width:0}
+.explore-company-meta svg{flex-shrink:0}
+.explore-fact-chips{display:flex;flex-wrap:wrap;gap:8px;margin:17px 0 16px}
+.explore-fact-chips>span{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:999px;background:#f5f5f6;font-size:13px;color:#202123;max-width:100%;overflow-wrap:anywhere}
+.explore-fact-chips>span.green{background:#edf9f2;color:#3ca565}
+.explore-card-body{flex:1;min-height:0;overflow-y:auto;padding:0 24px 20px;scrollbar-width:thin;overscroll-behavior:contain;touch-action:pan-y pinch-zoom}
+.explore-detail-panel{padding:17px 17px 14px;margin:0 0 15px;background:#fff;border-radius:22px;box-shadow:0 3px 17px #2021230b}
+.explore-detail-panel h3{font-size:16px;line-height:1.4;font-weight:650;color:#454a53;margin:0 0 12px}
+.explore-detail-panel p,.explore-detail-panel li{font-size:14px;line-height:1.65;color:#858b97}
+.explore-detail-panel ul{padding-left:17px;margin:0 0 8px}
+.explore-detail-panel li{padding-left:2px;margin:0 0 10px}
+.explore-role-text{white-space:pre-line;overflow-wrap:anywhere}
+.explore-read-more{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:8px 0 0;border:0;background:transparent;color:#3da365;font-size:14px;font-weight:600}
+.explore-read-more .is-up{transform:rotate(180deg)}
+.explore-card-links{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;padding:0 3px}
+.explore-card-links button,.explore-card-links a{display:inline-flex;align-items:center;gap:5px;background:transparent;border:0;padding:5px 0;color:var(--accent);font-size:12px}
+.explore-card-layout .similar-drag-handle{padding:5px 10px;font-size:9px;border:0;color:#989da5}
+.explore-card-layout .swipe-actions{position:static;transform:none;display:flex;justify-content:center;align-items:center;gap:20px;width:250px;max-width:100%;margin:14px auto 0;padding:0}
+.explore-card-layout .swipe-actions .decision{width:54px;height:54px;min-width:0;background:#fff;color:var(--accent);border:1px solid #e2e5e8;box-shadow:0 3px 14px #20212315;border-radius:50%}
+.explore-card-layout .swipe-actions .decision svg{width:22px;height:22px;fill:none}
+.explore-card-layout .swipe-actions .decision span{font-size:9px}
+.explore-card-layout .swipe-sync{font-size:10px;min-height:22px;margin:4px auto 0}
+.explore-card-layout.is-empty .swipe-actions{position:static;transform:none;margin:14px auto;width:auto}
+.explore-card-layout.is-empty .pass-button,.explore-card-layout.is-empty .apply-button,.explore-card-layout.is-empty .undo-button:disabled{display:none}
+.explore-page-hint{display:flex;gap:6px;justify-content:center;align-items:center;color:#8b909a;font-size:10px;text-align:center;margin:8px 0 0}
+.explore-reference-grid-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.explore-vacancy-card.is-grid{height:600px}
+.explore-vacancy-card.is-grid .explore-card-body{padding-bottom:15px;overscroll-behavior:auto}
+.explore-grid-decisions{display:flex;align-items:center;justify-content:center;gap:22px;padding:12px;background:#fff}
+.explore-grid-decisions button{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 15px;border:0;border-radius:999px;color:#fff;font-size:12px}
+.explore-grid-decisions .explore-reject{background:#ef1515}.explore-grid-decisions .explore-apply{background:#219444}
+.explore-grid-undo{margin-top:15px}
+.explore-empty{padding:60px 25px;text-align:center;background:#fff;border-radius:25px;min-height:350px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;color:var(--muted)}
+.explore-empty h2{color:var(--text)}.explore-empty p{max-width:410px}
+.explore-view-settings{margin:0 0 22px;padding:15px;border:1px solid var(--line);border-radius:15px}
+.explore-view-settings legend{font-size:14px;font-weight:600;padding:0 6px}
+.explore-view-settings>div{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.explore-view-settings button{display:flex;align-items:center;justify-content:center;gap:8px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--text)}
+.explore-view-settings button[aria-pressed=true]{border-color:var(--accent);background:var(--accent-soft,#edf5f0);color:var(--accent)}
+.explore-view-settings p{font-size:11px;color:var(--muted);margin-top:10px}
+.explore-settings-heading{border-top:1px solid var(--line);padding-top:16px;margin-top:0}
+.explore-account-link{margin-top:18px}
+@media(max-width:700px){.explore-reference-grid-list{grid-template-columns:minmax(0,1fr)}.explore-page-main{padding:6px 10px 90px!important}.explore-vacancy-card{border-radius:25px;height:clamp(430px,calc(100svh - 170px),740px)}.explore-card-header{padding:16px 16px 0}.explore-card-body{padding-left:16px;padding-right:16px}.explore-card-header h2{font-size:23px;letter-spacing:-.4px}.explore-company-mark{width:48px;height:48px;font-size:27px}.explore-company-meta{font-size:12px}.explore-fact-chips>span{font-size:12px;padding:7px 10px}.explore-detail-panel{padding:15px;border-radius:20px}.explore-detail-panel h3{font-size:15px}.explore-detail-panel p,.explore-detail-panel li{font-size:13px}.explore-card-layout .swipe-actions{gap:18px}.explore-vacancy-card.is-grid{height:550px}}
+@media(prefers-reduced-motion:reduce){.explore-card-layout .swipe-actions .decision:active{transform:none}}

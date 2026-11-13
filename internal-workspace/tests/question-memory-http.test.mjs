@@ -1,0 +1,51 @@
+import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8792';if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Use an isolated loopback Worker.');
+const owner='question-memory-'+randomUUID(),auth={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':'questions@example.test'};let count=0;
+const eq=(a,b)=>{assert.equal(a,b);count++;};
+async function call(path,{method='GET',body,headers=auth}={}){const r=await fetch(base+path,{method,headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body)});return{status:r.status,data:await r.json()};}
+let current=(await call('/api/workspace')).data;
+async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});eq(r.status,200);current=r.data;}
+await act({type:'complete_onboarding',fullName:'Question QA',headline:'SOC analyst',targetRole:'SOC Analyst'});
+const upload=new FormData();upload.set('revision',String(current.revision));upload.set('file',new File(['Question QA\nquestions@example.test\nEXPERIENCE\nSOC Analyst 2023 - 2025\nInvestigated Splunk alerts.'],'question-qa.txt',{type:'text/plain'}));current=(await call('/api/files',{method:'POST',body:upload})).data;
+const pair=(await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}})).data;const worker={Authorization:'Bearer '+JSON.parse(pair.token).token};current=(await call('/api/workspace')).data;
+await act({type:'add_job',title:'SOC Analyst',company:'Fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Fictional question-learning application; no employer is contacted.',skills:['Splunk']});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;eq(task.applicantProfile.employerQuestions.length,0);
+const overflow=Array.from({length:55},(_,i)=>({question:`Optional extra question ${i}?`,field_type:'text'}));
+eq((await call('/api/application-agent/questions',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:'00000000-0000-0000-0000-000000000000',questions:overflow}})).status,409);
+const learned=(await call('/api/application-agent/questions',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,questions:overflow}}));eq(learned.status,200);eq(learned.data.saved,55);
+eq((await call('/api/workspace')).data.state.applications[0].status,'processing');
+const report={questions:[{question:'Why this role?',field_type:'textarea'},{question:'Have you worked with Kubernetes?',field_type:'select',options:['Yes','No']},{question:'City',field_type:'text'},{question:'Do you require sponsorship for this role?',field_type:'select',options:['Yes','No']},{question:'I agree to privacy terms',field_type:'checkbox'},{question:'Which of the following best describes you?',field_type:'combobox',options:['I am a human.','I am an AI, bot, or automated program.']}],answers:[{question:'Why this role?',value:'I would use the Splunk investigations documented in my CV.',field_type:'textarea',source:'cv_and_job',evidence:'Investigated Splunk alerts.',automatic:true}],unresolved:[{question:'Have you worked with Kubernetes?',field_id:'unknown',reason:'Not established.'}]};
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Missing a factual answer.',report}})).status,200);
+eq((await call('/api/application-agent/questions',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,questions:overflow}})).status,409);
+current=(await call('/api/workspace')).data;eq(current.state.accountProfile.employerQuestions.length,61);const learnedRevision=current.revision;
+const why=current.state.accountProfile.employerQuestions.find(q=>q.question==='Why this role?');
+await act({type:'draft_employer_answers',questionId:why.id});
+const drafted=current.state.accountProfile.employerQuestions.find(q=>q.id===why.id);eq(drafted.aiDraft,true);eq(drafted.source,'cv_and_job');eq(drafted.answer.includes('Splunk'),true);eq(current.state.applications[0].status,'needs_attention');
+const q=current.state.accountProfile.employerQuestions.find(q=>q.question.includes('Kubernetes'));
+await act({type:'save_employer_answer',questionId:q.id,answer:'Yes'});
+eq(current.state.accountProfile.employerQuestions.find(item=>item.id===q.id).source,'user');
+for(const [question,answer,policy] of [['City','Lagos','exact_question'],['Do you require sponsorship for this role?','No','exact_question'],['I agree to privacy terms','Yes','manual_only'],['Which of the following best describes you?','I am a human.','manual_only']]){
+ const row=current.state.accountProfile.employerQuestions.find(q=>q.question===question);
+ await act({type:'save_employer_answer',questionId:row.id,answer});eq(current.state.accountProfile.employerQuestions.find(q=>q.id===row.id).reusePolicy,policy);
+}
+eq((await call('/api/workspace')).data.state.accountProfile.employerQuestions.find(q=>q.question==='City').answer,'Lagos');
+await act({type:'complete_onboarding',fullName:'Updated QA',headline:'Still saved',targetRole:'SOC Analyst'});eq(current.state.accountProfile.employerQuestions.length,61);
+const other={'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'};const otherState=(await call('/api/workspace',{headers:other})).data;
+eq((await call('/api/workspace',{method:'POST',headers:other,body:{revision:otherState.revision,action:{type:'save_employer_answer',questionId:q.id,answer:'No'}}})).status,404);
+await act({type:'queue_application_agent',applicationId:task.requestId});const next=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+eq(next.applicantProfile.employerQuestions.find(item=>item.id===q.id).answer,'Yes');current=(await call('/api/workspace')).data;
+await act({type:'save_employer_answer',questionId:q.id,answer:'No'});
+eq((await call('/api/application-agent/authorize',{method:'POST',headers:worker,body:{requestId:next.requestId,claimId:next.claimId}})).status,409);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:next.requestId,claimId:next.claimId,status:'needs_attention',message:'Profile changed; fictional test stopped before delivery.'}})).status,200);current=(await call('/api/workspace')).data;
+eq((await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'application',applicationId:task.requestId,confirmation:'PERMANENTLY DELETE'}})).status,200);
+current=(await call('/api/workspace')).data;eq(current.state.accountProfile.employerQuestions.length,5);eq(current.state.accountProfile.employerQuestions[0].source,'user');
+const old=(await call('/api/history?revision='+learnedRevision)).data;eq(old.state.accountProfile.employerQuestions.length,0);
+await act({type:'add_job',title:'Second SOC Analyst',company:'Different fixture employer',location:'Remote',workMode:'Remote',url:'https://another-fixture.example/'+owner,description:'A second fictional employer verifies global saved answers. No employer is contacted.',skills:['Splunk']});
+const secondJob=current.state.jobs.find(job=>job.company==='Different fixture employer');await act({type:'decide_job',jobId:secondJob.id,decision:'apply'});
+const different=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+eq(different.job.id,secondJob.id);const globalAnswer=different.applicantProfile.employerQuestions.find(q=>q.question==='Do you require sponsorship for this role?');eq(globalAnswer.answer,'No');eq(globalAnswer.reusePolicy,'exact_question');eq(globalAnswer.jobSpecific,false);
+eq((await call('/api/application-agent/authorize',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId}})).status,200);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:different.requestId,claimId:different.claimId,status:'needs_attention',message:'Second fictional employer checked; no real submission.',report:{questions:[{question:'Why are you interested? Please do not use AI or ChatGPT for this application.',field_type:'textarea'}],answers:[{question:'Why are you interested? Please do not use AI or ChatGPT for this application.',value:'Earlier generated fixture text',source:'cv_and_job'}]}}})).status,200);
+current=(await call('/api/workspace')).data;await act({type:'draft_employer_answers'});
+const restricted=current.state.accountProfile.employerQuestions.find(q=>q.question.includes('Please do not use AI'));eq(restricted.answer.includes('Splunk'),true);eq(restricted.generationNote,'');eq(current.state.applications[0].status,'needs_attention');
+console.log(`PASS ${count} question-memory HTTP checks: learning, persistence, manual fact reuse, profile saves, owner isolation, claim snapshots, stale-answer revocation and historical erasure.`);

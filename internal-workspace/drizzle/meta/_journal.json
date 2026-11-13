@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792083130809,
+      "tag": "0000_youthful_mattie_franklin",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1793276788600,
+      "tag": "0001_absurd_luckman",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793538996274,
+      "tag": "0002_employer_receipt_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793815244653,
+      "tag": "0003_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793815668617,
+      "tag": "0004_career_records",
+      "breakpoints": true
+    }
+  ]
+}

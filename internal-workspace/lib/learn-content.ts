@@ -1,0 +1,13 @@
+import choose from '../content/learn/choose-cyber-role.md?raw';
+import ats from '../content/learn/ats-without-myths.md?raw';
+import summary from '../content/learn/evidence-summary.md?raw';
+import bullets from '../content/learn/stronger-bullets.md?raw';
+import tailoring from '../content/learn/truthful-tailoring.md?raw';
+import letter from '../content/learn/purposeful-cover-letter.md?raw';
+import linkedin from '../content/learn/linkedin-evidence.md?raw';
+import star from '../content/learn/star-stories.md?raw';
+import technical from '../content/learn/technical-interviews.md?raw';
+import change from '../content/learn/career-change.md?raw';
+import portfolio from '../content/learn/cyber-portfolio.md?raw';
+import tracker from '../content/learn/track-and-follow-up.md?raw';
+export const learningMarkdown:Record<string,string>={'choose-cyber-role':choose,'ats-without-myths':ats,'evidence-summary':summary,'stronger-bullets':bullets,'truthful-tailoring':tailoring,'purposeful-cover-letter':letter,'linkedin-evidence':linkedin,'star-stories':star,'technical-interviews':technical,'career-change':change,'cyber-portfolio':portfolio,'track-and-follow-up':tracker};

@@ -1,0 +1,19 @@
+.app-shell .topbar,
+.signed-in-page-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.app-shell .workspace-settings-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 3px 14px #20212308;
+  flex-shrink: 0;
+}
