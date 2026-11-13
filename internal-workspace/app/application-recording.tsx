@@ -2,12 +2,12 @@
 import {useEffect,useRef,useState} from 'react';
 import './workspace-header.css';
 import {createPortal} from 'react-dom';
-import {ArrowLeft,ExternalLink,Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
+import {ArrowLeft,Download,ExternalLink,Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
 import {applicationRecordingTimeline,recordingPollDelay,recordingViewMessage,type RecordingSnapshot} from '@/lib/recording-view-state';
 export function ApplicationRecording({requestId,onClose}:{requestId:string;onClose?:()=>void}){
  const [snapshot,setSnapshot]=useState<RecordingSnapshot|null>(null),[message,setMessage]=useState('Loading your private application video…'),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false),[refresh,setRefresh]=useState(0);
  const video=useRef<HTMLVideoElement>(null),blob=useRef(''),resume=useRef({requestId:'',time:0,paused:false});
- const [media,setMedia]=useState({requestId:'',url:''}),[preparing,setPreparing]=useState(false),[playbackError,setPlaybackError]=useState('');
+ const [media,setMedia]=useState({requestId:'',url:'',signature:''}),[preparing,setPreparing]=useState(false),[playbackError,setPlaybackError]=useState('');
  const close=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null),generation=useRef(0);
  const base='/api/applications/recordings?requestId='+encodeURIComponent(requestId);
  useEffect(()=>{setSnapshot(null);},[requestId]);
@@ -34,6 +34,8 @@ export function ApplicationRecording({requestId,onClose}:{requestId:string;onClo
  let timeline:ReturnType<typeof applicationRecordingTimeline>=null,timelineError='';
  try{if(snapshot)timeline=applicationRecordingTimeline(snapshot);}catch(error){timelineError=(error as Error).message;}
  const signature=JSON.stringify(timeline?.parts.map(part=>[part.attempt,part.part,part.duration])||[]);
+ const canDownload=!!timeline&&!timelineError&&!preparing&&media.requestId===requestId&&media.signature===signature&&!!media.url;
+ const downloadName='CyberApply-'+([snapshot?.employer.company,snapshot?.employer.title].filter(Boolean).join('-')||requestId).replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,130)+'.mp4';
  useEffect(()=>()=>{if(blob.current)URL.revokeObjectURL(blob.current);},[]);
  useEffect(()=>{
   const controller=new AbortController();let disposed=false;
@@ -59,7 +61,7 @@ export function ApplicationRecording({requestId,onClose}:{requestId:string;onClo
     }
     if(disposed){if(source.startsWith('blob:'))URL.revokeObjectURL(source);return;}
     const node=video.current;resume.current={requestId,time:media.requestId===requestId?node?.currentTime||0:0,paused:media.requestId===requestId?!!node?.paused:false};
-    const previous=blob.current;blob.current=source.startsWith('blob:')?source:'';setMedia({requestId,url:source});if(previous)URL.revokeObjectURL(previous);
+    const previous=blob.current;blob.current=source.startsWith('blob:')?source:'';setMedia({requestId,url:source,signature});if(previous)URL.revokeObjectURL(previous);
    }catch(error){if(!controller.signal.aborted&&!disposed)setPlaybackError((error as Error).message);}finally{if(!disposed)setPreparing(false);}
   }
   void prepare();return()=>{disposed=true;controller.abort();};
@@ -67,16 +69,17 @@ export function ApplicationRecording({requestId,onClose}:{requestId:string;onClo
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[requestId,signature,base,refresh]);
  function loaded(){const node=video.current,saved=resume.current;if(!node||saved.requestId!==requestId)return;if(saved.time>0)node.currentTime=Math.min(saved.time,Math.max(0,node.duration-.01));if(saved.paused)node.pause();}
- function keyboard(event:React.KeyboardEvent){if(event.key==='Escape'&&onClose){event.preventDefault();onClose();}if(mobile&&event.key==='Tab'){const nodes=panel.current?.querySelectorAll<HTMLElement>('button,select,video[controls]');if(nodes?.length){const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}}
+ function keyboard(event:React.KeyboardEvent){if(event.key==='Escape'&&onClose){event.preventDefault();onClose();}if(mobile&&event.key==='Tab'){const nodes=panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled),a[href],select:not(:disabled),video[controls]');if(nodes?.length){const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}}
  const content=<section ref={panel} className={onClose?'application-live-view'+(mobile?' mobile-live-video':''):'agent-watch-page'} role={mobile?'dialog':'region'} aria-modal={mobile||undefined} aria-label="Saved application recordings" onKeyDown={keyboard}>
   <header className="agent-watch-header signed-in-page-header">{!onClose&&<a className="brand" href="/workspace">CyberApply</a>}<strong><Film size={19}/>Application recording</strong><>{onClose?<button ref={close} type="button" className="button quiet" onClick={onClose}><X size={17}/>{mobile?'Close':'Hide'}</button>:<a className="button quiet" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a>}</></header>
   <p className="subtle"><LockKeyhole size={15}/>Private to your account. Replaying never applies, submits or retries a job.</p>
   {snapshot&&<div className="application-detail-section"><h2>{snapshot.employer.title}</h2><p>{snapshot.employer.company}</p>{snapshot.employer.url&&<a className="button quiet" href={snapshot.employer.url} target="_blank" rel="noopener noreferrer">Open employer application<ExternalLink size={15}/><span className="sr-only"> (opens in a new tab)</span></a>}<p className="subtle">{snapshot.applicationStatus==='uncertain'?'Employer receipt remains unconfirmed. Do not submit again until its outcome is checked.':snapshot.applicationStatus==='applied'?'Employer confirmation is recorded in Applications.':'See Applications for the employer outcome.'}</p></div>}
   {message&&<p role="status">{message}</p>}
   {timelineError&&<p role="alert">{timelineError}</p>}
-  {timeline&&<>{preparing&&<p role="status">Updating your continuous application video…</p>}{playbackError&&<p role="alert">{playbackError}</p>}<div className="agent-watch-screen"><video ref={video} src={media.requestId===requestId?media.url:undefined} onLoadedMetadata={loaded} autoPlay muted controls playsInline preload="auto" controlsList="nodownload" onError={()=>{if(!preparing)setPlaybackError('This video could not play. Refresh the video or try an updated browser.');}}/></div>{timeline.partial&&<p role="status">Some footage is missing or capture was interrupted. This video contains all available work so far; the employer outcome is separate.</p>}<p className="subtle">One application video · {Math.round(timeline.duration)} seconds · Updated {new Date(timeline.recordedAt).toLocaleString()}. Later work is added automatically. This video does not by itself prove employer submission. Private sign-in windows and time spent waiting for your answers are excluded.</p></>}
-  <div className="application-overview-actions"><button type="button" className="button quiet" disabled={busy} onClick={()=>setRefresh(value=>value+1)}><RefreshCw size={15}/>Refresh video</button></div>
-  <p className="subtle">Recordings may contain CV and profile information entered in the form. They stay private until you permanently delete the application or your account.</p>
+  {timeline&&<>{preparing&&<p role="status">Updating your continuous application video…</p>}{playbackError&&<p role="alert">{playbackError}</p>}<div className="agent-watch-screen"><video ref={video} src={media.requestId===requestId?media.url:undefined} onLoadedMetadata={loaded} autoPlay muted controls playsInline preload="auto" onError={()=>{if(!preparing)setPlaybackError('This video could not play. Refresh the video or try an updated browser.');}}/></div>{timeline.partial&&<p role="status">Some footage is missing or capture was interrupted. This video contains all available work so far; the employer outcome is separate.</p>}<p className="subtle">One application video · {Math.round(timeline.duration)} seconds · Updated {new Date(timeline.recordedAt).toLocaleString()}. Later work is added automatically. This video does not by itself prove employer submission. Private sign-in windows and time spent waiting for your answers are excluded.</p></>}
+  <div className="application-overview-actions">{timeline&&(canDownload?<a className="button quiet" href={media.url} download={downloadName}><Download size={15}/>Download video</a>:<button type="button" className="button quiet" disabled><Download size={15}/>Download video</button>)}<button type="button" className="button quiet" disabled={busy} onClick={()=>setRefresh(value=>value+1)}><RefreshCw size={15}/>Refresh video</button></div>
+  {timeline&&<p className="subtle">Download saves the available footage as one MP4. Download again after later work is added to get the updated video.</p>}
+  <p className="subtle">Recordings may contain CV and profile information entered in the form. Copies in CyberApply stay private until you permanently delete the application or your account. Downloaded copies remain on your device.</p>
  </section>;
  return mobile?createPortal(content,document.body):content;
 }
