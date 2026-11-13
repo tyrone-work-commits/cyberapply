@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Bot, Check, CheckCircle2, Clock3, Download, ExternalLink, Eye, FileText, Search, Settings, ShieldCheck, TriangleAlert, Trash2, Undo2 } from 'lucide-react';
-import type { ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-domain';
+import type { AccountProfile, ApplicationRequest, Attachment, Draft, Job } from '@/lib/cyber-domain';
 import { applicationProgress, type ProgressGroup } from '@/lib/application-progress';
 import { ApplicationDeleteDialog, type DeleteTarget } from './application-delete-dialog';
 import {ApplicationControlsDialog} from './application-controls-dialog';
@@ -23,9 +23,10 @@ function sourceName(job?: Job) {
 function timestamp(value:string){return new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});}
 const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['applied','Applied'],['check_outcome','Awaiting confirmation']];
 
-export function ApplicationOverview({settingsOpen,onCloseSettings,applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onRefreshChoices,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,employerQuestions=[]}:{
+export function ApplicationOverview({settingsOpen,onCloseSettings,applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onRefreshChoices,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,employerQuestions=[],accountProfile}:{
  settingsOpen:boolean;onCloseSettings:()=>void;
  employerQuestions?:EmployerQuestion[];
+ accountProfile?:AccountProfile;
  applications:ApplicationRequest[];jobs:Job[];drafts:Draft[];files:Attachment[];selectedCvId?:string;agentEnabled:boolean;lastSeenAt?:string;busy:boolean;
  onRefresh:(id:string)=>Promise<void>;onRefreshChoices:(id:string)=>Promise<string>;onChooseCv:()=>void;onExplore:()=>void;onQueue:(id:string)=>Promise<void>;onAnswer:(id:string,answers:{question:string;value:string}[])=>Promise<boolean>;
  onClear:()=>Promise<boolean>;onRestore:()=>Promise<void>;clearedCount?:number;
@@ -77,7 +78,7 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
     {!!progress.actionEvidence.length&&<section className="application-detail-section" aria-label="Recorded agent actions"><h4>Recorded agent actions</h4><ul>{progress.actionEvidence.map(text=><li key={text}>{text}</li>)}</ul></section>}
     <dl className="application-request-facts"><div><dt>CV for this application</dt><dd>{application.cv?.name||'No CV attached'}{application.cv&&!attachedFile&&<small>Original file unavailable</small>}</dd></div><div><dt>Vacancy source</dt><dd>{sourceName(job)}{sourceUrl&&<a href={sourceUrl} target="_blank" rel="noopener noreferrer">View vacancy<ExternalLink size={12}/></a>}</dd></div><div><dt>Requested</dt><dd>{timestamp(application.at)}</dd></div></dl>
     {progress.group==='applied'&&<div className="application-confirmation"><ShieldCheck size={19}/><div><strong>Confirmation saved</strong><p>{application.result?.receipt||confirmation?.text}</p>{confirmationUrl&&<a href={confirmationUrl} target="_blank" rel="noopener noreferrer">Open confirmation page<ExternalLink size={12}/></a>}<small>{application.receiptVerification?`Matched the role, employer, recipient, date and authenticated sender. Received ${timestamp(application.receiptVerification.receivedAt)}.`:'The browser agent recorded this evidence. Check your email for any employer follow-up.'}</small></div></div>}
-    {!!applicationFormQuestions(application,employerQuestions).length&&<ApplicationQuestionAnswers key={`${application.id}-${application.result?.at||''}`} application={application} employerQuestions={employerQuestions} busy={busy} onRefreshChoices={()=>onRefreshChoices(application.id)} onSave={answers=>onAnswer(application.id,answers)}/>}
+    {!!applicationFormQuestions(application,employerQuestions).length&&<ApplicationQuestionAnswers key={`${application.id}-${application.cv?.fileId||''}`} application={application} employerQuestions={employerQuestions} accountProfile={accountProfile} busy={busy} onRefreshChoices={()=>onRefreshChoices(application.id)} onSave={answers=>onAnswer(application.id,answers)}/>}
     {!!application.confirmedAnswers?.length&&<details className="application-saved-draft"><summary>Review your saved answers ({application.confirmedAnswers.length})</summary><dl>{application.confirmedAnswers.map((answer,index)=><div className="application-detail-section" key={`${answer.question}-${index}`}><dt><strong>{answer.question}</strong></dt><dd style={{margin:0,whiteSpace:'pre-wrap'}}>{answer.value}</dd></div>)}</dl></details>}
     <div className="application-overview-actions">
      {applyUrl&&<a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer" title="Open employer application (opens in a new tab)">Open employer application<ExternalLink size={15}/><span className="sr-only"> (opens in a new tab)</span></a>}
