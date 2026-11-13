@@ -1,5 +1,5 @@
 "use client";
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {Check} from 'lucide-react';
 import type {AccountProfile,ApplicationRequest} from '@/lib/cyber-domain';
 import {applicationAnswerPrefill} from '@/lib/application-answer-prefill';
@@ -28,6 +28,8 @@ export function ApplicationQuestionAnswers({application,busy,onSave,onRefreshCho
  const [confirmed,setConfirmed]=useState(false);
  const [refreshingChoices,setRefreshingChoices]=useState(false),[choiceMessage,setChoiceMessage]=useState('');
  const [saving,setSaving]=useState(false),[saved,setSaved]=useState(false);
+ const [minimized,setMinimized]=useState(false),summary=useRef<HTMLElement>(null);
+ useEffect(()=>{if(minimized)summary.current?.focus();},[minimized]);
  const reviewSignature=JSON.stringify(questions.map(item=>[item.question,values[item.question],item.options]));
  useEffect(()=>{setConfirmed(false);setSaved(false);},[reviewSignature]);
  const answers=questions.filter(item=>!item.verification).map(item=>({question:item.question,value:(values[item.question]||'').trim()})).filter(item=>item.value);
@@ -35,9 +37,10 @@ export function ApplicationQuestionAnswers({application,busy,onSave,onRefreshCho
  const alreadySaved=hasVerification&&!!saveReceipt&&!hasAnswerChanges;
  const invalidChoice=questions.some(item=>!item.verification&&item.isDropdown&&!!values[item.question]&&!item.options.includes(values[item.question]));
  const update=(question:string,value:string)=>{setValues(current=>({...current,[question]:value}));setConfirmed(false);setSaved(false);};
- if(!questions.length)return null;
- if(stage==='in_progress')return <section className="application-question-answers" role="status"><h4>{application.status==='queued'?'Answers saved — waiting for the agent':'Agent continuing with your saved answers'}</h4><p>Your answers are retained. You do not need to approve them again while this request is queued or running. You can review them in “Review your saved answers” below.</p></section>;
-  return <form className="application-question-answers" onSubmit={async event=>{event.preventDefault();if(alreadySaved||readOnly||busy||saving||!confirmed||!answers.length||invalidChoice)return;setSaving(true);try{if(await onSave(answers)){setSaved(true);setConfirmed(false);}}finally{setSaving(false);}}}>
+ if(!questions.length&&!application.confirmedAnswers?.length)return null;
+ function disclosure(content:ReactNode){return <details className="application-question-answers" open={!minimized} onToggle={event=>setMinimized(!event.currentTarget.open)}><summary ref={summary}><strong>{minimized?'Show employer questions':'Minimize employer questions'}</strong>{(saved||saveReceipt)&&' · Answers saved'}{hasVerification&&' · Employer verification still required'}</summary>{content}</details>;}
+ if(stage==='in_progress'||!questions.length)return disclosure(<section role="status"><h4>{stage!=='in_progress'?'Saved employer answers':application.status==='queued'?'Answers saved — waiting for the agent':'Agent continuing with your saved answers'}</h4><p>Your answers are retained. You do not need to approve them again while this request is queued or running.</p><dl>{application.confirmedAnswers?.map((answer,index)=><div key={index} className="application-detail-section"><dt><strong>{answer.question}</strong></dt><dd style={{margin:0,whiteSpace:'pre-wrap'}}>{answer.value}</dd></div>)}</dl></section>);
+  return disclosure(<form onSubmit={async event=>{event.preventDefault();if(alreadySaved||readOnly||busy||saving||!confirmed||!answers.length||invalidChoice)return;setSaving(true);try{if(await onSave(answers)){setSaved(true);setConfirmed(false);setMinimized(true);}}finally{setSaving(false);}}}>
   <h4>{hasVerification?'Employer verification is required':readOnly?'Captured employer questions':questions.some(item=>item.generated)?'Generated answers need your approval':'Answer this employer’s questions'}</h4>
   <p className="subtle">{hasVerification?'Your ordinary answers stay saved. The check below must be completed on the employer website. You can update other answers here, but saving them cannot complete verification or restart this application.':readOnly?"Captured employer questions are shown for reference. Answers are read-only in this application's current state.":"The dropdowns below use choices captured from this employer form, including menus the agent already answered. Approving and saving also adds your answers to Answers library for future matching questions and offered choices. Approving and saving resumes your application agent with these answers."}</p>
   {!readOnly&&questions.some(item=>item.isDropdown)&&<div><button type="button" className="button quiet" disabled={busy||saving||refreshingChoices} onClick={async()=>{setRefreshingChoices(true);setChoiceMessage('');try{setChoiceMessage(await onRefreshChoices());}catch(error){setChoiceMessage(error instanceof Error?error.message:'Employer choices could not be refreshed.');}finally{setRefreshingChoices(false);}}}>{refreshingChoices?'Reading employer dropdowns…':'Refresh employer dropdowns'}</button><p className="subtle">Reads this vacancy’s current question choices. Your answers stay in place; this does not restart or submit the application.</p>{choiceMessage&&<p className="subtle" role="status">{choiceMessage}</p>}</div>}
@@ -55,5 +58,5 @@ export function ApplicationQuestionAnswers({application,busy,onSave,onRefreshCho
   <button type="submit" className="button quiet" disabled={alreadySaved||busy||saving||!confirmed||!answers.length||invalidChoice}><Check size={16}/>{saving?(hasVerification?'Saving answers…':'Saving and continuing…'):alreadySaved?'Answers saved':hasVerification?'Save answer changes':'Approve and save answers'}</button>
   <p className="subtle" role="status">{saveReceipt&&<><strong>{hasAnswerChanges?'Previous answers saved.':'Saved successfully.'}</strong> {saveReceipt.count?`${saveReceipt.count} answer update${saveReceipt.count===1?'':'s'} saved to this application and Answers library. `:'Your confirmed answers are saved to this application and Answers library. '}<span>Last saved: <time dateTime={saveReceipt.at}>{new Date(saveReceipt.at).toLocaleString()}</time>. </span></>}{hasVerification?(alreadySaved?'No answer changes are waiting to be saved. The remaining employer verification is a separate step.':hasAnswerChanges?'You have unsaved answer changes. Review and save them; employer verification remains a separate step.':'Your saved answers remain available. Update them only if needed; verification is a separate employer step.'):saved?'The agent continues automatically when the request is ready. Any remaining connection or validation issue is shown above.':'Update missing details in Edit Profile, or save the other answers above to this application and Answers library. Approve and save to let the agent continue automatically.'}</p>
   </>}
- </form>;
+ </form>);
 }
