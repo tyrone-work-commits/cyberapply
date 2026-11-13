@@ -18,14 +18,17 @@ eq((await call('/api/application-agent/result',{headers:worker,body:{requestId:t
 current=(await call('/api/workspace')).data;
 await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Night'}],confirmation:'CONFIRMED',continueAgent:true});
 eq(current.state.applications[0].status,'queued');eq(current.state.applications.length,1);
+eq(current.state.applications[0].answerSave.count,1);eq(Number.isFinite(Date.parse(current.state.applications[0].answerSave.at)),true);
 task=(await call('/api/application-agent/claim',{headers:worker,body:{profileAnswersVersion:4}})).data.task;eq(task.confirmedAnswers[0].value,'Night');
 const verification={...ordinary,questions:[...ordinary.questions,{question:'Which best describes you?',field_type:'combobox',options:['I am a human','I am an AI, bot, or automated program']}],unresolved:[{question:'Which best describes you?',field_type:'combobox',source:'verification'}]};
 eq((await call('/api/application-agent/result',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional employer verification; no submission.',report:verification}})).status,200);
 current=(await call('/api/workspace')).data;
+eq(current.state.applications[0].answerSave.count,1);
 await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Day'}],confirmation:'CONFIRMED',continueAgent:true});
 eq(current.state.applications[0].status,'needs_attention');eq(current.state.applications[0].agentAuthorizedAt,undefined);eq(current.state.applications[0].confirmedAnswers[0].value,'Day');eq(current.state.accountProfile.employerQuestions.find(q=>q.question==='Preferred shift?').answer,'Day');eq(current.state.applications.length,1);
 eq((await call('/api/application-agent/claim',{headers:worker,body:{profileAnswersVersion:4}})).data.task,null);
 current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'needs_attention');assert.match(current.state.applications[0].result.message,/verification/);count++;
+eq(current.state.applications[0].answerSave.count,1);eq(Number.isFinite(Date.parse(current.state.applications[0].answerSave.at)),true);
 const foreign={'oai-authenticated-user-id':'other-'+randomUUID(),'oai-authenticated-user-email':'other@example.test'},other=await call('/api/workspace',{headers:foreign});
 eq((await call('/api/workspace',{headers:foreign,body:{revision:other.data.revision,action:{type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Night'}],confirmation:'CONFIRMED',continueAgent:true}}})).status,409);
 console.log(`PASS ${count} answer-continuation HTTP checks: same-request normal continuation, saved answers, explicit verification pause, no repeated claim and owner isolation.`);

@@ -1,9 +1,28 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {mkdir,readFile,writeFile} from 'node:fs/promises';
 const dir='.sites-runtime/form-question-tests';await mkdir(dir,{recursive:true});
 for(const name of ['features','candidate-facts','cover-letter','employer-location-choices','employer-questions','application-form-questions','application-question-choices','cyber-domain'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
-const {applicationFormQuestions,canEditApplicationQuestions,applicationAnswerStage,applicationVerificationQuestions}=await import('../'+dir+'/application-form-questions.mjs');
+const {applicationFormQuestions,canEditApplicationQuestions,applicationAnswerStage,applicationVerificationQuestions,applicationAnswerSave}=await import('../'+dir+'/application-form-questions.mjs');
 const {emptyState:baseState,reduceAction,actionSchema}=await import('../'+dir+'/cyber-domain.mjs');
 const at='2026-11-07T12:00:00Z';
+test('answer save acknowledgement survives a report replacement and reload without implying submission',()=>{
+ const s=emptyState();s.applications=[fixture()];
+ const saved=saveAnswers(s,[{question:'Preferred shift?',value:'Night'}]).state;
+ assert.deepEqual(saved.applications[0].answerSave,{at,count:1});
+ saved.applications[0].report={unresolved:[{question:'Are you human?',source:'verification'}]};
+ saved.applications[0].result={at:'2026-11-07T12:01:00Z',message:'A separate verification is required.'};
+ const reloaded=JSON.parse(JSON.stringify(saved));assert.deepEqual(applicationAnswerSave(reloaded.applications[0]),{at,count:1});
+ assert.equal(reloaded.applications[0].status,'needs_action');assert.equal(reloaded.applications[0].result.receipt,undefined);
+ reloaded.attachments=[{id:'receipt-cv',key:'fixture',name:'fictional.txt',type:'text/plain',size:100,createdAt:at}];reloaded.selectedCvId='receipt-cv';
+ reloaded.drafts=[{id:'receipt-draft',jobId:'job',text:'Fictional draft',version:1}];reloaded.applications[0].draftId='receipt-draft';
+ const refreshed=reduceAction(reloaded,{type:'refresh_application_materials',applicationId:'application'},'interface',at).state;
+ assert.equal(refreshed.applications[0].answerSave,undefined);assert.equal(applicationAnswerSave(refreshed.applications[0]),null);
+});
+test('older acknowledged saves display without rewriting records; invalid receipts or absent answers do not',()=>{
+ const legacy=fixture({confirmedAnswers:[{question:'Preferred shift?',value:'Night'}],result:{at,message:'Your answers are saved. This employer requires verification.'}}),before=structuredClone(legacy);
+ assert.deepEqual(applicationAnswerSave(legacy),{at,count:null});assert.deepEqual(legacy,before);
+ for(const receipt of [{at:'bad',count:1},{at,count:0},{at,count:201},{at,count:1.5}])assert.equal(applicationAnswerSave(fixture({confirmedAnswers:legacy.confirmedAnswers,answerSave:receipt})),null);
+ assert.equal(applicationAnswerSave(fixture({answerSave:{at,count:1}})),null);
+});
 test('queued/running questions are progress, not another editable approval form',()=>{
  for(const status of ['queued','processing'])assert.equal(applicationAnswerStage(fixture({status,report:{unresolved:[{question:'Are you a human?',source:'verification'}]}})),'in_progress');
  for(const status of ['uncertain','applied','failed'])assert.equal(applicationAnswerStage(fixture({status})),'reference');

@@ -46,3 +46,13 @@ export function applicationAnswerStage(application:ApplicationRequest,memory:Emp
  if(!canEditApplicationQuestions(application))return 'reference' as const;
  return applicationVerificationQuestions(application,memory).length?'verification' as const:'editable' as const;
 }
+
+/** Durable acknowledgement of a CyberApply answer save, never an employer receipt. */
+export function applicationAnswerSave(application:ApplicationRequest):{at:string;count:number|null}|null{
+ if(!application.confirmedAnswers?.length)return null;
+ const receipt=application.answerSave;
+ if(receipt&&Number.isFinite(Date.parse(receipt.at))&&Number.isInteger(receipt.count)&&receipt.count>=1&&receipt.count<=MAX_APPLICATION_QUESTIONS)return receipt;
+ // Older saves already have a server acknowledgement tied to this request.
+ if(application.result?.message.startsWith('Your answers are saved.')&&Number.isFinite(Date.parse(application.result.at)))return {at:application.result.at,count:null};
+ return null;
+}
