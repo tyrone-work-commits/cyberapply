@@ -17,10 +17,11 @@ async function send(headers={}){const r=await fetch(base+uploadPath,{method:'POS
 eq((await call(uploadPath,{headers:worker})).data.saved,false);
 eq((await send({'X-Recording-SHA256':'0'.repeat(64)})).status,400);
 eq((await call(view)).data.items.length,0);
-eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...ids,status:'needs_attention',message:'Fictional recording test paused. No employer visited.'}})).status,200);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...ids,status:'needs_attention',message:'Fictional recording test paused. No employer visited.',report:{unresolved:[{question:'Preferred shift?',field_type:'select',options:['Day','Night']}]}}})).status,200);
 let r=await send();eq(r.status,200);eq(r.data.saved,true);eq((await send()).data.alreadySaved,true);eq((await send({'X-Recording-SHA256':'1'.repeat(64)})).status,409);
 eq((await call(uploadPath,{headers:worker})).data.sha256,sha);
 r=await call(view);eq(r.data.items.length,1);eq(r.data.items[0].attempt,task.claimId);eq(r.data.items[0].duration,2);
+eq(r.data.currentAttempt,task.claimId);eq(r.data.applicationStatus,'needs_attention');eq(r.data.employer.title,'SOC Analyst');eq(r.data.employer.url,current.state.jobs[0].url);assert.ok(Number.isFinite(Date.parse(r.data.applicationUpdatedAt)));checks++;
 
 const statusBody={...ids,state:'capturing',code:'',parts:0,partial:false};
 eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:statusBody})).status,200);
@@ -41,6 +42,20 @@ for(const range of ['bytes=9999-','bytes=0-1,4-5','bytes=-0','bytes=5-2'])eq((aw
 const other={'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'};
 eq((await call(view,{headers:other})).status,404);eq((await call(media,{headers:other})).status,404);eq((await call(view,{headers:{}})).status,401);eq((await call(uploadPath.replace(task.claimId,randomUUID()),{headers:worker})).status,409);
 current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'needs_attention');
+// Continue only this fictional known-unsent request; the prior recording stays historical.
+await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Day'}],confirmation:'CONFIRMED',continueAgent:true});
+r=await call(view);eq(r.data.applicationStatus,'queued');eq(r.data.currentAttempt,null);eq(r.data.items[0].attempt,task.claimId);
+const resumed=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+eq(resumed.requestId,task.requestId);assert.notEqual(resumed.claimId,task.claimId);checks++;
+eq(resumed.confirmedAnswers.find(answer=>answer.question==='Preferred shift?').value,'Day');
+r=await call(view);eq(r.data.currentAttempt,resumed.claimId);eq(r.data.items.some(item=>item.attempt===resumed.claimId),false);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:resumed.requestId,claimId:resumed.claimId,status:'uncertain',message:'Fictional Submit clicked; no employer was contacted.'}})).status,200);
+const resumedQuery=new URLSearchParams({requestId:resumed.requestId,claimId:resumed.claimId});
+r=await fetch(base+'/api/application-agent/recording?'+resumedQuery+'&part=0',{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(bytes.length),'X-Recording-Duration':'9','X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':sha},body:bytes});eq(r.status,200);
+eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:{requestId:resumed.requestId,claimId:resumed.claimId,state:'saved',code:'',parts:1,partial:false}})).status,200);
+r=await call(view);eq(r.data.currentAttempt,resumed.claimId);eq(r.data.applicationStatus,'uncertain');eq(r.data.status.attempt,resumed.claimId);eq(r.data.items.length,2);eq(r.data.items.find(item=>item.attempt===resumed.claimId).duration,9);
+eq((await call(view+'&attempt='+resumed.claimId+'&part=0')).status,200);
+current=(await call('/api/workspace')).data;eq(current.state.applications.length,1);eq(current.state.applications[0].status,'uncertain');
 await act({type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'});eq((await call(media)).status,200);
 r=await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'cleared',confirmation:'PERMANENTLY DELETE'}});eq(r.status,200);eq((await call(media)).status,404);eq((await call(view)).status,404);
 console.log(`PASS ${checks} recording HTTP checks: checksum/idempotency, post-outcome upload, private ownership, seeking, archive retention, permanent deletion, unchanged outcome.`);

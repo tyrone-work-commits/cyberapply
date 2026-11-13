@@ -10,6 +10,7 @@ import type {EmployerQuestion} from '@/lib/employer-questions';
 import {applicationFormQuestions,applicationAnswerStage} from '@/lib/application-form-questions';
 import {ApplicationQuestionAnswers} from './application-question-answers';
 import {similarJobs} from '@/lib/job-browse';
+import {applicationEmployerLink} from '@/lib/application-employer-link';
 
 function httpsUrl(value?: string) {
   if (!value) return null;
@@ -53,7 +54,7 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
   {confirmClear&&<div ref={clearReview} tabIndex={-1} className="panel application-reset-confirm" role="group" aria-label="Confirm clearing applications"><h3>Clear your applications list?</h3><p>This clears all {applications.length} application records and {drafts.length} saved drafts, including records hidden by filters. Your CVs, profile, saved jobs and agent connection stay saved. Queued requests will stop. This does not withdraw anything sent to an employer.</p><p>You can restore cleared records here. A previously submitted or uncertain application remains protected against an accidental duplicate.</p><div className="account-actions"><button className="button quiet" type="button" disabled={busy} onClick={()=>setConfirmClear(false)}>Cancel</button><button className="button" type="button" disabled={busy} onClick={()=>void onClear().then(saved=>{if(saved){setConfirmClear(false);setFilter('all');setSearch('');}})}><Trash2 size={16}/>Clear applications</button></div></div>}
   </section>}
   </ApplicationControlsDialog>
-  <p className="subtle">New agent runs save a private video here after they finish or pause. Choose Watch recording to replay it.</p>
+  <p className="subtle">Open the employer application from any card. Watch recording follows the latest attempt, including work after you save employer answers, and updates as its video uploads.</p>
   {(clearedCount>0||!legacyDeleted)&&<div className="application-reset-controls">
    {clearedCount>0&&<button className="button quiet" type="button" disabled={busy} onClick={()=>void onRestore()}><Undo2 size={16}/>Restore cleared applications ({clearedCount})</button>}
    {clearedCount>0&&<button className="button quiet danger" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'cleared',label:`${clearedCount} cleared application records and their saved drafts`})}><Trash2 size={16}/>Permanently delete cleared applications</button>}
@@ -63,7 +64,7 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
   <div className="application-list-heading"><div><h2>Your applications</h2><p role="status">{visible.length} {visible.length===1?'application':'applications'}{filter==='all'?'':` · ${filters.find(([key])=>key===filter)?.[1]}`}</p></div><label className="application-search"><Search size={16}/><span className="sr-only">Find an application by role, company or source</span><input type="search" placeholder="Find a role or company" value={search} onChange={event=>setSearch(event.target.value)}/></label></div>
   {visible.length?<ol className="application-overview-list">{visible.map(application=>{
    const job=jobs.find(item=>item.id===application.jobId),progress=applicationProgress(application),attachedFile=files.find(file=>file.id===application.cv?.fileId),draft=drafts.find(item=>item.id===application.draftId),verificationNeeded=applicationAnswerStage(application,employerQuestions)==='verification';
-   const sourceUrl=httpsUrl(application.sourceUrl),applyUrl=httpsUrl(job?.applyUrl)||sourceUrl;
+   const sourceUrl=httpsUrl(application.sourceUrl),applyUrl=applicationEmployerLink(application,job);
    const needsUpdate=['materials_changed','cv_required','candidate_review_required'].includes(application.reason)||!attachedFile;
    const canUpdate=!!chosenCv&&['needs_action','queued','needs_attention','failed'].includes(application.status)&&needsUpdate;
    const canChangeCv=!!chosenCv&&!!attachedFile&&application.cv?.fileId!==chosenCv.id&&['needs_action','needs_attention','failed'].includes(application.status);
@@ -79,11 +80,11 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
     {!!applicationFormQuestions(application,employerQuestions).length&&<ApplicationQuestionAnswers key={`${application.id}-${application.result?.at||''}`} application={application} employerQuestions={employerQuestions} busy={busy} onRefreshChoices={()=>onRefreshChoices(application.id)} onSave={answers=>onAnswer(application.id,answers)}/>}
     {!!application.confirmedAnswers?.length&&<details className="application-saved-draft"><summary>Review your saved answers ({application.confirmedAnswers.length})</summary><dl>{application.confirmedAnswers.map((answer,index)=><div className="application-detail-section" key={`${answer.question}-${index}`}><dt><strong>{answer.question}</strong></dt><dd style={{margin:0,whiteSpace:'pre-wrap'}}>{answer.value}</dd></div>)}</dl></details>}
     <div className="application-overview-actions">
+     {applyUrl&&<a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer" title="Open employer application (opens in a new tab)">Open employer application<ExternalLink size={15}/><span className="sr-only"> (opens in a new tab)</span></a>}
      {application.agentVersion===2&&<><a id={'watch-live-'+application.id} className="button quiet" href={'/application-watch?request='+encodeURIComponent(application.id)} target="_blank" rel="noopener noreferrer" title="Watch live (opens in a new tab)"><Eye size={15}/>Watch live<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a><a id={'watch-recording-'+application.id} className="button quiet" href={'/application-watch?request='+encodeURIComponent(application.id)+'&mode=recording'} target="_blank" rel="noopener noreferrer" title="Watch recording (opens in a new tab)"><Eye size={15}/>Watch recording<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a></>}
      {progress.canQueue&&!!attachedFile&&!needsUpdate&&!answeringQuestions&&(agentEnabled?<button type="button" className="button" disabled={busy} onClick={()=>void onQueue(application.id)}><Bot size={15}/>{application.confirmedAnswers?.length?'Continue with my answers':'Continue automatic application'}</button>:<a className="button" href="/account#application-agent-heading"><Bot size={15}/>Connect agent to apply</a>)}
      {canUpdate&&<button type="button" className="button" disabled={busy} onClick={()=>void onRefresh(application.id)}><FileText size={15}/>{application.cv?'Update request with chosen CV':'Attach chosen CV'}</button>}
      {!attachedFile&&!chosenCv&&progress.group==='needs_you'&&<button type="button" className="button" onClick={onChooseCv}><FileText size={15}/>Choose a CV</button>}
-     {progress.group==='check_outcome'&&applyUrl&&<a className="button quiet" href={applyUrl} target="_blank" rel="noopener noreferrer">Check employer website<ExternalLink size={15}/></a>}
      {attachedFile&&<a className="button quiet" href={`/api/files/${encodeURIComponent(attachedFile.id)}?view=1`} target="_blank" rel="noopener noreferrer"><Eye size={15}/>View application CV</a>}
      <button className="button quiet danger" type="button" disabled={busy||application.status==='processing'} onClick={()=>setDeleteTarget({scope:'application',applicationId:application.id,label:`${job?.title||'Application'}${job?.company?` · ${job.company}`:''}`})}><Trash2 size={15}/>Delete application</button>
     </div>
