@@ -42,8 +42,8 @@ def manual_plan(payload,fields,research):
     result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label']=='Which of the following best describes you?']
     return result
 
-def run_fixture(handoff,success=True,planner=manual_plan,payload=PAYLOAD,manual_submit_handler=None):
-    html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>')
+def run_fixture(handoff,success=True,planner=manual_plan,payload=PAYLOAD,manual_submit_handler=None,agent_option='I am an AI agent'):
+    html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>'.replace('I am an AI agent',agent_option))
     posts=[]
     result=execute_application(payload,CV,submit=True,planner=planner,research_fn=lambda _: {},resolver=dns,timeout=500,
       before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts,success),verification_handler=handoff,manual_submit_handler=manual_submit_handler)
@@ -180,3 +180,14 @@ def test_identity_return_then_greenhouse_manual_submit_uses_same_page_context_an
     assert result['report']['journey']['submit_click_attempts']==0
     assert h.events==['begin','opened','resumed']
     assert h.current['persistent'] is True
+
+
+def test_current_employer_ai_bot_or_automated_program_wording_gets_personal_handoff():
+    from application_agent.tests.test_manual_submit import Actor
+    h=FixtureHandoff();actor=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor,agent_option='I am an AI, bot or Automated Program.')
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert h.page is actor.page and h.context is actor.context
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.events==['begin','opened','resumed']

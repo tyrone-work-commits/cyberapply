@@ -15,7 +15,7 @@ def identity_dropdown(field):
     if field.get('type') not in {'select','combobox'} or not identity_question(field.get('label','')):return False
     choices=[re.sub(r'\s+',' ',str(x).strip()).casefold().strip(' .!*') for x in field.get('options',[])]
     human=any(re.fullmatch(r'(?:i am )?(?:a )?human(?: being)?',x) for x in choices)
-    agent=any(re.fullmatch(r'(?:i am )?(?:an? )?(?:ai|artificial intelligence)(?:[ /-]*(?:llm|agent|bot|assistant|program))*',x) for x in choices)
+    agent=any(re.fullmatch(r'(?:i am )?(?:an? )?(?:ai|artificial intelligence)(?:[ /-]*(?:llm|agent|bot|assistant|program))*',x) or x=='i am an ai, bot or automated program' for x in choices)
     return human and agent
 
 class BrowserHandoff:
