@@ -296,7 +296,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if req.method not in ('GET','HEAD','OPTIONS') and not after_captcha:
                                 route.abort();return
                             if req.is_navigation_request() and req.url.split('#')[0]!=req.frame.url.split('#')[0] and not after_captcha:
-                                verification_handler.blocked_navigation=True;route.abort();return
+                                # Late third-party/helper iframes do not replace
+                                # the prepared form. Block their navigation but
+                                # retain the user's exact application session.
+                                if verification_handler.kind!='question' or req.frame in verification_handler.protected_frames:
+                                    verification_handler.blocked_navigation=True
+                                route.abort();return
                     if (feed_source and req.resource_type=='document' and (urlsplit(req.url).hostname or '').lower() in APPLICATION_HOST_GROUPS[0]
                             and urlsplit(req.url).path=='/embed/job_app' and not matching_greenhouse_embed(req.url,feed_source)):
                         raise ApplicationAttention('The embedded form does not match the selected employer and vacancy.')
@@ -381,8 +386,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 except Exception:success=False
                 # The existing form budget excludes bounded human waiting time.
                 journey.started+=time.monotonic()-started
-                report.setdefault('verification_handoffs',[]).append({'same_browser':True,**({'user_returned_control':bool(success)} if kind=='recaptcha' else {'completed_by_user':bool(success)}),'kind':kind})
-                if not success:raise ApplicationAttention('The same-browser verification was cancelled, expired or lost its session. No action will be replayed automatically.')
+                reason=getattr(verification_handler,'failure_reason','') if kind=='question' else ''
+                report.setdefault('verification_handoffs',[]).append({'same_browser':True,**({'user_returned_control':bool(success)} if kind=='recaptcha' else {'completed_by_user':bool(success)}),'kind':kind,**({'reason':reason} if reason else {})})
+                if not success:raise ApplicationAttention(reason or 'The same-browser verification was cancelled, expired or lost its session. No action will be replayed automatically.')
                 manual_interaction=True
                 validate_public_url(page.url,hosts,resolver)
                 if blocked:raise ApplicationAttention('The employer changed destination during verification. Check this application before retrying.')

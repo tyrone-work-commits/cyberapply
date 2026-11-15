@@ -191,3 +191,31 @@ def test_current_employer_ai_bot_or_automated_program_wording_gets_personal_hand
     assert h.page is actor.page and h.context is actor.context
     assert result['report']['journey']['submit_click_attempts']==0
     assert h.events==['begin','opened','resumed']
+
+
+def test_background_helper_iframe_cannot_end_or_navigate_the_prepared_form():
+    class BackgroundFrame(FixtureHandoff):
+        def api(self,path,body):
+            response=super().api(path,body)
+            if body and body['event']=='opened':
+                self.page.evaluate("()=>{const f=document.createElement('iframe');f.src='https://unapproved-widget.example/frame';document.body.appendChild(f);}")
+                self.page.wait_for_timeout(200)
+            return response
+    h=BackgroundFrame();result,posts=run_fixture(h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert not h.blocked_navigation and h.events==['begin','opened','resumed']
+    assert h.page.url.startswith('https://employer.example/')
+
+
+def test_actual_form_navigation_still_stops_personal_handoff_without_replay():
+    class ChangedForm(FixtureHandoff):
+        def api(self,path,body):
+            response=super().api(path,body)
+            if body and body['event']=='opened':
+                self.page.evaluate("()=>{location.href='https://employer.example/another-form';}")
+                self.page.wait_for_timeout(200)
+            return response
+    h=ChangedForm();result,posts=run_fixture(h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert h.blocked_navigation and 'actual application form' in result['message']
+    assert result['report']['journey']['submit_click_attempts']==0

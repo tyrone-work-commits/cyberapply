@@ -24,6 +24,7 @@ class BrowserHandoff:
         self.active=False;self.turns=0
         self.kind='question';self.phase='before_submit';self.recaptcha=None
         self.blocked_navigation=False
+        self.protected_frames=set();self.failure_reason=''
     def window(self,context,page,state):
         session=context.new_cdp_session(page)
         try:
@@ -93,6 +94,7 @@ class BrowserHandoff:
         answer selection, Continue or Submit is ever replayed by this loop.
         """
         self.turns+=1;pause_id=str(uuid4());self.active=True;self.kind='question';self.phase='before_submit';self.blocked_navigation=False
+        self.failure_reason='';self.protected_frames={page.main_frame}
         endpoint='/api/application-agent/handoff';opened=False;success=False
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
         def wait():
@@ -109,11 +111,15 @@ class BrowserHandoff:
         try:
             for frame in page.frames:
                 if recaptcha_resource(frame.url):continue
+                try:
+                    if frame.locator('[data-cyberapply-field]').count():self.protected_frames.add(frame)
+                except Exception:pass
                 try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
                 except Exception:pass
             send('begin',persistent=True,kind='question',phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[])
             while True:
                 if page.is_closed() or self.blocked_navigation:
+                    self.failure_reason='The employer browser was closed. No employer action was replayed.' if page.is_closed() else 'The employer tried to navigate the actual application form during verification. The request paused without replaying any action.'
                     send('failed',code='session_changed');return False
                 try:h=self.call(endpoint+'?'+urlencode(self.ids),None)['handoff']
                 except Exception as error:
@@ -121,18 +127,21 @@ class BrowserHandoff:
                     if not isinstance(error,(OSError,URLError)):raise
                     wait();continue
                 if not h or h['id']!=pause_id:return False
-                if h['state'] in {'cancelled','expired','failed'}:return False
+                if h['state'] in {'cancelled','expired','failed'}:
+                    self.failure_reason='The verification handoff was cancelled or is no longer active. No employer action was replayed.';return False
                 if h['state']=='opening':
                     try:authorized=authorize() is True
                     except Exception:wait();continue
-                    if not authorized:send('failed',code='session_changed');return False
+                    if not authorized:
+                        self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
                     try:self.window(context,page,'normal')
                     except Exception:send('failed',code='window_unavailable');return False
                     send('opened');opened=True
                 if h['state']=='resuming' and opened:
                     try:authorized=authorize() is True
                     except Exception:wait();continue
-                    if not authorized:send('failed',code='session_changed');return False
+                    if not authorized:
+                        self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
                     try:ready=not page.locator('input[type="password"]:visible,input[autocomplete="one-time-code"]:visible').count() and completed()
                     except Exception:ready=False
                     if not ready:send('opened',code='incomplete')
