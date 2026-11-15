@@ -34,9 +34,9 @@ def test_error_after_submit_is_identified_without_replaying_or_claiming_delivery
 def test_client_rejected_submit_is_still_not_automatically_replayed():
     script='<script>document.querySelector("form").onsubmit=e=>{e.preventDefault();const p=document.createElement("p");p.setAttribute("role","alert");p.textContent='+repr(ERROR)+';document.body.append(p);};</script>'
     result,posts=run(FORM.replace('{extra}',script))
-    assert result['status']=='uncertain' and not posts,result
-    assert result['report']['journey']['submit_click_attempts']==1
-    assert result['report']['employer_verification']['phase']=='after_submit'
+    assert result['status']=='needs_attention' and not posts,result
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert 'submit it yourself' in result['message']
 
 
 def test_an_existing_employer_error_prevents_submit_without_changing_the_cv():
@@ -52,22 +52,21 @@ def test_denied_recaptcha_script_is_diagnosed_before_submit_and_stays_denied():
     assert result['status']=='needs_attention' and not posts,result
     assert result['report']['journey']['submit_click_attempts']==0
     assert result['report']['employer_verification']['state']=='resource_blocked'
-    assert 'approved destinations' in result['message']
+    assert 'submit it yourself' in result['message']
 
 
-def test_normal_privacy_badge_does_not_block_an_otherwise_confirmed_submission():
+def test_normal_privacy_badge_requires_manual_final_submit():
     result,posts=run(FORM.replace('{extra}','<p>This site is protected by reCAPTCHA.</p>'))
-    assert result['status']=='applied' and len(posts)==1,result
+    assert result['status']=='needs_attention' and not posts,result
     assert not result['report'].get('employer_verification')
 
 
 def test_a_recaptcha_connection_requested_only_on_submit_is_not_mislabeled_as_generic_timeout():
     script='''<script>document.querySelector('form').onsubmit=e=>{e.preventDefault();const s=document.createElement('script');s.src='https://www.google.com/recaptcha/enterprise.js?render=isolated-fixture';document.body.append(s);};</script>'''
     result,posts=run(FORM.replace('{extra}',script))
-    assert result['status']=='uncertain' and not posts,result
-    assert result['report']['journey']['submit_click_attempts']==1
-    assert result['report']['confirmation_wait']['outcome']=='verification_required'
-    assert result['report']['employer_verification']['state']=='resource_blocked'
+    assert result['status']=='needs_attention' and not posts,result
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert 'submit it yourself' in result['message']
 
 
 def test_verification_error_after_continue_keeps_possible_delivery_and_never_repeats():

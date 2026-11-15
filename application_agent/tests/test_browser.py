@@ -94,7 +94,7 @@ def test_account_full_name_city_country_and_cv_linkedin_reach_real_controls():
     result,posts=run(html,payload=payload,planner=build_plan)
     assert result['status']=='applied' and len(posts)==1
     body=posts[0]
-    assert body.count(b'Account Full Name')==2 and b'Abuja' in body and b'Nigeria' in body and b'https://www.linkedin.com/in/from-chosen-cv' in body
+    assert b'Account Full Name' not in body and b'Account' in body and b'Name' in body and b'Abuja' in body and b'Nigeria' in body and b'https://www.linkedin.com/in/from-chosen-cv' in body
     assert b'https://linkedin.com/in/stale' not in body and b'Different CV Name' not in body
 
 @pytest.mark.parametrize('country,city,expected',[('USA','Dallas','No'),('UK','London','Yes'),('Ireland','Dublin','Yes')])
@@ -220,8 +220,10 @@ def test_greenhouse_board_transition_follows_apply_link_without_approval():
             return '<a href="https://job-boards.greenhouse.io/company/jobs/123">Apply</a>'
         return FORM.replace('{extra}','') if req.method=='GET' else 'Your application has been submitted'
     result,posts=run(html,payload=payload)
-    assert result['status']=='applied' and len(posts)==1
-    assert result['evidence']['url'].startswith('https://job-boards.greenhouse.io/')
+    assert result['status']=='needs_attention' and not posts
+    assert 'submit it yourself' in result['message']
+    assert result['report']['journey']['cv_attached'] is True
+    assert result['report']['journey']['submit_click_attempts']==0
     assert 'job-boards.greenhouse.io' in result['report']['navigation']['automatic_application_hosts']
 
 

@@ -1,6 +1,6 @@
 import {DomainError,type ApplicationRequest} from './cyber-domain';
 export function isHumanAgentQuestion(label:string){return /^which(?: of (?:the )?following)? best describes you\b/i.test(label.trim().replace(/\s+/g,' '));}
-export const RECAPTCHA_HOSTS=['www.google.com','www.recaptcha.net','www.gstatic.com'];
+export const RECAPTCHA_HOSTS=['www.google.com','www.recaptcha.net','www.gstatic.com','recaptcha.google.com'];
 export const RECAPTCHA_QUESTION='Complete the employer reCAPTCHA in this browser.';
 export type VerificationHandoff={id:string;claimId:string;turn:number;state:'waiting'|'opening'|'opened'|'resuming'|'resumed'|'cancelled'|'expired'|'failed';kind:'question'|'recaptcha'|'challenge';phase?:'before_submit'|'after_submit';questions:string[];challengeHosts:string[];approvedHosts:string[];at:string;expiresAt:string;code?:'incomplete'|'window_unavailable'|'session_changed'|'connection_lost'};
 export function currentHandoff(item:ApplicationRequest,now=Date.now()){

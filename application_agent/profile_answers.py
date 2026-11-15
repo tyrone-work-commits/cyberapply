@@ -77,7 +77,11 @@ def profile_field(question):
     if re.search(r'\b(?:employer|company|reference|referee|emergency|nationality|citizenship|birth|relocat|willing)\b',text):return None
     text=re.sub(r'^(?:what is |please (?:provide|enter) )', '', text).strip()
     text=re.sub(r"^(?:your |applicant(?:'s)? |candidate(?:'s)? |current |home |residential |contact |primary |permanent |mailing )+", '',text)
-    if text in {'name','full name','legal name','first and last name','first name','last name','given name','family name','surname','preferred first name','preferred name','first name(s)','given name(s)','firstname','lastname','fullname'} or re.fullmatch(r'(?:legal |preferred )?(?:first|last|given|family|full) name(?: \(legal\))?',text):return 'fullName'
+    name=re.sub(r'^(?:legal |preferred )','',text).removesuffix(' (legal)')
+    if name in {'first name','given name','first name(s)','given name(s)','firstname'}:return 'firstName'
+    if name in {'last name','family name','surname','lastname'}:return 'lastName'
+    if name in {'middle name','middle names','middlename'}:return 'middleName'
+    if name in {'name','full name','legal name','first and last name','preferred name','fullname'}:return 'fullName'
     if re.fullmatch(r'(?:zip|zip code|zipcode|postal|postal code|postcode|post code)(?: / postal code)?',text):return 'zipCode'
     if re.fullmatch(r'(?:street |mailing |residential |home |full )?address(?: line 1| 1)?',text):return 'address'
     if re.fullmatch(r'city\s*[,/]\s*(?:state|province)\s*(?:&|and|,|/)\s*(?:zip(?: code)?|postal(?: code)?|postcode)',text):return 'cityStateZipCode'
@@ -91,9 +95,18 @@ def profile_field(question):
 
 def saved_profile_answer(payload,question,field):
     """Return value/evidence/reason. Never reinterpret expectation as salary history."""
-    key='phone' if field.get('phoneCountry') is True else profile_field(question)
+    key='phoneCountry' if field.get('phoneCountry') is True else profile_field(question)
     profile=payload.get('applicantProfile')
     profile=profile if isinstance(profile,dict) else {}
+    if key in {'firstName','middleName','lastName'}:
+        parts=str(profile.get('fullName') or '').split()
+        if not parts:return None,'','Add fullName in Edit Profile before applying.'
+        value=parts[0] if key=='firstName' else parts[-1] if key=='lastName' else ' '.join(parts[1:-1])
+        return (value,f'Edit Profile — {key} split from the saved full name.','') if value else (None,'','The saved full name has no middle name; leave this field blank.')
+    if key=='phoneCountry':
+        from .phone import country_option
+        value=country_option(profile,field.get('options') or [])
+        return (value,'Edit Profile — matching country/calling-code option, never the phone number.','') if value else (None,'','No unique country/calling-code option matches Edit Profile. Capture the labelled country choices; do not put the phone number in Country.')
     if key=='cityStateZipCode':
         parts={name:profile.get(name) for name in ('city','state','zipCode')}
         missing=[name for name,value in parts.items() if not isinstance(value,str) or not value.strip() or re.search(r'[\x00-\x1f]',value)]

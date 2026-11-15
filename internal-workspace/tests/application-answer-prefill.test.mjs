@@ -33,7 +33,7 @@ test('current Account Profile supplies personal fields and offered country/city 
  const p={fullName:'Fictional Tester',city:'Dallas',state:'Texas',country:'USA',phone:'+2348012345678'};
  assert.deepEqual(prefill(app(),entry('Country'),choices(['United States of America','Canada']),[],p),{value:'United States of America',source:'profile'});
  assert.equal(prefill(app(),entry('Location (City)'),choices(['Dallas, Texas, United States','Dallas, Oregon, United States']),[],p).value,'Dallas, Texas, United States');
- assert.equal(prefill(app(),entry('First name'),{isDropdown:false,options:[]},[],p).value,p.fullName);
+ assert.equal(prefill(app(),entry('First name'),{isDropdown:false,options:[]},[],p).value,'Fictional');
  assert.equal(prefill(app(),entry('State'),choices(['Texas','Oregon']),[],p).value,'Texas');
  assert.equal(prefill(app(),entry('Country',{phoneCountry:true}),choices(['Nigeria (+234)','United Kingdom (+44)']),[],p).value,'Nigeria (+234)');
 });
@@ -81,4 +81,9 @@ test('newly captured choices resolve an untouched saved answer without inventing
  assert.equal(prefill(request,q,choices([]),[memory()]).value,'');
  assert.equal(prefill(request,q,choices(['Day','Night']),[memory()]).value,'Night');
  assert.equal(prefill(request,q,choices(['Early','Late']),[memory()]).value,'');
+});
+
+test('name parts use current profile first/middle/last with generic Name kept whole',()=>{
+ const p={fullName:'Tyrone Osadebame Ekhator'};
+ for(const [question,value] of [['First name','Tyrone'],['Last name','Ekhator'],['Middle name','Osadebame'],['Full name',p.fullName],['Name',p.fullName]])assert.equal(prefill(app(),entry(question,{field_type:'text'}),{isDropdown:false,options:[]},[],p).value,value);
 });

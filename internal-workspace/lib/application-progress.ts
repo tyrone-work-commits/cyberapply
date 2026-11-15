@@ -25,9 +25,10 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   const status=application.status;
   const confirmed=status==='applied'&&hasConfirmation(application);
   const expiresAt=Date.parse(application.claim?.expiresAt||'');
-  const lostClaim=status==='processing'&&(!Number.isFinite(expiresAt)||expiresAt<=now);
+  const manual=status==='processing'&&application.manualSubmission?.claimId===application.claim?.id?application.manualSubmission:null;
+  const lostClaim=status==='processing'&&!manual&&(!Number.isFinite(expiresAt)||expiresAt<=now);
   const possibleDelivery=!!application.report?.journey&&typeof application.report.journey==='object'&&(application.report.journey as Record<string,unknown>).possible_delivery===true;
-  const checkOutcome=possibleDelivery&&!confirmed||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
+  const checkOutcome=possibleDelivery&&!confirmed&&!manual||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
   const journey=application.report?.journey as Record<string,unknown>|undefined;
   const recordedJourney=journey&&journey.version===1;
   const count=(key:string)=>recordedJourney&&Number.isSafeInteger(journey[key])&&(journey[key] as number)>=0?journey[key] as number:null;
@@ -44,6 +45,8 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   let tone:ApplicationProgress['tone']='neutral';
   if(confirmed){
     group='applied';label='Applied';tone='success';description='Employer confirmation is recorded. Review the confirmation details below.';
+  }else if(manual){
+    group='needs_you';label=manual.state==='needs_submit'?'Needs you: submit':manual.state==='cancel_requested'?'Cancellation requested':'Ready – submit it yourself';tone='warning';description='Open the CyberApply browser window and press Submit. Complete any reCAPTCHA yourself. The same form stays open until you submit or cancel; the agent never retries Submit.';
   }else if(checkOutcome){
     group='check_outcome';label='Awaiting confirmation';tone='neutral';
     description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or your email account before trying again.':
@@ -58,7 +61,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     if(h&&h.kind==='question'&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
       label=h.state==='resuming'?'Resuming after verification':'Verification paused';tone='warning';description='The exact employer browser is waiting for you. Use the verification panel to open that window, complete the check yourself and resume the same form.';
     }
-    if(h&&h.kind==='recaptcha'&&h.questions.length===1&&h.questions[0]==='Complete the employer reCAPTCHA in this browser.'&&h.challengeHosts.every(host=>['www.google.com','www.recaptcha.net','www.gstatic.com'].includes(host))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
+    if(h&&h.kind==='recaptcha'&&h.questions.length===1&&h.questions[0]==='Complete the employer reCAPTCHA in this browser.'&&h.challengeHosts.every(host=>['www.google.com','www.recaptcha.net','www.gstatic.com','recaptcha.google.com'].includes(host))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
       label=h.state==='resuming'?'Checking after reCAPTCHA':'reCAPTCHA needs you';tone='warning';description=h.phase==='after_submit'?'Complete only the employer verification in the exact agent browser. Submit was already clicked once; the agent will check that attempt without repeating it.':'The agent needs you to permit the employer reCAPTCHA connection and complete any visible check personally in its existing browser.';
     }
   }else if(!application.cv||application.reason==='cv_required'){

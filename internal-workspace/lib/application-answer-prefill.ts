@@ -32,6 +32,11 @@ export function offeredAnswer(value:string,choices:Choice,question:string,profil
 function profileValue(question:string,entry:Record<string,unknown>,profile?:AccountProfile|ApplicantProfile):{matched:boolean;value:string}{
  const q=employerQuestionKey(question).replace(/[?.]+$/,'').trim();
  const label=q.replace(/^(?:what is |please (?:provide|enter) )/,'').replace(/^(?:(?:your|applicant's|candidate's|current|home|residential|contact|primary|mailing) )+/,'');
+ const name=label.replace(/^(?:legal |preferred )/,'').replace(/ \(legal\)$/,'');
+ const parts=profile?.fullName?.trim().split(/\s+/)||[];
+ if(/^(?:first name|given name|firstname|first name\(s\)|given name\(s\))$/.test(name))return {matched:true,value:parts[0]||''};
+ if(/^(?:last name|family name|surname|lastname)$/.test(name))return {matched:true,value:parts.at(-1)||''};
+ if(/^(?:middle name|middle names|middlename)$/.test(name))return {matched:true,value:parts.slice(1,-1).join(' ')};
  const fields:[RegExp,keyof ApplicantProfile][]=[[/^(?:(?:legal |preferred )?(?:full|first|last|given|family) name|name|surname|first and last name|firstname|lastname|fullname)$/,'fullName'],[/^(?:zip(?: code)?|zipcode|postal(?: code)?|postcode|post code)$/,'zipCode'],[/^(?:(?:street |mailing |residential |home |full )?address(?: line 1| 1)?)$/,'address'],[/^(?:city|town|city\s*[/|]\s*town|location\s*\(?\s*city\)?|city\s*[/|]\s*location)$/,'city'],[/^(?:state|province|state\s*[/|]\s*province|state or province)$/,'state'],[/^(?:country|country of residence|country of residency|country where you reside)$/,'country'],[/^(?:location|where are you located|where do you live|where do you reside)$/,'location'],[/^(?:phone|telephone|mobile|cell)(?: phone)?(?: number| no\.?)?$/,'phone']];
  for(const [pattern,key] of fields)if(pattern.test(label)&&entry.phoneCountry!==true){const value=profile?.[key];return {matched:true,value:typeof value==='string'?value.trim():''};}
  if(/^(?:total )?years? (?:of )?(?:work |professional )?experience$/.test(label)){

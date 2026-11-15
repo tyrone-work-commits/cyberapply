@@ -36,7 +36,7 @@ def option_matches(question, value, label, profile, *, years=False):
         return True
     key = profile_field(question)
     if key == 'country':
-        country = re.sub(r'\s*\+\d[\d\s-]*$', '', label).strip()
+        country = re.sub(r'\s*\(?\+\d[\d\s-]*\)?$', '', label).strip()
         return place_key(country) == place_key(value)
     if key == 'state':
         return state_key(label, profile.get('country', '')) == state_key(value, profile.get('country', ''))

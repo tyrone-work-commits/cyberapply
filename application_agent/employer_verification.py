@@ -2,7 +2,7 @@
 import re
 from urllib.parse import urlsplit
 
-RECAPTCHA_HOSTS={'www.google.com','www.recaptcha.net','www.gstatic.com'}
+RECAPTCHA_HOSTS={'www.google.com','www.recaptcha.net','www.gstatic.com','recaptcha.google.com'}
 
 
 def recaptcha_resource(url):

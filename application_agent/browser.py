@@ -18,6 +18,7 @@ from .recovery import FormRecovery, RecoveryStopped, TransientFormError
 from .uploads import GreenhouseUploads, UploadRejected, UPLOAD_HOST
 from .journey import Journey, greenhouse_source, matching_greenhouse_embed
 from .employer_verification import RECAPTCHA_HOSTS,RecaptchaAccess,recaptcha_resource,record_recaptcha,observed_recaptcha_error,visible_recaptcha_challenge
+from .manual_submit import protected_form
 
 # Exact provider domains only: never trust lookalike suffixes or private DNS.
 # These aliases are part of one supported application service, so the user
@@ -170,7 +171,7 @@ def restrict_transports(context):
 
 def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), playwright_factory=None,
                         research_fn=None, planner=None, resolver=socket.getaddrinfo, timeout=15000, before_submit=None,
-                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None, verification_handler=None):
+                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None, verification_handler=None, manual_submit_handler=None):
     """Inspect/fill a single claim. No application is retried after final click."""
     if planner is None:
         from .reasoning import build_plan
@@ -188,7 +189,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     human_proofs={}
     manual_interaction=False
     def finish(*args,**kwargs):
-        journey.data['possible_delivery'] = submitted
+        journey.data['possible_delivery'] = submitted or bool(manual_submit_handler and manual_submit_handler.delivery)
         if live_watch:
             try:live_watch.finish_capture()
             except Exception:pass
@@ -243,7 +244,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             from playwright.sync_api import sync_playwright
             playwright_factory = sync_playwright
         with playwright_factory() as runtime:
-            launch_options=dict(headless=verification_handler is None, args=(['--start-minimized'] if verification_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
+            launch_options=dict(headless=not (verification_handler or manual_submit_handler), args=(['--start-minimized'] if verification_handler and not manual_submit_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
             browser = runtime.chromium.launch(**launch_options)
             if verification_handler:verification_handler.recaptcha=RecaptchaAccess(recaptcha_pins)
             saved_session=session_store.load(job,hosts) if session_store else None
@@ -336,11 +337,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             journey.data['preparation_writes_blocked']=journey.data.get('preparation_writes_blocked',0)+1
                             route.abort()
                             return
-                        if before_submit is None or before_submit() is not True:
+                        if not (manual_submit_handler and manual_submit_handler.active) and (before_submit is None or before_submit() is not True):
                             blocked.append(req.url.split('?')[0])
                             route.abort()
                             return
                         submitted = True  # Some forms autosave as fields change.
+                        if manual_submit_handler and manual_submit_handler.active:manual_submit_handler.delivery=True
                     route.continue_()
                 except ApplicationAttention:
                     if recaptcha_resource(req.url):
@@ -362,7 +364,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
 
             context.route("**/*", guard)
             page = context.new_page()
-            if verification_handler:
+            if verification_handler and not manual_submit_handler:
                 try:verification_handler.window(context,page,'minimized')
                 except Exception:pass
             if live_watch:live_watch.attach(context,page)
@@ -474,7 +476,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     page.wait_for_timeout(500)
                     continue
                 for frame in frames:
-                    if visible_recaptcha_challenge([frame]):captcha_pause()
+                    if visible_recaptcha_challenge([frame]) and not protected_form(page, bool(feed_source) or bool(hosts.intersection(set().union(*APPLICATION_HOST_GROUPS[:2])))):captcha_pause()
                     if frame.locator('iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible,[data-sitekey]:visible:not([data-size="invisible"]):not(.g-recaptcha)').count():
                         raise ApplicationAttention('The employer requires a verification challenge. The dropdown handoff does not handle CAPTCHA or other verification checks.')
                 def read_forms():
@@ -483,7 +485,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     frames[:]=[frame for frame in page.frames if frame.url not in ('about:blank','') and (urlsplit(frame.url).hostname or '').lower() in hosts]
                     for frame in frames:
                         validate_public_url(frame.url,hosts,resolver)
-                        if visible_recaptcha_challenge([frame]):captcha_pause()
+                        if visible_recaptcha_challenge([frame]) and not protected_form(page, bool(feed_source) or bool(hosts.intersection(set().union(*APPLICATION_HOST_GROUPS[:2])))):captcha_pause()
                         if frame.locator('iframe[src*="hcaptcha"]:visible, iframe[src*="challenges.cloudflare.com"]:visible,[data-sitekey]:visible:not([data-size="invisible"]):not(.g-recaptcha)').count():
                             raise ApplicationAttention('The employer requires a verification challenge. The dropdown handoff does not handle CAPTCHA or other verification checks.')
                     found=[(idx,frame,frame.evaluate(INSPECT)) for idx,frame in enumerate(frames)]
@@ -690,7 +692,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if answer and permitted:
                                 dropdown_issue=['']
                                 def choose_dropdown():
-                                    try:return select_combobox(frames[int(field['id'].split(':',1)[0])],control,field,str(answer['value']),payload.get('applicantProfile') or {},timeout)
+                                    try:return select_combobox(frames[int(field['id'].split(':',1)[0])],control,({**field,'phoneCountry':False} if field.get('phoneCountry') else field),str(answer['value']),payload.get('applicantProfile') or {},timeout)
                                     except DropdownAttention as error:
                                         dropdown_issue[0]=str(error)
                                         if error.transient:raise TransientFormError(str(error)) from None
@@ -797,19 +799,20 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if frame.locator('input:invalid:visible, textarea:invalid:visible, select:invalid:visible').count():
                         raise ApplicationAttention("The employer rejected a field value or revealed another required answer. Review the form.")
                 buttons, associated_buttons = [], []
+                manual_policy=protected_form(page,bool(feed_source) or bool(hosts.intersection(set().union(*APPLICATION_HOST_GROUPS[:2])))) or 'employer_verification' in report
                 for fidx, frame in enumerate(frames):
                     prepared=[key.split(':',1)[1] for key in expected_values if key.startswith(f'{fidx}:')]
                     candidates = frame.locator('button:visible, input[type="submit"]:visible, input[type="button"]:visible')
                     for i in range(candidates.count()):
                         item = candidates.nth(i)
-                        if item.is_enabled():
+                        if item.is_enabled() or manual_policy:
                             text = (item.inner_text() if item.evaluate("e=>e.tagName") != "INPUT" else item.get_attribute('value') or '').strip()
                             action=None
                             if re.fullmatch(r"(?:submit(?: application)?|send application|apply(?: now)?|complete application)",text,re.I):
                                 action='submit'
                             elif re.fullmatch(r"(?:next|continue|next step|review application)",text,re.I):
                                 action='next'
-                            if action:
+                            if action and (item.is_enabled() or action=='submit' and manual_policy):
                                 buttons.append((action,item))
                                 # The page's introductory Apply button may just
                                 # scroll to the form. Prefer actions belonging
@@ -873,6 +876,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 if before_submit is None or before_submit() is not True:
                     raise ApplicationAttention("This request no longer has current submission authorization. Review it in CyberApply.")
                 verify_expected()
+                manual_required=manual_policy or protected_form(page)
+                if manual_required:
+                    if not manual_submit_handler:
+                        return finish('needs_attention','Ready – submit it yourself. Update/connect the visible CyberApply runner to keep this exact browser open. The agent did not click Submit.',report)
+                    outcome=manual_submit_handler.wait(context,page,report,journey,hosts,SUCCESS,verification_handler.recaptcha if verification_handler else None,live_watch)
+                    return finish(outcome.pop('status'),outcome.pop('message'),report,**outcome)
                 if report.get('employer_verification',{}).get('state')=='resource_blocked':captcha_pause();verify_expected()
                 if observed_recaptcha_error(frames) or report.get('employer_verification',{}).get('state')=='resource_blocked':
                     raise ApplicationAttention(record_recaptcha(report,'preparation',report.get('employer_verification',{}).get('state','employer_error')))

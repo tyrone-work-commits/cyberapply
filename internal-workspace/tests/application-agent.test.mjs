@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 await mkdir('.sites-runtime/new-agent-tests',{recursive:true});
-for(const name of ['employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain','application-agent-state']){
+for(const name of ['employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain','manual-submission','application-agent-state']){
  const code=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '\.\/([^']+)'/g,"from './$1.mjs'");
  await writeFile(`.sites-runtime/new-agent-tests/${name}.mjs`,code);
 }
@@ -51,4 +51,15 @@ test('claim includes the answer library and library edits block stale submission
  assert.throws(()=>assertApplicationProfileCurrent(s,request),/Answers library/);
  assert.equal(request.status,'processing');
  assert.equal(request.result,undefined);
+});
+
+test('manual final-submit sessions survive claim expiry, block a second runner and only accept evidence',()=>{
+ const s=apply(fixture()),r=claimApplication(s,at),claim=r.claim.id;
+ r.manualSubmission={id:'manual',claimId:claim,state:'ready',at,updatedAt:at,challengeHosts:[],approvedHosts:[]};
+ const later='2026-11-15T16:00:00.000Z';
+ assert.equal(activeClaim(s,r.id,claim,later),r);assert.equal(claimApplication(s,later),null);assert.equal(r.status,'processing');
+ assert.throws(()=>activeClaim(s,r.id,'other',later),/unavailable/);
+ assert.throws(()=>completeApplication(s,{requestId:r.id,claimId:claim,status:'applied',message:'No receipt'},later),/confirmation/);
+ completeApplication(s,{requestId:r.id,claimId:claim,status:'applied',message:'Confirmed',receipt:'Thank you for applying',evidence:{url:'https://employer.example/thanks',text:'Thank you for applying'}},later);
+ assert.equal(r.status,'applied');
 });

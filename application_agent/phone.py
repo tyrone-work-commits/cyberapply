@@ -2,6 +2,26 @@
 import re
 
 
+def country_option(profile, options):
+    """Return an actual offered label. Shared calling codes need country evidence."""
+    from .profile_answers import place_key
+    country=place_key(profile.get('country',''))
+    phone=str(profile.get('phone',''))
+    candidates=[]
+    for label in options:
+        code=re.search(r'\+([0-9]{1,4})\s*\)?$',str(label))
+        name=re.sub(r'\s*\(?\+[0-9]{1,4}\s*\)?$','',str(label)).strip()
+        if code and phone.startswith('+'+code[1]):candidates.append((str(label),name,len(code[1])))
+    if candidates:
+        longest=max(size for _,_,size in candidates)
+        matches=[label for label,name,size in candidates if size==longest and country and place_key(name)==country]
+        if len(matches)==1:return matches[0]
+        remaining=[label for label,_,size in candidates if size==longest]
+        return remaining[0] if len(remaining)==1 else None
+    matches=[str(label) for label in options if country and place_key(re.sub(r'\s*\(?\+[0-9]{1,4}\s*\)?$','',str(label)).strip())==country]
+    return matches[0] if len(matches)==1 else None
+
+
 def equivalent_phone(expected,actual,calling_code=''):
     clean=lambda value:re.sub(r'[\s().-]','',str(value))
     expected,actual,calling_code=map(clean,(expected,actual,calling_code))

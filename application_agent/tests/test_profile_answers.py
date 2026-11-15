@@ -8,19 +8,27 @@ def field(label,kind='text',**kw):return {'id':label,'label':label,'type':kind,'
 def plan(fields,profile=PROFILE,**kw):return build_plan({'cv':{'text':CV},'applicantProfile':profile,**kw},fields,{'salary_evidence':[{'low':90000,'high':100000,'currency':'USD','period':'year'}]})
 
 class ProfileAnswerTests(unittest.TestCase):
- def test_first_last_and_full_name_all_use_complete_saved_name(self):
-  labels=['Full name','First name','Last name','Given name','Family name','Surname','Preferred First Name','Please enter your first name','Applicant full name','First_name','LastName']
-  result=plan([field(label) for label in labels],confirmedAnswers=[{'question':'First name','value':'Old split name'}])
-  self.assertFalse(result['unresolved']);self.assertEqual(len(result['answers']),len(labels))
-  self.assertTrue(all(a['value']=='Account Complete Name' and a['source']=='edit_profile' for a in result['answers']))
+ def test_name_parts_use_edit_profile_full_name(self):
+  expected={'Full name':'Account Complete Name','Name':'Account Complete Name','First name':'Account','Last name':'Name','Middle name':'Complete','Given name':'Account','Family name':'Name','Surname':'Name','Preferred First Name':'Account','Please enter your first name':'Account','Applicant full name':'Account Complete Name','First_name':'Account','LastName':'Name'}
+  result=plan([field(label) for label in expected],confirmedAnswers=[{'question':'First name','value':'Old full name'}])
+  self.assertFalse(result['unresolved']);self.assertEqual({a['field_id']:a['value'] for a in result['answers']},expected)
  def test_missing_profile_name_never_uses_cv_name(self):
   result=plan([field('First name'),field('Last name')],{})
-  self.assertFalse(result['answers']);self.assertTrue(all(q['profile_field']=='fullName' for q in result['unresolved']))
+  self.assertFalse(result['answers']);self.assertTrue(all(q['profile_field'] in {'firstName','lastName'} for q in result['unresolved']))
+ def test_middle_name_only_when_present_and_not_invented(self):
+  self.assertEqual(plan([field('Middle name')],PROFILE|{'fullName':'Tyrone Osadebame Ekhator'})['answers'][0]['value'],'Osadebame')
+  self.assertFalse(plan([field('Middle name',required=False)],PROFILE|{'fullName':'Tyrone Ekhator'})['answers'])
+ def test_phone_country_uses_offered_country_not_phone_number(self):
+  for profile,options,value in [(PROFILE,['United States +1','Nigeria +234'],'Nigeria +234'),(PROFILE|{'country':'USA','phone':'+12125550123'},['Canada +1','United States +1'],'United States +1'),(PROFILE|{'country':'','phone':'+2348012345678'},['United States +1','Nigeria +234'],'Nigeria +234')]:
+   result=plan([field('Country','combobox',phoneCountry=True,options=options)],profile)
+   self.assertEqual(result['answers'][0]['value'],value)
+   self.assertNotEqual(result['answers'][0]['value'],profile['phone'])
  def test_city_parenthetical_uses_saved_city(self):
   self.assertEqual(plan([field('Location (City)')])['answers'][0]['value'],'Abuja')
  def test_country_aliases_choose_only_equivalent_offered_country(self):
   result=plan([field('Country','select',options=['United Kingdom','United States of America'])],PROFILE|{'country':'USA'})
   self.assertEqual(result['answers'][0]['value'],'United States of America')
+  self.assertEqual(plan([field('Country','select',options=['Nigeria (+234)','United States (+1)'])])['answers'][0]['value'],'Nigeria (+234)')
  def test_residence_questions_answer_from_saved_country_and_city(self):
   labels={'Are you located in the United Kingdom or Ireland?':'No','Are you currently based in Nigeria?':'Yes','Do you live in Abuja?':'Yes','Are you located in Lagos?':'No'}
   for label,value in labels.items():

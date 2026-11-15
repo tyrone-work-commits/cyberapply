@@ -65,3 +65,10 @@ test('legacy six-step reports explain missing evidence without rewriting saved s
  assert.match(progress.description,/does not establish that Submit was clicked/);assert.equal(progress.canQueue,false);
  assert.match(progress.actionEvidence[0],/older report/);assert.deepEqual(item,before);
 });
+
+test('persistent manual submission shows Ready or Needs you without lease expiry or requeue',()=>{
+ for(const [state,label] of [['ready','Ready – submit it yourself'],['needs_submit','Needs you: submit'],['cancel_requested','Cancellation requested']]){
+ const p=applicationProgress(request({status:'processing',claim:{id:'claim',at,expiresAt:'2020-01-01'},manualSubmission:{id:'manual',claimId:'claim',state},report:{journey:{version:1,possible_delivery:true,submit_click_attempts:0}}}),now);
+ assert.equal(p.label,label);assert.equal(p.group,'needs_you');assert.equal(p.canQueue,false);assert.match(p.description,/press Submit/);
+ }
+});

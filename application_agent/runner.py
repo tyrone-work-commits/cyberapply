@@ -142,7 +142,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
     except Exception:pass
-    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":4,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
+    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":5,"manualSubmitVersion":1,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
     if not task:
         maybe_refresh_sources(site,token,site_access_token)
         return False
@@ -154,6 +154,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         cover_letter_bytes=call_site(site,token,"/api/application-agent/cv?"+query+"&document=cover_letter",binary=True,site_access_token=site_access_token) if task.get("coverLetter") else None
         from .live_watch import LiveWatch
         from .verification_handoff import BrowserHandoff
+        from .manual_submit import ManualSubmit
         handoff=BrowserHandoff(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None
         try:
             delivery=RecordingDelivery(site,token,task,site_access_token)
@@ -169,7 +170,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
             sessions=LoginSessions(site,token.split('.')[1])
         result = execute_application(task, cv_bytes, submit=submit, allowed_hosts=allowed_hosts, before_submit=authorize,
                                      browser_channel=None if browser_channel=='chromium' else browser_channel,
-                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes,verification_handler=handoff)
+                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes,verification_handler=handoff,manual_submit_handler=ManualSubmit(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None)
     except Exception:
         result = {"status":"failed", "message":"The selected CV or reviewed cover letter could not be read. No employer submission was attempted."}
     finally:
@@ -182,7 +183,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         memory=deliver_questions(site,token,task,report,site_access_token)
         result['report']={"experience":report.get('experience',{}),"unresolved":report.get('unresolved',[])[:30],
                           "cover_letter":str(report.get('cover_letter',''))[:12000],"answers":report.get('answers',[])[:10],
-                          "recovery":report.get('recovery',{}),
+                          "recovery":report.get('recovery',{}),"journey":report.get("journey",{}),"manual_submission":report.get("manual_submission",{}),
                           "research":{"note":"Report abbreviated to fit the saved record; no additional answers were invented."}}
         if len(json.dumps(result['report'])) > 55000:
             result['report']={"note":"Detailed report exceeded the saved record limit.","experience":report.get('experience',{}),"recovery":report.get('recovery',{})}

@@ -50,7 +50,7 @@ def test_captured_country_menu_and_saved_label_do_not_replace_the_actual_phone_n
     # country selector must still use the saved phone, not treat its label as one.
     field={'id':'country','label':'Country*','type':'combobox','phoneCountry':True,'required':True,'options':['Nigeria +234','United States +1','Canada +1']}
     answer=build_plan(payload,[field])['answers'][0]
-    assert answer['value']=='+2348000000000' and answer['source']=='edit_profile'
+    assert answer['value']=='Nigeria +234' and answer['source']=='edit_profile'
     result,posts=run(phone_group(),payload=payload,planner=build_plan)
     assert result['status']=='applied' and len(posts)==1,result
     assert any(a.get('selected_option')=='Nigeria +234' and a['source']=='edit_profile' for a in result['report']['answers'])
@@ -68,7 +68,7 @@ def test_phone_country_shared_prefix_requires_saved_country_disambiguation():
 def test_residence_country_is_unchanged_outside_explicit_phone_group():
     payload={'applicantProfile':{'country':'USA','phone':'+2348000000000'}}
     assert saved_profile_answer(payload,'Country',{'type':'combobox'})[0]=='USA'
-    assert saved_profile_answer(payload,'Country',{'type':'combobox','phoneCountry':True})[0]=='+2348000000000'
+    assert saved_profile_answer(payload,'Country',{'type':'combobox','phoneCountry':True,'options':['Nigeria +234','United States +1']})[0]=='Nigeria +234'
 
 
 def test_phone_group_dry_run_sends_nothing():
