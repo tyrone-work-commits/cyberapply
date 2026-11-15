@@ -26,9 +26,11 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   const confirmed=status==='applied'&&hasConfirmation(application);
   const expiresAt=Date.parse(application.claim?.expiresAt||'');
   const manual=status==='processing'&&application.manualSubmission?.claimId===application.claim?.id?application.manualSubmission:null;
-  const lostClaim=status==='processing'&&!manual&&(!Number.isFinite(expiresAt)||expiresAt<=now);
+  const h=application.verificationHandoff;
+  const persistentVerification=status==='processing'&&h?.persistent===true&&h.kind==='question'&&h.claimId===application.claim?.id&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&['waiting','opening','opened','resuming'].includes(h.state);
+  const lostClaim=status==='processing'&&!manual&&!persistentVerification&&(!Number.isFinite(expiresAt)||expiresAt<=now);
   const possibleDelivery=!!application.report?.journey&&typeof application.report.journey==='object'&&(application.report.journey as Record<string,unknown>).possible_delivery===true;
-  const checkOutcome=possibleDelivery&&!confirmed&&!manual||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
+  const checkOutcome=possibleDelivery&&!confirmed&&!manual&&!persistentVerification||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
   const journey=application.report?.journey as Record<string,unknown>|undefined;
   const recordedJourney=journey&&journey.version===1;
   const count=(key:string)=>recordedJourney&&Number.isSafeInteger(journey[key])&&(journey[key] as number)>=0?journey[key] as number:null;
@@ -58,8 +60,8 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   }else if(status==='processing'){
     group='in_progress';label='Agent working';tone='active';description='The agent has claimed this request and is working through the employer form. Submission is not confirmed yet.';
     const h=application.verificationHandoff;
-    if(h&&h.kind==='question'&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
-      label=h.state==='resuming'?'Resuming after verification':'Verification paused';tone='warning';description='The exact employer browser is waiting for you. Use the verification panel to open that window, complete the check yourself and resume the same form.';
+    if(h&&h.kind==='question'&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&h.claimId===application.claim?.id&&(persistentVerification||Date.parse(h.expiresAt)>now)&&['waiting','opening','opened','resuming'].includes(h.state)){
+      label=h.state==='resuming'?'Resuming after verification':'Verification paused';tone='warning';description='The exact employer browser is waiting for you. Use Open exact agent browser, answer personally, then Return control to agent. The same session, filled fields and chosen CV remain in memory; a separate employer tab cannot resume it.';
     }
     if(h&&h.kind==='recaptcha'&&h.questions.length===1&&h.questions[0]==='Complete the employer reCAPTCHA in this browser.'&&h.challengeHosts.every(host=>['www.google.com','www.recaptcha.net','www.gstatic.com','recaptcha.google.com'].includes(host))&&h.claimId===application.claim?.id&&Date.parse(h.expiresAt)>now&&['waiting','opening','opened','resuming'].includes(h.state)){
       label=h.state==='resuming'?'Checking after reCAPTCHA':'reCAPTCHA needs you';tone='warning';description=h.phase==='after_submit'?'Complete only the employer verification in the exact agent browser. Submit was already clicked once; the agent will check that attempt without repeating it.':'The agent needs you to permit the employer reCAPTCHA connection and complete any visible check personally in its existing browser.';

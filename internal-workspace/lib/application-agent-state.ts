@@ -1,10 +1,11 @@
+import {persistentQuestionHandoff} from './verification-handoff';
 import {manualSession} from './manual-submission';
 import {rememberEmployerQuestions} from './employer-questions';
 import { DomainError, record, safeJobUrl, applicationProfile, getApplySettings, applicationPolicyIssue, applicationRunsToday, type State } from './cyber-domain';
 
 export function claimApplication(state:State,at=new Date().toISOString()){
-  if(state.applications?.some(item=>manualSession(item)))return null;
-  for(const item of state.applications||[])if(item.agentVersion===2&&item.status==='processing'&&item.claim&&!manualSession(item)&&Date.parse(item.claim.expiresAt)<=Date.parse(at)){
+  if(state.applications?.some(item=>manualSession(item)||persistentQuestionHandoff(item)))return null;
+  for(const item of state.applications||[])if(item.agentVersion===2&&item.status==='processing'&&item.claim&&!manualSession(item)&&!persistentQuestionHandoff(item)&&Date.parse(item.claim.expiresAt)<=Date.parse(at)){
     item.status='uncertain';item.result={at,message:'The browser runner stopped reporting. Check the employer outcome before any retry.'};
   }
   const request=state.applications?.find(item=>item.agentVersion===2&&item.status==='queued'&&item.agentAuthorizedAt);
@@ -23,7 +24,7 @@ export function claimApplication(state:State,at=new Date().toISOString()){
 }
 export function activeClaim(state:State,requestId:string,claimId:string,at=new Date().toISOString()){
   const request=state.applications?.find(item=>item.id===requestId&&item.agentVersion===2);
-  if(!request||request.status!=='processing'||request.claim?.id!==claimId||(!manualSession(request)&&Date.parse(request.claim.expiresAt)<=Date.parse(at)))throw new DomainError('This claim is unavailable or expired. Check the employer outcome before retrying.',409);
+  if(!request||request.status!=='processing'||request.claim?.id!==claimId||(!manualSession(request)&&!persistentQuestionHandoff(request)&&Date.parse(request.claim.expiresAt)<=Date.parse(at)))throw new DomainError('This claim is unavailable or expired. Check the employer outcome before retrying.',409);
   if(!request.cv||!state.attachments.some(file=>file.id===request.cv!.fileId))throw new DomainError('The CV for this claim is unavailable.',409);
   return request;
 }

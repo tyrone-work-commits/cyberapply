@@ -17,13 +17,15 @@ class FixtureHandoff(BrowserHandoff):
         self.page=None;self.context=None;self.windows=[];self.events=[];self.current=None;self.mutate=mutate;self.cancel=cancel
         super().__init__(self.api,{'requestId':'one','claimId':'fixture-claim'})
         self.tamper=tamper;self.attempt_submit=attempt_submit
-        self.replace_cv=replace_cv
+        self.replace_cv=replace_cv;self.incomplete=0
     def window(self,context,page,state):
         if self.context is not None:assert context is self.context and page is self.page
         self.context,self.page=context,page;self.windows.append(state)
     def api(self,path,body):
         if body:
-            self.events.append(body['event']);self.current={**(self.current or {}),**body,'state':'waiting' if body['event']=='begin' else body['event'],'approvedHosts':[]}
+            self.events.append(body['event']);
+            if body.get('code')=='incomplete':self.incomplete+=1
+            self.current={**(self.current or {}),**body,'state':'waiting' if body['event']=='begin' else body['event'],'approvedHosts':[]}
             if body['event']=='opened' and self.mutate:
                 # Simulated human actor on this isolated fixture; production never selects it.
                 assert self.page.locator('input[type=file]').evaluate('e=>e.files[0].name')=='chosen.pdf'
@@ -32,7 +34,7 @@ class FixtureHandoff(BrowserHandoff):
                 if self.attempt_submit:self.page.get_by_role('button',name='Submit application').click()
                 if self.replace_cv:self.page.locator('input[type=file]').set_input_files({'name':'chosen.pdf','mimeType':'application/pdf','buffer':b'X'*len(CV)})
         else:
-            self.current['state']='cancelled' if self.cancel else 'opening' if self.current['state']=='waiting' else 'resuming'
+            self.current['state']='cancelled' if self.cancel or self.incomplete>=2 else 'opening' if self.current['state']=='waiting' else 'resuming'
         return {'handoff':self.current}
 
 def manual_plan(payload,fields,research):
@@ -40,11 +42,11 @@ def manual_plan(payload,fields,research):
     result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label']=='Which of the following best describes you?']
     return result
 
-def run_fixture(handoff,success=True,planner=manual_plan):
+def run_fixture(handoff,success=True,planner=manual_plan,payload=PAYLOAD,manual_submit_handler=None):
     html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>')
     posts=[]
-    result=execute_application(PAYLOAD,CV,submit=True,planner=planner,research_fn=lambda _: {},resolver=dns,timeout=500,
-      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts,success),verification_handler=handoff)
+    result=execute_application(payload,CV,submit=True,planner=planner,research_fn=lambda _: {},resolver=dns,timeout=500,
+      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts,success),verification_handler=handoff,manual_submit_handler=manual_submit_handler)
     return result,posts
 
 def test_exact_page_context_and_cv_survive_manual_handoff_then_one_submit_confirms():
@@ -52,7 +54,7 @@ def test_exact_page_context_and_cv_survive_manual_handoff_then_one_submit_confir
     assert result['status']=='applied',result
     assert len(posts)==1 and CV in posts[0] and b'I am a human' not in posts[0] and b'done' in posts[0]
     assert handoff.events==['begin','opened','resumed']
-    assert handoff.windows==['minimized','normal','minimized']
+    assert handoff.windows==['minimized','normal']
     assert result['report']['journey']['submit_click_attempts']==1
     assert result['report']['verification_handoffs'][0]['same_browser'] is True
     assert not any(a.get('question')=='Which of the following best describes you?' for a in result['report']['answers'])
@@ -72,7 +74,7 @@ def test_cancelled_handoff_never_submits_or_launches_another_window():
 
 def test_missing_manual_selection_does_not_resume_or_submit(monkeypatch):
     h=FixtureHandoff(mutate=False)
-    ticks=iter([0,0,0,1,2,241,242]);h.clock=lambda:next(ticks,243)
+    h.clock=lambda:1000000  # No four-minute expiration; fixture cancels explicitly.
     result,posts=run_fixture(h)
     assert result['status']=='needs_attention' and not posts,result
     assert 'resumed' not in h.events
@@ -145,3 +147,36 @@ def test_other_verifications_do_not_open_a_handoff_or_submit(extra):
     assert result['status']=='needs_attention' and not posts,result
     assert not h.events and 'normal' not in h.windows
     assert result['report']['journey']['submit_click_attempts']==0
+
+
+def test_identity_network_outages_retry_only_metadata_in_same_browser():
+    from urllib.error import URLError
+    class Outage(FixtureHandoff):
+        def __init__(self):super().__init__();self.once=set();self.read_failed=False
+        def api(self,path,body):
+            if body:
+                response=super().api(path,body)
+                if body['event'] in {'begin','opened','resumed'} and body['event'] not in self.once:
+                    self.once.add(body['event']);raise URLError('Synthetic response lost after status saved')
+                return response
+            if not self.read_failed:self.read_failed=True;raise URLError('Synthetic poll outage')
+            return super().api(path,body)
+    h=Outage();h.clock=lambda:999999999
+    result,posts=run_fixture(h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert result['report']['journey']['submit_click_attempts']==1
+    assert h.turns==1 and h.current['persistent'] is True
+    assert all(h.events.count(e)==2 for e in ['begin','opened','resumed'])
+    assert h.windows==['minimized','normal']
+
+
+def test_identity_return_then_greenhouse_manual_submit_uses_same_page_context_and_cv():
+    from application_agent.tests.test_manual_submit import Actor
+    h=FixtureHandoff();human_submit=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=human_submit)
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert h.page is human_submit.page and h.context is human_submit.context
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.events==['begin','opened','resumed']
+    assert h.current['persistent'] is True

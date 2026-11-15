@@ -16,6 +16,14 @@ Names now come from splitting saved Edit Profile fullName: first word for First/
 
 This replaces the final-submit behavior described in the historical 13 November handoff section below. The separate human-versus-AI dropdown handoff remains unchanged. Welcome, sign-in/create-account, logout, identity/access policy and shared welcome styles are protected and unchanged.
 
+## Persistent human/AI dropdown handoff — 15 November 2026
+
+For “Which of the following best describes you?” when the employer offers human and AI-agent options, use **Open exact agent browser**, choose the answer personally in that existing worker window, then **Return control to agent** in Applications. The handoff retains the exact Playwright context/page, cookies, filled fields and original attached CV in local process memory; a separately opened employer tab cannot be given back to the worker. The agent observes the actual selection without choosing it or learning a reusable human-identity answer. It rechecks the prepared fields and CV bytes, then continues the same form. Greenhouse/reCAPTCHA final Submit remains manual under the current policy above.
+
+New identity handoffs have no four-minute expiry. Their exact claim cannot expire/requeue while waiting, and the remaining processing lease is renewed on resume. Transient poll/status-response failures retry only idempotent metadata, not page navigation or employer actions. Incomplete selections remain in the same session; Cancel remains available. Permanent authorization failures, closed browser/process loss or a computer restart cannot be disguised as a restored session. Keep the computer awake and leave the worker browser open. Existing closed/paused requests are not restarted by deployment.
+
+The specific employer-question row no longer links to a separate employer tab. Its same-session controls are also available while the request is running. New workers advertise verificationHandoffVersion 2 alongside the current profile/manual-submit capabilities. Legacy handoffs remain historical and bounded; this change does not extend CAPTCHA scopes or grant new destinations. The prior 13 November dropdown timeout description below is historical, superseded by this policy for new identity handoffs.
+
 ## Current answer sources — 7 November 2026
 
 The agent uses all three existing sources together: the exact original CV selected for the Apply request, saved responses managed in Settings → Answers library, and saved Account Profile details. Moving the questions UI out of Edit Profile did not move or disconnect the owner-scoped question bank: it remains included in the authenticated claim payload alongside profile fields. The CV bytes/text are loaded separately from the selected original file and checked by digest.
