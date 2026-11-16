@@ -12,7 +12,7 @@ Job discovery reads public vacancy sources. A chosen application may send your r
 
 ## Connected services
 
-The application inbox uses separately authorized read-only Gmail access and checks that the mailbox matches your sign-in email. CyberApply does not change your mail. A configured writing or address provider can receive the content of an explicit request; these optional providers are off by default. Address lookup also requires your explicit query consent. Browser speech recognition is separate and may use the browser vendor’s service.
+A configured writing or address provider can receive the content of an explicit request; these optional providers are off by default. Address lookup also requires your explicit query consent. Browser speech recognition is separate and may use the browser vendor’s service.
 
 ## Recordings
 
