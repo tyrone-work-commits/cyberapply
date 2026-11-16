@@ -39,4 +39,6 @@ Meaningful changes are committed to GitHub and reported in the **CyberApply - Cy
 
 ## Career tools upgrade
 
+CV review now focuses on uploads, CV quality feedback and saved-file management. Matching and optimization tools are no longer shown there.
+
 The Sorce + Jobscan upgrade adds private CV scans/history, evidence-preserving optimization, résumé and cover-letter builders, richer discovery, application settings/Actions, tracking and interview calendars, practice interviews, optional profile details, in-app notifications, Help/export, learning guides. See [the implementation and verification ledger](docs/upgrade-plan-2026-11.md) for the complete feature list, adaptations and live-testing limits. Optional commerce, paid providers and external notifications remain inactive.

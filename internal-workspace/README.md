@@ -125,6 +125,8 @@ Answer this employer’s questions now renders original select/combobox question
 
 ## Career upgrade checkpoints
 
+CV review now focuses on uploads, CV quality feedback and saved-file management. Matching and optimization tools are no longer shown there.
+
 The upgrade ledger is `../docs/upgrade-plan-2026-11.md`. Dashboard, ATS scan reports/history, an evidence-preserving optimizer, guided résumé builder with text PDF/DOCX exports, reviewed cover letters, discovery/search and private company bookmarks are implemented. The remaining prompts add application settings/Actions, a job tracker and calendar export, interview practice, optional profile details, private notifications/Help/export, learning guides. See the ledger for adaptations and inactive integrations. The original CV is retained and generated CV versions are selected for applications only through an explicit action. Provider `none` is the default; no paid model, external email delivery or publishing service has been enabled.
 
 ## Source access and refresh
