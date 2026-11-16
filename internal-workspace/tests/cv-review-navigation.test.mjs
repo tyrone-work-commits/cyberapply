@@ -26,10 +26,13 @@ test('CV files remain the default and unknown sections cannot open a separate to
  for(const view of ['explore','applications','scans','builder','builder:saved'])assert.equal(route('view='+view),null);
 });
 
-test('LinkedIn optimizer links open the embedded profile tools and survive refresh',()=>{
- const destination=route('view=linkedin');
- assert.equal(destination.tool,'linkedin');
- assert.equal(destination.href,cvReviewHref('linkedin'));
- assert.deepEqual(route(destination.href.split('?')[1]),destination);
+test('retired LinkedIn optimizer links return to CV files without carrying a profile scan ID',()=>{
+ for(const query of ['view=linkedin','view=linkedin:old-profile','view=workspace&tool=linkedin','view=workspace&tool=linkedin&session=old-profile']){
+  const destination=route(query);
+  assert.equal(destination.tool,'files');
+  assert.equal(destination.id,undefined);
+  assert.equal(destination.href,cvReviewHref());
+  assert.deepEqual(route(destination.href.split('?')[1]),destination);
+ }
  for(const view of ['scans','cover-letters','cover-letters:saved-letter'])assert.equal(route('view='+view),null);
 });
