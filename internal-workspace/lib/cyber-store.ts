@@ -108,6 +108,7 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
   db().prepare(`INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE ${guard}`).bind(user.userId,revision,payload,'permanently_delete_application_records',at,user.userId,token),
  ]);
  if(results[0].meta.changes!==1)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
+ if(plan.ids.length)await db().prepare('DELETE FROM cyber_application_browser_windows WHERE owner_id=? AND request_id IN (SELECT value FROM json_each(?))').bind(user.userId,JSON.stringify(plan.ids)).run();
  const coverKeys=[...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].filter(item=>plan.ids.includes(item.id)).map(item=>item.coverLetter?.key).filter((key):key is string=>!!key&&key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`));if(coverKeys.length)try{await files().delete(coverKeys);}catch{console.error('Deleted application cover-file cleanup pending under owner prefix.');}
  return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),message:'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};
 }
@@ -176,6 +177,7 @@ export async function deleteAccount(user:Identity,expected:number){
       db().prepare('DELETE FROM cyber_career_records WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_career_usage WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_agent_presence WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_application_browser_windows WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_receipt_checks WHERE owner_id=?').bind(user.userId),
     db().prepare('DELETE FROM cyber_revisions WHERE owner_id=?').bind(user.userId),
       db().prepare("DELETE FROM cyber_workspaces WHERE owner_id=? AND json_extract(payload,'$.__deleting')=1").bind(user.userId),

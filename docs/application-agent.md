@@ -1,5 +1,12 @@
 # CV application agent — 29 October 2026
 
+## Open the existing employer browser — 16 November 2026
+
+Open employer application on Applications cards/details and the recording page is now an authenticated window-focus command, rather than a fresh-tab vacancy link. After answers are approved/saved and the runner begins filling the request, this button brings its exact current browser window forward on the agent’s computer. It never opens a page, navigates, reloads, starts a request, resumes verification or submits a form. The separate View vacancy source link remains available for browsing.
+
+A short-lived owner/request/claim/session-scoped D1 row carries readiness, focus-command nonce and acknowledgement only. The runner exchanges metadata in a background thread; only the Playwright owner thread performs the existing-window foreground operation, including during verification/manual-submit waits. Lost acknowledgements do not repeat an already handled focus operation. Stale, closed, replaced and terminal sessions are unavailable, and no blank form is opened as a fallback. Rows are cleaned on record/account deletion and stale rows are pruned on registration. No cookies, CV text, form values or browser-control URL are exposed by this feature. On a phone, the button opens the window on the computer running the agent; it does not relay that browser to the phone.
+
+
 ## Employer checkbox selections — 16 November 2026
 
 Answer this employer’s questions now mirrors captured employer checkboxes as checkboxes, including optional or already answered controls. Each checkbox option in a group keeps its statement and option label, rather than collapsing the group into one Yes/No question. Users select or clear boxes, then approve and save. The application and Answers library retain Yes/No values, and the runner applies those exact values to the corresponding labelled native or ARIA checkbox and checks its resulting state. Old true/false answers remain compatible.

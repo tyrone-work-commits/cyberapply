@@ -41,3 +41,7 @@ export const careerVersions=sqliteTable('cyber_career_versions',{
 export const careerUsage=sqliteTable('cyber_career_usage',{
  ownerId:text('owner_id').notNull(),kind:text('kind').notNull(),period:text('period').notNull(),count:integer('count').notNull(),
 },table=>[primaryKey({columns:[table.ownerId,table.kind,table.period]})]);
+
+export const applicationBrowserWindows=sqliteTable('cyber_application_browser_windows',{
+ ownerId:text('owner_id').notNull(),requestId:text('request_id').notNull(),claimId:text('claim_id').notNull(),sessionId:text('session_id').notNull(),seenAt:integer('seen_at').notNull(),closed:integer('closed').notNull().default(0),openId:text('open_id'),openedId:text('opened_id'),error:text('error').notNull().default(''),
+},table=>[primaryKey({columns:[table.ownerId,table.requestId]})]);

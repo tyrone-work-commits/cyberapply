@@ -155,6 +155,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         from .live_watch import LiveWatch
         from .verification_handoff import BrowserHandoff
         from .manual_submit import ManualSubmit
+        from .browser_window import BrowserWindow
         handoff=BrowserHandoff(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None
         try:
             delivery=RecordingDelivery(site,token,task,site_access_token)
@@ -170,7 +171,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
             sessions=LoginSessions(site,token.split('.')[1])
         result = execute_application(task, cv_bytes, submit=submit, allowed_hosts=allowed_hosts, before_submit=authorize,
                                      browser_channel=None if browser_channel=='chromium' else browser_channel,
-                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes,verification_handler=handoff,manual_submit_handler=ManualSubmit(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None)
+                                     session_store=sessions,interactive_login=submit,live_watch=watch,cover_letter_bytes=cover_letter_bytes,verification_handler=handoff,browser_window=BrowserWindow(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=4),task) if submit else None,manual_submit_handler=ManualSubmit(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None)
     except Exception:
         result = {"status":"failed", "message":"The selected CV or reviewed cover letter could not be read. No employer submission was attempted."}
     finally:

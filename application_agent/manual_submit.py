@@ -69,6 +69,7 @@ class ManualSubmit:
         endpoint='/api/application-agent/manual-submit'
         pending_evidence=None;closed=False
         while True:
+            if getattr(self,'window_control',None):self.window_control.check()
             closed=page.is_closed()
             frames=[] if closed else [f for f in page.frames if (urlsplit(f.url).hostname or '').lower() in hosts]
             for frame in frames:

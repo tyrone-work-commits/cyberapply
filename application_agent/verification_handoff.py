@@ -50,6 +50,7 @@ class BrowserHandoff:
                 try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
                 except Exception:pass
             while self.clock()-started<240:
+                if getattr(self,'window_control',None):self.window_control.check()
                 if page.is_closed() or self.blocked_navigation:
                     event('failed',code='session_changed');ended=True;return False
                 h=self.call(endpoint+'?'+urlencode(self.ids),None)['handoff']
@@ -98,6 +99,7 @@ class BrowserHandoff:
         endpoint='/api/application-agent/handoff';opened=False;success=False
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
         def wait():
+            if getattr(self,'window_control',None):self.window_control.check()
             try:page.wait_for_timeout(1000)
             except Exception:time.sleep(1)
         def send(name,**extra):

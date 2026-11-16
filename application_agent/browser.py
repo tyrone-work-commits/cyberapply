@@ -171,7 +171,7 @@ def restrict_transports(context):
 
 def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), playwright_factory=None,
                         research_fn=None, planner=None, resolver=socket.getaddrinfo, timeout=15000, before_submit=None,
-                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None, verification_handler=None, manual_submit_handler=None):
+                        browser_channel=None, session_store=None, interactive_login=False, login_handler=None, live_watch=None, cover_letter_bytes=None, verification_handler=None, manual_submit_handler=None, browser_window=None):
     """Inspect/fill a single claim. No application is retried after final click."""
     if planner is None:
         from .reasoning import build_plan
@@ -416,10 +416,15 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     journey.data['entry']='matching_greenhouse_embed'
                     page.goto(url,wait_until='domcontentloaded',timeout=timeout*2)
                     page.wait_for_timeout(700)
+            if browser_window:
+                browser_window.attach(context,page)
+                if verification_handler:verification_handler.window_control=browser_window
+                if manual_submit_handler:manual_submit_handler.window_control=browser_window
             seen_steps = set()
             visited_links = set()
             login_attempted=False
             while journey.inspect():
+                if browser_window:browser_window.check()
                 validate_public_url(page.url, hosts, resolver)
                 if blocked:
                     raise ApplicationAttention("This employer form uses an unsupported application destination. Open its original page to continue manually.")
@@ -599,6 +604,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     if field['type']=='checkbox' and expected in {'Yes','No'}:expected='true' if expected=='Yes' else 'false'
                     return expected is not None and expected==answer.get('value')
                 for field in fields:
+                    if browser_window:browser_window.check()
                     if live_watch:live_watch.capture()
                     control = controls[field["id"]]
                     kind, label = field["type"], field["label"].lower()
@@ -853,6 +859,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     # Slow receipt pages can be the final result of this action.
                     transition_deadline=time.monotonic()+min(timeout*2,10000)/1000
                     while True:
+                        if browser_window:browser_window.check()
                         page.wait_for_timeout(150)
                         validate_public_url(page.url,hosts,resolver)
                         if report.get('employer_verification',{}).get('state')=='resource_blocked':
@@ -900,6 +907,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 button.click()
                 deadline=time.monotonic()+confirmation_ms/1000
                 while True:
+                    if browser_window:browser_window.check()
                     page.wait_for_timeout(150)
                     if live_watch:live_watch.capture()
                     validate_public_url(page.url, hosts, resolver)
@@ -935,6 +943,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     except Exception:
         return finish("uncertain" if submitted else "failed", "The browser stopped after a possible submission; check the employer before retrying." if submitted else "The browser could not finish this form. No submission was attempted.", report)
     finally:
+        if browser_window:
+            try:browser_window.close()
+            except Exception:pass
         if live_watch:
             try:live_watch.detach()
             except Exception:pass
