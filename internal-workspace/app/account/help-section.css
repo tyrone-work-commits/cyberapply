@@ -1,0 +1,29 @@
+.account-help-section {
+  display: grid;
+  gap: 16px;
+}
+
+.account-help-links {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+
+.account-help-links > .button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  text-align: center;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  .account-help-links {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
