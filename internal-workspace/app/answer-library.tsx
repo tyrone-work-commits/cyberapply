@@ -1,6 +1,6 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-import {manualAnswerOnly,openEndedQuestion,type EmployerQuestion} from '@/lib/employer-questions';
+import {parseMultipleAnswer,manualAnswerOnly,openEndedQuestion,type EmployerQuestion} from '@/lib/employer-questions';
 import {careerRequest as request} from '@/lib/career-client';
 import './answer-library.css';
 
@@ -56,9 +56,9 @@ export default function AnswerLibrary({onUpdated}:{onUpdated:()=>Promise<void>})
    return <section className="panel" key={q.id} aria-label={q.question}>
     <h3>{q.question}</h3>
     <p className="subtle">{q.source==='user'?'Your saved answer':q.source==='cv_and_job'?'Agent draft — review required':q.source==='missing'?'Not answered':q.source==='edit_profile'?'Account Profile':'Chosen CV'} · {reference?'Reference only':q.reusePolicy==='job_only'||q.jobSpecific?'Job context matters':'Exact matching questions'}</p>
-    {q.options.length>0&&<><label>Employer’s offered choices<select aria-label={'Employer choices for: '+q.question} disabled={disabled} value={q.options.includes(answer)?answer:''} onChange={e=>{if(e.target.value)setValues(current=>({...current,[q.id]:e.target.value}));}}><option value="">Choose an option to edit your answer</option>{q.options.map((o,i)=><option key={i} value={o}>{o}</option>)}</select></label><p className="subtle">Captured choices{q.optionsCompany?' from '+q.optionsCompany:''}.{q.optionsTruncated?' This list is limited; review the employer form for the full list.':''} Selecting an option does not save or submit it.</p></>}
-    <label>Your answer<textarea aria-label={'Answer to: '+q.question} maxLength={20000} disabled={disabled} value={answer} onChange={e=>setValues(current=>({...current,[q.id]:e.target.value}))}/></label>
-    {!!q.options.length&&!!answer&&!q.options.includes(answer)&&<p className="subtle">Your current answer is not among the captured choices. Review the employer’s options before reusing it.</p>}
+    {q.options.length>0&&<><label>Employer’s offered choices<select multiple={!!q.multiple} size={q.multiple?Math.min(6,Math.max(2,q.options.length)):undefined} aria-label={'Employer choices for: '+q.question} disabled={disabled} value={q.multiple?(parseMultipleAnswer(answer,q.options)||[]):q.options.includes(answer)?answer:''} onChange={e=>{const next=q.multiple?JSON.stringify([...e.target.selectedOptions].map(option=>option.value)):e.target.value;if(next)setValues(current=>({...current,[q.id]:next}));}}>{!q.multiple&&<option value="">Choose an option to edit your answer</option>}{q.options.map((o,i)=><option key={i} value={o}>{o}</option>)}</select></label><p className="subtle">Captured choices{q.optionsCompany?' from '+q.optionsCompany:''}.{q.optionsTruncated?' This list is limited; review the employer form for the full list.':''} Selecting an option does not save or submit it.</p></>}
+    {q.multiple?<p>Your selections: {(parseMultipleAnswer(answer,q.options)||[]).join(', ')||'None selected'}</p>:<label>Your answer<textarea aria-label={'Answer to: '+q.question} maxLength={20000} disabled={disabled} value={answer} onChange={e=>setValues(current=>({...current,[q.id]:e.target.value}))}/></label>}
+    {!!q.options.length&&!!answer&&(q.multiple?parseMultipleAnswer(answer,q.options)===null:!q.options.includes(answer))&&<p className="subtle">Your current answer is not among the captured choices. Review the employer’s options before reusing it.</p>}
     {q.generationNote&&!q.generationNote.includes('not to use AI-written')&&<p className="subtle">{q.generationNote}</p>}
     <p className="subtle">{q.evidence}{q.lastUsedAt?' · Last used '+new Date(q.lastUsedAt).toLocaleString():''}</p>
     <div className="row-actions">

@@ -138,7 +138,7 @@ INSPECT = """() => {
       const peers=type==='radio'&&e.name?[...document.querySelectorAll('input[type=radio]')].filter(x=>visible(x)&&x.name===e.name&&x.form===e.form):[];
       const label=(type==='radio'&&groupQuestion?groupQuestion:type==='checkbox'&&groupQuestion&&groupQuestion.toLowerCase()!==optionLabel.toLowerCase()?groupQuestion+' — '+optionLabel:optionLabel).slice(0,4000);
       return {id,domId:e.id||'',label,type,phoneCountry:!!phoneCountry,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
-        nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
+        multiple:e.tagName==='SELECT'?!!e.multiple:e.hasAttribute('aria-multiselectable')?e.getAttribute('aria-multiselectable')==='true':null,nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
         required:e.required||e.getAttribute('aria-required')==='true',
         options:e.options?[...e.options].map(o=>o.text):peers.map(x=>[...(x.labels||[])].map(labelText).join(' ').trim()),
         value:e.value||'',checked:e.checked||e.getAttribute('aria-checked')==='true'};
@@ -560,9 +560,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     choices=(observed.get('options') or [])[:limit]
                     observed['optionsTruncated']=bool(observed.get('optionsTruncated')) or len(observed.get('options') or [])>limit
                     if (label,kind) not in known:
-                        questions.append({'question':label,'field_type':kind,'options':choices,'optionsTruncated':bool(observed.get('optionsTruncated')),**({'checkboxLabel':observed.get('optionLabel','')} if kind=='checkbox' else {})});known.add((label,kind))
+                        questions.append({'question':label,'field_type':kind,'options':choices,**({'multiple':observed['multiple']} if isinstance(observed.get('multiple'),bool) else {}),'optionsSource':'browser_form','optionsTruncated':bool(observed.get('optionsTruncated')),**({'checkboxLabel':observed.get('optionLabel','')} if kind=='checkbox' else {})});known.add((label,kind))
                     elif choices:
-                        next(q for q in questions if q['question']==label and q['field_type']==kind).update(options=choices,optionsTruncated=bool(observed.get('optionsTruncated')))
+                        next(q for q in questions if q['question']==label and q['field_type']==kind).update(options=choices,multiple=bool(observed.get('multiple')),optionsSource='browser_form',optionsTruncated=bool(observed.get('optionsTruncated')))
                 plan = planner(payload, fields, report["research"])
                 report["experience"] = plan.get("experience", {})
                 report["cover_letter"] = plan.get("cover_letter", "")
@@ -574,6 +574,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 expected_values = {}
                 attachment_hashes = {}
                 def exact_confirmed(field, answer):
+                    from .multiselect import parse_multiple
                     normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
                     same_question=[f for f in fields if f['type']==field['type'] and normalize(f['label'])==normalize(field['label'])]
                     if field['type'] in {'checkbox','combobox'} and len(same_question)!=1:
@@ -583,6 +584,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     return answer and answer.get('source')=='user_confirmed' and any(
                         normalize(item.get('question',''))==normalize(field['label']) and (
                             str(item.get('value',''))==str(answer['value']) or
+                            field.get('multiple') and parse_multiple(str(item.get('value','')),field.get('options') or []) is not None and parse_multiple(str(item.get('value','')),field.get('options') or [])==parse_multiple(str(answer['value']),field.get('options') or []) or
                             field['type']=='checkbox' and (answer['value']=='true' and normalize(item.get('value','')) in {'true','yes','i agree'} or answer['value']=='false' and normalize(item.get('value','')) in {'false','no'})
                         ) for item in payload.get('confirmedAnswers',[]) if isinstance(item,dict))
                 def approved_choice(field,answer):
@@ -648,6 +650,17 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This required attachment is not the selected CV."})
                         continue
                     answer = answers.get(field["id"])
+                    if field.get('multiple') and kind in {'combobox','select'}:
+                        from .multiselect import select_multiple, selected_multiple, parse_multiple
+                        if approved_choice(field,answer) and answer:
+                            try:
+                                selected=same_question(lambda:select_multiple(frames[int(field['id'].split(':',1)[0])],control,field,answer['value'],min(timeout,3000)))
+                                expected_values[field['id']]=('multiple',selected)
+                                handled_confirmed.add(field['id']);report['answers'].append({**answer,'question':field['label']})
+                            except DropdownAttention as error:unresolved.append({'field_id':field['id'],'question':field['label'],'field_type':kind,'reason':str(error),'source':'agent_recovery'})
+                        elif field['required'] and not any(q.get('field_id')==field['id'] for q in unresolved):
+                            unresolved.append({'field_id':field['id'],'question':field['label'],'field_type':kind,'reason':'Select the applicable employer choices in CyberApply; no selection was assumed.'})
+                        continue
                     if kind == 'checkbox':
                         if approved_choice(field,answer) and answer['value'] in {'true','false'}:
                             control.set_checked(answer['value']=='true')
@@ -770,10 +783,11 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     for field_id,(kind,expected) in expected_values.items():
                         control=controls[field_id]
                         from .phone import matches_phone
-                        actual=(matches_phone(control,expected) if kind=='phone' else selected_display(control,expected,frames[int(field_id.split(':',1)[0])]) if kind=='combobox' else control.is_checked() if kind=='checked' else
+                        from .multiselect import selected_multiple
+                        actual=(selected_multiple(frames[int(field_id.split(':',1)[0])],control,expected) if kind=='multiple' else matches_phone(control,expected) if kind=='phone' else selected_display(control,expected,frames[int(field_id.split(':',1)[0])]) if kind=='combobox' else control.is_checked() if kind=='checked' else
                             control.evaluate("e=>e.files?.[0]?{name:e.files[0].name,size:e.files[0].size}:null") if kind=='file' else
                             control.evaluate("e=>e.selectedOptions[0]?.text||''") if kind=='select' else control.input_value())
-                        if (kind in {'combobox','phone'} and actual is not True) or (kind not in {'combobox','phone'} and actual!=expected):
+                        if (kind in {'combobox','phone','multiple'} and actual is not True) or (kind not in {'combobox','phone','multiple'} and actual!=expected):
                             raise ApplicationAttention('An answer or attachment changed after preparation. Review the form before applying.')
                         if kind=='file' and manual_interaction:
                             checksum=control.evaluate("""async e=>{const f=e.files?.[0];if(!f)return '';const b=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');}""")

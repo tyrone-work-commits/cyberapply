@@ -114,3 +114,13 @@ test('a checkbox save cannot target a request outside the loaded owner workspace
  assert.throws(()=>reduceAction(other,{type:'answer_application_questions',applicationId:owner.applications[0].id,answers:[{question:'Acknowledged',value:'Yes'}],confirmation:'CONFIRMED'},'interface',at),/known unsent/);
  assert.deepEqual(other,before);assert.equal(owner.applications[0].confirmedAnswers,undefined);
 });
+
+
+test('multiple selections save, reload and remain editable in the library with strict offered-choice validation',()=>{
+ const s=emptyState(),question='Are you open to travel if required?*';s.applications=[fixture({report:{questions:[{question,field_type:'combobox',multiple:true,options:['No Travel','0-25%','25-50%','50%+']}]}})];
+ const saved=saveAnswers(s,[{question,value:JSON.stringify(['25-50%','0-25%'])}]).state;assert.deepEqual(JSON.parse(saved.applications[0].confirmedAnswers[0].value),['0-25%','25-50%']);
+ const row=JSON.parse(JSON.stringify(saved)).accountProfile.employerQuestions[0];assert.equal(row.multiple,true);assert.deepEqual(JSON.parse(row.answer),['0-25%','25-50%']);
+ for(const answer of ['["Unknown"]','["0-25%","0-25%"]','[1]','Yes'])assert.throws(()=>saveAnswers(s,[{question,value:answer}]),/captured/);
+ const updated=reduceAction(saved,{type:'save_employer_answer',questionId:row.id,answer:'["No Travel"]'},'interface',at).state;assert.equal(updated.accountProfile.employerQuestions[0].answer,'["No Travel"]');
+ assert.throws(()=>reduceAction(saved,{type:'save_employer_answer',questionId:row.id,answer:'["Unsupported"]'},'interface',at),/captured/);
+});

@@ -20,7 +20,7 @@ export function applicationFormQuestions(application:ApplicationRequest,memory:E
  for(const item of memory){
   if(!choiceControl(item.fieldType)||(item.optionsJobId||item.jobId)!==application.jobId)continue;
   const currentRun=item.originRequestId===application.id||!!item.optionsCheckedAt&&Date.parse(item.optionsCheckedAt)>=Date.parse(application.at);
-  if(currentRun)add({question:item.question,field_type:item.fieldType,options:item.options,optionsTruncated:!!item.optionsTruncated});
+  if(currentRun)add({question:item.question,field_type:item.fieldType,options:item.options,multiple:!!item.multiple,optionsTruncated:!!item.optionsTruncated});
  }
  return [...questions.values()];
 }

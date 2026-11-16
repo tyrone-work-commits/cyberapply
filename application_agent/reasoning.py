@@ -128,6 +128,12 @@ def _confirmed(payload: dict, question: str, field: dict) -> tuple[bool, str | N
     if not value or len(value) > 20_000 or kind in {"hidden", "password"} or (kind=="file" and not re.search(r"cover.?letter",question,re.I)):
         return True, None, "The confirmed value is empty or unsupported for this field."
     proof = f"User confirmed question: {item['question']}\nUser confirmed answer: {item['value']}"
+    if field.get('multiple'):
+        from .multiselect import parse_multiple
+        values=parse_multiple(value,field.get('options') or [])
+        if values is None or field.get('required') and not values:return True,None,'Select valid offered choices for this required multiple-choice question.'
+        import json
+        return True,json.dumps(values),proof
     if kind == "checkbox":
         if value.casefold() in {"no", "false"}:
             if field.get('required'):
@@ -190,7 +196,10 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
-        if field.get('phoneCountry') is True or profile_key in {'cityStateZipCode','firstName','middleName','lastName','fullName','country','phone'}:
+        if field.get('multiple'):
+            if user_supplied:value,source,proof=confirmed_value,'user_confirmed',confirmed_proof
+            elif remembered:value,proof=remembered;source='saved_profile'
+        elif field.get('phoneCountry') is True or profile_key in {'cityStateZipCode','firstName','middleName','lastName','fullName','country','phone'}:
             value,proof,profile_reason=saved_profile_answer(payload,question,field)
             source='edit_profile'
         elif remembered and not user_supplied:
@@ -247,7 +256,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
             options = field.get("options") or []
-            if options and kind!='checkbox' and not field.get('phoneCountry'):
+            if options and kind!='checkbox' and not field.get('phoneCountry') and not field.get('multiple'):
                 value = unique_option(question, value, options, payload.get('applicantProfile') or {},
                     years=source=='cv' and experience['established'] and not experience['approximate'] and
                     bool(re.search(r'years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?', normalized)))

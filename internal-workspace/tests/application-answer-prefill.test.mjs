@@ -105,3 +105,11 @@ test('checkbox consent from another application is not preselected; explicit ans
  assert.equal(prefill(app(),field,control,[memory({question:field.question,fieldType:'checkbox',answer:'Yes',reusePolicy:'manual_only'})]).value,'');
  for(const [answer,expected] of [['true','Yes'],['false','No'],['Yes','Yes'],['No','No']])assert.equal(prefill(app({confirmedAnswers:[{question:field.question,value:answer}]}),field,control).value,expected);
 });
+
+
+test('multi-select controls render every employer option and the previously saved selections',()=>{
+ const q='Are you open to travel if required?',options=['No Travel','0-25%','25-50%','50%+'];const request=app({report:{questions:[{question:q,field_type:'combobox',multiple:true,options}]},confirmedAnswers:[{question:q,value:'["0-25%","25-50%"]'}]});
+ const html=renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:request,employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
+ assert.match(html,/<select[^>]*multiple=""/);for(const option of options)assert.ok(html.includes('>'+option+'</option>'));assert.match(html,/<option value="0-25%" selected="">/);assert.match(html,/<option value="25-50%" selected="">/);assert.doesNotMatch(html,/<textarea/);
+ assert.equal(prefill(app(),{question:q,field_type:'combobox'},{isDropdown:true,multiple:true,options},[memory({question:q,answer:'["0-25%","25-50%"]',multiple:true})]).value,'["0-25%","25-50%"]');
+});

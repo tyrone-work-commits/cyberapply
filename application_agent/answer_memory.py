@@ -30,6 +30,12 @@ def remembered_answer(payload,question,field):
     row=matches[0];value=str(row.get('answer','')).strip()
     if not value or any(r.get('reusePolicy')=='manual_only' for r in matches):return None
     if automation_check(question,[*(field.get('options') or []),*(option for r in matches for option in r.get('options',[])),value]):return None
+    if field.get('multiple'):
+        from .multiselect import parse_multiple
+        import json
+        selected=parse_multiple(value,field.get('options') or [])
+        if selected is None or field.get('required') and not selected:return None
+        return json.dumps(selected),'Exact multiple-choice answer saved in Answers library.'
     if kind in {'select','radio'} or kind=='combobox' and field.get('options'):
         choices=[str(option) for option in field.get('options') or [] if key(option)==key(value)]
         if len(choices)!=1:return None

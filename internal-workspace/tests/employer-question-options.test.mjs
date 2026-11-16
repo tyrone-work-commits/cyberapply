@@ -64,12 +64,27 @@ test('repeated choice refresh bounds new catalogue entries without dropping exis
 });
 
 
-test('public checkbox groups preserve each original option and merge without answering or restarting',async()=>{
- const rows=await fetchEmployerQuestions(job,async()=>Response.json({id:123,questions:[{label:'I acknowledge the statement',fields:[{type:'multi_value_multi_select',values:[{label:'Acknowledged'}]}]},{label:'Contact channels',fields:[{type:'multi_value_multi_select',values:[{label:'Email'},{label:'SMS'}]}]}]}));
- assert.deepEqual(rows.map(q=>q.question),['I acknowledge the statement — Acknowledged','Contact channels — Email','Contact channels — SMS']);
- assert.deepEqual(rows.map(q=>q.checkboxLabel),['Acknowledged','Email','SMS']);assert.ok(rows.every(q=>q.field_type==='checkbox'));
- const s=emptyState();s.jobs=[job];s.accountProfile={fullName:'Fictional',headline:'',targetRole:'Analyst',completedAt:'now'};s.applications=[{id:'request',jobId:'job',status:'needs_attention',confirmedAnswers:[{question:'Existing',value:'No'}]}];
- mergeApplicationQuestionChoices(s,'request',rows,'2026-11-16T12:00:00Z');
- assert.equal(s.applications[0].report.questions.length,3);assert.equal(s.applications[0].status,'needs_attention');assert.deepEqual(s.applications[0].confirmedAnswers,[{question:'Existing',value:'No'}]);
- assert.ok(s.accountProfile.employerQuestions.every(q=>!q.answer));
+test('public multi-value fields stay one multi-select menu with their complete original choices',async()=>{
+ const choices=['No Travel','0-25%','25-50%','50%+'];
+ const rows=await fetchEmployerQuestions(job,async()=>Response.json({id:123,questions:[{label:'Are you open to travel if required?',fields:[{type:'multi_value_multi_select',values:choices.map(label=>({label}))}]}]}));
+ assert.equal(rows.length,1);assert.equal(rows[0].field_type,'combobox');assert.equal(rows[0].multiple,true);assert.deepEqual(rows[0].options,choices);
+ const s=emptyState();s.jobs=[job];s.accountProfile={fullName:'Fictional',headline:'',targetRole:'Analyst',completedAt:'now',employerQuestions:[{id:'old',question:'Are you open to travel if required? — No Travel',fieldType:'checkbox',jobId:'job',source:'missing',answer:'',options:[]}]};
+ s.applications=[{id:'request',jobId:'job',status:'needs_attention',report:{unresolved:[{question:'Are you open to travel if required?*',field_type:'combobox'}],questions:[{question:'Are you open to travel if required?*',field_type:'combobox',options:[]},...choices.map(option=>({question:'Are you open to travel if required? — '+option,field_type:'checkbox',options:[],optionsSource:'employer_question_feed'}))]}}];
+ const before=structuredClone(s.applications[0]);mergeApplicationQuestionChoices(s,'request',rows,'2026-11-16T12:00:00Z');
+ assert.equal(s.applications[0].report.questions.length,1);assert.deepEqual(s.applications[0].report.questions[0].options,choices);assert.equal(s.applications[0].report.questions[0].multiple,true);assert.equal(s.applications[0].status,before.status);assert.equal(s.accountProfile.employerQuestions.length,1);assert.equal(s.accountProfile.employerQuestions[0].answer,'');
+});
+
+test('feed hints cannot replace a browser-observed checkbox',()=>{
+ const s=emptyState();s.jobs=[job];s.accountProfile={fullName:'Fictional',headline:'',targetRole:'Analyst',completedAt:'now',employerQuestions:[]};s.applications=[{id:'request',jobId:'job',status:'needs_attention',report:{questions:[{question:'I agree — Acknowledged',field_type:'checkbox',options:[],optionsSource:'browser_form'}]}}];
+ mergeApplicationQuestionChoices(s,'request',[{question:'I agree',field_type:'combobox',multiple:true,options:['Acknowledged']}],'now');assert.equal(s.applications[0].report.questions.length,1);assert.equal(s.applications[0].report.questions[0].field_type,'checkbox');
+});
+
+
+test('refresh retires blank synthetic metadata but preserves actual saved user answers',()=>{
+ const s=emptyState();s.jobs=[job];const question='Are you open to travel if required?';
+ const saved={id:'saved',question:question+' — No Travel',fieldType:'checkbox',jobId:'job',source:'user',answer:'Yes',options:[],status:'answered',updatedAt:'old'};
+ s.accountProfile={fullName:'Fictional',headline:'',targetRole:'Analyst',completedAt:'now',employerQuestions:[saved]};
+ s.applications=[{id:'request',jobId:'job',status:'needs_attention',confirmedAnswers:[{question:saved.question,value:'Yes'}],report:{questions:[{question:question+'*',field_type:'combobox',options:[]},{question:saved.question,field_type:'checkbox',options:[],optionsSource:'employer_question_feed'}]}}];
+ mergeApplicationQuestionChoices(s,'request',[{question,field_type:'combobox',multiple:true,options:['No Travel','0-25%']}],'now');
+ assert.deepEqual(s.accountProfile.employerQuestions.find(q=>q.id==='saved'),saved);assert.deepEqual(s.applications[0].confirmedAnswers,[{question:saved.question,value:'Yes'}]);assert.equal(s.applications[0].report.questions.length,1);
 });

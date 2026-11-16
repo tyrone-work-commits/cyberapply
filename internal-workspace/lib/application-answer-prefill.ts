@@ -1,12 +1,12 @@
 import type {AccountProfile,ApplicantProfile,ApplicationRequest} from './cyber-domain';
-import {answerControlGroup,authorshipCheck,employerQuestionKey,isAutomationCheck,manualAnswerOnly,type EmployerQuestion} from './employer-questions';
+import {parseMultipleAnswer,answerControlGroup,authorshipCheck,employerQuestionKey,isAutomationCheck,manualAnswerOnly,type EmployerQuestion} from './employer-questions';
 import {canEditApplicationQuestions} from './application-form-questions';
 import {extractCandidateFacts} from './candidate-facts';
 import {convertUsdSalary} from './expected-salary';
 import {checkboxAnswer} from './application-question-choices';
 
 export type AnswerPrefill={value:string;source:'confirmed'|'recorded'|'profile'|'library'|'cv'|'suggestion'|''};
-type Choice={isDropdown:boolean;isCheckbox?:boolean;options:string[]};
+type Choice={isDropdown:boolean;isCheckbox?:boolean;multiple?:boolean;options:string[]};
 const clean=(value:string)=>value.normalize('NFKC').replace(/\s+/g,' ').trim().replace(/[.*]+$/,'').toLowerCase();
 const country=(value:string)=>{
  const key=clean(value).replace(/[.]/g,'');
@@ -21,6 +21,7 @@ const single=(values:string[])=>values.length===1?values[0]:'';
 export function offeredAnswer(value:string,choices:Choice,question:string,profile?:AccountProfile|ApplicantProfile){
  if(!value.trim())return '';
  if(choices.isCheckbox)return checkboxAnswer(value);
+ if(choices.multiple){const selected=parseMultipleAnswer(value,choices.options);return selected?JSON.stringify(selected):'';}
  if(!choices.isDropdown)return value;
  if(choices.options.includes(value))return value;
  const exact=choices.options.filter(option=>clean(option)===clean(value));if(exact.length)return single(exact);

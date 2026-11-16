@@ -76,19 +76,19 @@ def has_unreviewed_selection(control):
     return any(_text(text) not in {'select', 'select...', 'select…', 'choose', 'choose...', 'choose…'} for text in texts)
 
 
-def _popup(frame, control, timeout):
+def _popup(frame, control, timeout, allow_multiple=False):
     refs = (control.get_attribute('aria-controls') or control.get_attribute('aria-owns') or '').split()
     deadline=time.monotonic()+timeout/1000
     while not refs and time.monotonic()<deadline:
         frame.wait_for_timeout(50)
         refs=(control.get_attribute('aria-controls') or control.get_attribute('aria-owns') or '').split()
-    if len(refs) != 1 or not re.fullmatch(r'[\w.:-]{1,200}', refs[0]):
+    if len(refs) != 1 or not re.fullmatch(r'[\w.:\[\]-]{1,200}', refs[0]):
         raise DropdownAttention('This dropdown does not identify one supported option list. Complete it yourself.',transient=True)
     popup = frame.locator(f'[role="listbox"][id="{refs[0]}"]')
     popup.wait_for(state='visible', timeout=timeout)
     if popup.count() != 1:
         raise DropdownAttention('This dropdown has no unique linked option list. Complete it yourself.',transient=True)
-    if popup.get_attribute('aria-multiselectable') == 'true':
+    if popup.get_attribute('aria-multiselectable') == 'true' and not allow_multiple:
         raise DropdownAttention('This dropdown allows multiple selections and needs review.')
     return popup
 
@@ -103,14 +103,15 @@ def _options(popup):
     return controls, choices
 
 
-def capture_combobox_options(frame,control,timeout=1500,option_limit=100):
+def capture_combobox_options(frame,control,timeout=1500,option_limit=100,field=None):
     """Read a linked menu without typing, selecting, or triggering Continue."""
-    if control.get_attribute('aria-multiselectable')=='true' or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
+    if (field is None and control.get_attribute('aria-multiselectable')=='true') or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
         return []
     try:
         deadline=time.monotonic()+min(timeout,2500)/1000
         _open_dropdown(control,timeout)
-        popup=_popup(frame,control,max(50,int((deadline-time.monotonic())*1000)))
+        popup=_popup(frame,control,max(50,int((deadline-time.monotonic())*1000)),allow_multiple=field is not None)
+        if field is not None:field['multiple']=popup.get_attribute('aria-multiselectable')=='true'
         labels=[]
         previous=None
         stable=0

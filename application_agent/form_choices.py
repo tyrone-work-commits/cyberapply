@@ -19,7 +19,7 @@ def capture_application_choices(frame, control, field, profile, timeout=1500):
     answer planner and verified-selection checks still decide whether to fill it.
     """
     limit = choice_limit(field.get('label', ''))
-    choices = field.get('options') or capture_combobox_options(frame, control, timeout, limit)
+    choices = field.get('options') or capture_combobox_options(frame, control, timeout, limit, field=field)
     key = profile_field(field.get('label', ''))
     query = profile.get(key, '') if key in {'city', 'country'} and not field.get('phoneCountry') else ''
     if not choices and isinstance(query, str) and 1 < len(query.strip()) <= 120 and not re.search(r'[\x00-\x1f]', query):
@@ -30,7 +30,7 @@ def capture_application_choices(frame, control, field, profile, timeout=1500):
         try:
             if control.evaluate("e=>e.tagName==='INPUT'&&!e.readOnly&&!e.disabled"):
                 control.fill(query, timeout=min(timeout, 2500))
-                choices = capture_combobox_options(frame, control, timeout, limit)
+                choices = capture_combobox_options(frame, control, timeout, limit, field=field)
         except Exception:
             # A failed lookup remains an ordinary unresolved widget, not a guess.
             choices = []
@@ -70,7 +70,7 @@ def refresh_missing_choices(frames, controls, fields, report, profile, budget_ms
                     field.update(options=choices, optionsTruncated=truncated)
                     for row in report.get('questions', []):
                         if row.get('question') == field['label'] and row.get('field_type') == 'combobox':
-                            row.update(options=choices, optionsTruncated=truncated)
+                            row.update(options=choices, optionsTruncated=truncated,multiple=bool(field.get('multiple')))
                     break
                 if not attempt:
                     frame.wait_for_timeout(min(150, max(0, int((deadline-time.monotonic())*1000))))

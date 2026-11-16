@@ -15,15 +15,7 @@ export async function fetchEmployerQuestions(job:Job,fetcher:typeof fetch=fetch)
   if(q.fields.some((f:Record<string,unknown>)=>f?.type==='input_file'))continue;
   for(const field of q.fields.filter((f:Record<string,unknown>)=>['input_text','textarea','multi_value_single_select','multi_value_multi_select'].includes(String(f?.type))).slice(0,5)){
   const values=Array.isArray(field.values)?field.values:[],limit=employerChoiceLimit(q.label);
-  if(field.type==='multi_value_multi_select'){
-   // Keep each original checkbox independent, with its group statement in the key.
-   for(const option of values.filter((v:Record<string,unknown>)=>typeof v?.label==='string'&&v.label.trim()).slice(0,limit)){
-    const label=option.label.replace(/\s+/g,' ').trim().slice(0,1000),group=q.label.replace(/\s+/g,' ').trim();
-    rows.push({question:(group.toLowerCase()===label.toLowerCase()?label:group+' — '+label).slice(0,4000),field_type:'checkbox',checkboxLabel:label,options:[],optionsTruncated:values.length>limit});
-   }
-   continue;
-  }
-  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label).slice(0,limit),optionsTruncated:values.length>limit});
+  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':['multi_value_single_select','multi_value_multi_select'].includes(field.type)?'combobox':'text',multiple:field.type==='multi_value_multi_select',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label).slice(0,limit),optionsTruncated:values.length>limit});
   }
  }
  return rows.slice(0,100);
@@ -35,19 +27,30 @@ export function mergeApplicationQuestionChoices(state:State,applicationId:string
  if(!request)throw new DomainError('This application is no longer available.',404);
  if(request.status==='processing')throw new DomainError('The agent is currently reading this form. Wait for its report before refreshing choices.',409);
  const questions=Array.isArray(request.report?.questions)?structuredClone(request.report.questions) as Record<string,unknown>[]:[];
+ // Retire only synthetic checkbox metadata produced by the old feed mapper.
+ // Real browser-observed checkboxes and every saved user answer remain intact.
+ const effectiveRows=rows.filter(row=>!(row.multiple===true&&questions.some(q=>q.field_type==='checkbox'&&q.optionsSource!=='employer_question_feed'&&(employerQuestionKey(String(q.question||''))===employerQuestionKey(String(row.question||''))||Array.isArray(row.options)&&row.options.some(option=>employerQuestionKey(String(q.question||''))===employerQuestionKey(String(row.question||'')+' — '+String(option)))))));
+ const synthetic=new Set<string>();
+ for(const row of effectiveRows.filter(row=>row.multiple===true)){
+  for(const q of questions)if(q.field_type==='checkbox'&&q.optionsSource==='employer_question_feed'&&Array.isArray(row.options)&&row.options.some(option=>employerQuestionKey(String(q.question||''))===employerQuestionKey(String(row.question||'')+' — '+String(option))))synthetic.add(employerQuestionKey(String(q.question)));
+ }
+ for(let i=questions.length-1;i>=0;i--)if(synthetic.has(employerQuestionKey(String(questions[i].question))))questions.splice(i,1);
+ if(state.accountProfile?.employerQuestions)state.accountProfile.employerQuestions=state.accountProfile.employerQuestions.filter(q=>!(q.jobId===request.jobId&&synthetic.has(employerQuestionKey(q.question))&&q.source==='missing'&&!q.answer));
+
  let refreshed=0,omitted=0;
- for(const row of rows.slice(0,100)){
+ for(const row of effectiveRows.slice(0,100)){
   if(!['select','combobox','checkbox'].includes(String(row.field_type))||!Array.isArray(row.options)||row.field_type!=='checkbox'&&!row.options.length)continue;
   const options=[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim().slice(0,200)).filter(Boolean))].slice(0,employerChoiceLimit(String(row.question||'')));
   if(!options.length&&row.field_type!=='checkbox')continue;
   const key=employerQuestionKey(String(row.question||''));if(!key)continue;
   const existing=questions.find(q=>employerQuestionKey(String(q.question||''))===key&&q.field_type===row.field_type);
-  const update={...row,options,optionsCheckedAt:at,optionsSource:source};
+  const renderer=existing?.optionsSource==='browser_form'&&typeof existing.multiple==='boolean'?{multiple:existing.multiple,optionsSource:'browser_form'}:{};
+  const update={...row,options,optionsCheckedAt:at,optionsSource:source,...renderer};
   if(existing)Object.assign(existing,update);else if(questions.length<200)questions.push(update);else{omitted++;continue;}
   refreshed++;
  }
  request.report={...request.report,questions};
- rememberEmployerQuestions(state,request,{questions:rows},at,true);
+ rememberEmployerQuestions(state,request,{questions:effectiveRows},at,true);
  const message=`Refreshed ${refreshed} employer dropdown ${refreshed===1?'menu':'menus'} for this vacancy.${omitted?` ${omitted} additional menus could not fit in the question catalogue.`:''} Captured checkboxes are included. Existing answers and application status are unchanged; nothing was queued or submitted. Search-dependent menus are captured by the browser agent when their choices are available.`;
  record(state,'refresh_application_question_choices',message,'interface',at);
  return message;

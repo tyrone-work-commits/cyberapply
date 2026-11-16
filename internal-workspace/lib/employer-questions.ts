@@ -1,14 +1,20 @@
 import {employerChoiceLimit} from './employer-location-choices';
 import type {State,ApplicationRequest} from './cyber-domain';
-export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;lastUsedAt?:string;options:string[];optionsTruncated?:boolean;optionsCompany?:string;optionsJobId?:string;optionsCheckedAt?:string;jobTitle?:string;company?:string;aiDraft?:boolean;generationNote?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
+export type EmployerQuestion={id:string;question:string;fieldType:string;answer:string;source:'cv'|'cv_and_job'|'edit_profile'|'user'|'missing';evidence:string;status:'answered'|'needs_details';jobSpecific:boolean;jobId:string;originRequestId?:string;cvSha256?:string;updatedAt:string;lastUsedAt?:string;options:string[];multiple?:boolean;optionsTruncated?:boolean;optionsCompany?:string;optionsJobId?:string;optionsCheckedAt?:string;jobTitle?:string;company?:string;aiDraft?:boolean;generationNote?:string;reusePolicy?:'exact_question'|'job_only'|'manual_only'};
 export const isAutomationCheck=(question:string,choices:string[]=[])=>[question,...choices].some(text=>/\b(?:are you (?:a |an )?(?:human|robot|bot)|i am (?:a |an )?(?:human|ai|robot|bot|automated program)|(?:verify|confirm|prove) (?:that )?you(?: are|'re) (?:a )?human|captcha)\b/i.test(text));
 export const questionNeedsDirectFacts=(q:string)=>/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|authori[sz]|visa|sponsor|citizen|nationality|right to work|salary|compensation|wage|clearance|criminal|convict|gender|race|ethnic|religion|disabil|veteran|birth|age|password|captcha|verification|security code)\w*\b/i.test(q);
 export const authorshipCheck=(question:string)=>{const text=question.replace(/\s+/g,' ');return /\b(?:confirm|certify|attest|declare|acknowledge)\b.{0,100}\b(?:AI|ChatGPT|own words|original work|independently written)\b/i.test(text)||/^(?:(?:did|have) you (?:ever )?(?:use|used)\b|(?:was|were|is|are) (?:any of )?(?:your|this|the|these|all) (?:application|answers?|responses?|submission|cover.?letter)\b)/i.test(text)&&/\b(?:AI|ChatGPT)\b/i.test(text)&&/\b(?:application|answers?|responses?|submission|cover.?letter)\b/i.test(text);};
 export const manualAnswerOnly=(question:string,choices:string[]=[])=>authorshipCheck(question)||isAutomationCheck(question,choices)||/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|password|captcha|verification|security code)\w*\b/i.test(question)||/\bauthori[sz]\w*\b.*\b(?:process|store|share|collect|retain|contact|personal data)\b/i.test(question);
 export const jobBoundAnswer=(question:string)=>/\b(?:salary|compensation|remuneration|wage|pay|this (?:role|position|job|company|country)|country (?:in )?which|country.*(?:applying|posted))\b/i.test(question);
 export const employerQuestionKey=(q:string)=>q.replace(/\s+/g,' ').trim().replace(/[\s*]+$/,'').toLowerCase();
+/** Exact offered labels only; JSON arrays preserve multiple selections without delimiter ambiguity. */
+export function parseMultipleAnswer(value:string,options:string[]):string[]|null{
+ let parsed:unknown;try{parsed=JSON.parse(value);}catch{parsed=options.includes(value)?[value]:null;}
+ if(!Array.isArray(parsed)||parsed.length>100||parsed.some(v=>typeof v!=='string'||options.filter(o=>o===v).length!==1)||new Set(parsed).size!==parsed.length)return null;
+ return options.filter(option=>parsed.includes(option));
+}
 export const answerControlGroup=(kind:string)=>['select','radio','combobox','checkbox'].includes(kind)?'choice':['text','textarea'].includes(kind)?'text':kind;
-export type ConfirmedEmployerAnswer={question:string;value:string;fieldType:string;options:string[];optionsTruncated?:boolean};
+export type ConfirmedEmployerAnswer={question:string;value:string;fieldType:string;options:string[];multiple?:boolean;optionsTruncated?:boolean};
 /** Save the same explicitly confirmed answer in the application and owned library. */
 export function rememberConfirmedEmployerAnswers(state:State,request:ApplicationRequest,answers:ConfirmedEmployerAnswer[],at:string){
  if(!state.accountProfile)return false;
@@ -19,7 +25,7 @@ export function rememberConfirmedEmployerAnswers(state:State,request:Application
   const old=[...matches].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt))[0];
   const generated=['answers','unresolved'].some(part=>Array.isArray(request.report?.[part])&&(request.report![part] as Record<string,unknown>[]).some(row=>row&&typeof row==='object'&&employerQuestionKey(String(row.question||''))===employerQuestionKey(answer.question)&&['generated','cv_and_job'].includes(String(row.source))));
   const reference=manualAnswerOnly(answer.question,[...matches.flatMap(row=>row.options),...answer.options,answer.value]);
-  const item:EmployerQuestion={...old,id:old?.id||crypto.randomUUID(),question:answer.question,fieldType:answer.fieldType,answer:answer.value,source:'user',status:'answered',aiDraft:!!old?.aiDraft||old?.source==='cv_and_job'||generated,jobSpecific:false,reusePolicy:reference?'manual_only':'exact_question',evidence:reference?'Personal reference confirmed in Applications; not automatic verification or employer consent.':'Answer explicitly confirmed in Applications and saved to Answers library for matching questions.',jobId:request.jobId,originRequestId:request.id,jobTitle:job?.title,company:job?.company,updatedAt:at,options:answer.options,optionsTruncated:!!answer.optionsTruncated,optionsJobId:request.jobId,optionsCompany:job?.company,optionsCheckedAt:at};
+  const item:EmployerQuestion={...old,id:old?.id||crypto.randomUUID(),question:answer.question,fieldType:answer.fieldType,answer:answer.value,source:'user',status:'answered',aiDraft:!!old?.aiDraft||old?.source==='cv_and_job'||generated,jobSpecific:false,reusePolicy:reference?'manual_only':'exact_question',evidence:reference?'Personal reference confirmed in Applications; not automatic verification or employer consent.':'Answer explicitly confirmed in Applications and saved to Answers library for matching questions.',jobId:request.jobId,originRequestId:request.id,jobTitle:job?.title,company:job?.company,updatedAt:at,options:answer.options,multiple:!!answer.multiple,optionsTruncated:!!answer.optionsTruncated,optionsJobId:request.jobId,optionsCompany:job?.company,optionsCheckedAt:at};
   delete item.generationNote;
   bank=[item,...bank.filter(row=>!matches.includes(row))];
  }
@@ -43,7 +49,7 @@ export function rememberEmployerQuestions(state:State,request:ApplicationRequest
   const scoped=jobBoundAnswer(question)||/why|this role|this position|company|cover.?letter|contribut|motivat/i.test(question);
   const old=bank.find(item=>item.source==='user'&&key(item.question)===key(question)&&answerControlGroup(item.fieldType)===answerControlGroup(fieldType))||bank.find(item=>key(item.question)===key(question)&&answerControlGroup(item.fieldType)===answerControlGroup(fieldType)&&(!scoped||item.jobId===request.jobId));
   const options=Array.isArray(row.options)?[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim()).filter(Boolean))].slice(0,employerChoiceLimit(question)).map(v=>v.slice(0,200)):[];
-  const choiceMetadata=options.length?{options,optionsTruncated:!!row.optionsTruncated,optionsCompany:job?.company,optionsJobId:request.jobId,optionsCheckedAt:at}:{};
+  const choiceMetadata=options.length?{options,multiple:row.multiple===true,optionsTruncated:!!row.optionsTruncated,optionsCompany:job?.company,optionsJobId:request.jobId,optionsCheckedAt:at}:{};
   if(old&&(old.source==='user'||metadataOnly)){
    const reused=answers.some(a=>a.source==='saved_profile'&&key(String(a.question||''))===key(question));if(!options.length&&!reused)continue;
    const refreshed={...old,...choiceMetadata,...(reused?{lastUsedAt:at}:{})};

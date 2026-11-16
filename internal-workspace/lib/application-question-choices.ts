@@ -20,5 +20,6 @@ export function applicationQuestionChoices(application:ApplicationRequest,entry:
  const newerProfile=profile?.optionsCheckedAt&&Date.parse(profile.optionsCheckedAt)>Date.parse(application.result?.at||'');
  const options=newerProfile?choices(profile.options):direct.length?direct:reported.length?reported:choices(profile?.options);
  const kind=String(['select','combobox','checkbox'].includes(String(field?.field_type))?field?.field_type:entry.field_type||field?.field_type||profile?.fieldType||'text');
- return {isDropdown:['select','combobox'].includes(kind),isCheckbox:kind==='checkbox',options,truncated:!!(newerProfile?profile?.optionsTruncated:direct.length?entry.optionsTruncated:reported.length?field?.optionsTruncated:profile?.optionsTruncated)};
+ const multiple=kind!=='checkbox'&&(field?.optionsSource==='browser_form'&&typeof field.multiple==='boolean'?field.multiple:newerProfile?profile?.multiple===true:field?.multiple===true||entry.multiple===true||profile?.multiple===true);
+ return {multiple,isDropdown:['select','combobox'].includes(kind),isCheckbox:kind==='checkbox',options,truncated:!!(newerProfile?profile?.optionsTruncated:direct.length?entry.optionsTruncated:reported.length?field?.optionsTruncated:profile?.optionsTruncated)};
 }

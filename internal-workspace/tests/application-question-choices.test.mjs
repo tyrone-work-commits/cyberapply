@@ -21,7 +21,7 @@ test('fresh same-vacancy profile choices replace outdated report choices',()=>{
  const report={...app,report:{questions:[{question:'Which shift?',field_type:'combobox',options:['Old']}]}},r=applicationQuestionChoices(report,entry,[memory({optionsCheckedAt:'2026-11-02T11:00:00Z'})]);assert.deepEqual(r.options,['Day','Night']);
 });
 test('missing choices stay empty and no option or human answer is automatically selected',()=>{
- const before=structuredClone(app);assert.deepEqual(applicationQuestionChoices(app,entry,[]),{isDropdown:true,isCheckbox:false,options:[],truncated:false});assert.deepEqual(app,before);
+ const before=structuredClone(app);assert.deepEqual(applicationQuestionChoices(app,entry,[]),{multiple:false,isDropdown:true,isCheckbox:false,options:[],truncated:false});assert.deepEqual(app,before);
  const human={question:'Which describes you?',field_type:'combobox',options:['I am an AI, bot, or automated program.','I am a human.']};assert.deepEqual(applicationQuestionChoices(app,human).options,human.options);assert.equal(human.value,undefined);
 });
 test('truncated menus and malformed option entries are represented without executing content',()=>{
@@ -46,4 +46,11 @@ test('an earlier text helper cannot hide the actual labelled checkbox',()=>{
  const request={...app,report:{questions:[{question:'Acknowledged',field_type:'text'},{question:'Acknowledged',field_type:'checkbox'}]}};
  const result=applicationQuestionChoices(request,{question:'Acknowledged',field_type:'text'});
  assert.equal(result.isCheckbox,true);assert.equal(result.isDropdown,false);
+});
+
+
+test('multi-select metadata restores the original menu without turning real checkboxes into menus',()=>{
+ const q={question:'Are you open to travel if required?*',field_type:'combobox',options:['No Travel','0-25%','25-50%','50%+'],multiple:true};
+ const r=applicationQuestionChoices({...app,report:{questions:[q]}},{question:q.question,field_type:'text'});assert.equal(r.multiple,true);assert.equal(r.isDropdown,true);assert.equal(r.isCheckbox,false);assert.equal(r.options.length,4);
+ const checkbox=applicationQuestionChoices(app,{question:'I agree',field_type:'checkbox',multiple:true});assert.equal(checkbox.isCheckbox,true);assert.equal(checkbox.multiple,false);
 });
