@@ -15,7 +15,15 @@ export async function fetchEmployerQuestions(job:Job,fetcher:typeof fetch=fetch)
   if(q.fields.some((f:Record<string,unknown>)=>f?.type==='input_file'))continue;
   for(const field of q.fields.filter((f:Record<string,unknown>)=>['input_text','textarea','multi_value_single_select','multi_value_multi_select'].includes(String(f?.type))).slice(0,5)){
   const values=Array.isArray(field.values)?field.values:[],limit=employerChoiceLimit(q.label);
-  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':field.type==='multi_value_multi_select'?'checkbox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label).slice(0,limit),optionsTruncated:values.length>limit});
+  if(field.type==='multi_value_multi_select'){
+   // Keep each original checkbox independent, with its group statement in the key.
+   for(const option of values.filter((v:Record<string,unknown>)=>typeof v?.label==='string'&&v.label.trim()).slice(0,limit)){
+    const label=option.label.replace(/\s+/g,' ').trim().slice(0,1000),group=q.label.replace(/\s+/g,' ').trim();
+    rows.push({question:(group.toLowerCase()===label.toLowerCase()?label:group+' — '+label).slice(0,4000),field_type:'checkbox',checkboxLabel:label,options:[],optionsTruncated:values.length>limit});
+   }
+   continue;
+  }
+  rows.push({question:q.label.trim().slice(0,4000),field_type:field.name==='phone'?'tel':field.type==='textarea'?'textarea':field.type==='multi_value_single_select'?'combobox':'text',options:values.filter((v:Record<string,unknown>)=>typeof v?.label==='string').map((v:{label:string})=>v.label).slice(0,limit),optionsTruncated:values.length>limit});
   }
  }
  return rows.slice(0,100);
@@ -29,18 +37,18 @@ export function mergeApplicationQuestionChoices(state:State,applicationId:string
  const questions=Array.isArray(request.report?.questions)?structuredClone(request.report.questions) as Record<string,unknown>[]:[];
  let refreshed=0,omitted=0;
  for(const row of rows.slice(0,100)){
-  if(!['select','combobox'].includes(String(row.field_type))||!Array.isArray(row.options)||!row.options.length)continue;
+  if(!['select','combobox','checkbox'].includes(String(row.field_type))||!Array.isArray(row.options)||row.field_type!=='checkbox'&&!row.options.length)continue;
   const options=[...new Set(row.options.filter((v):v is string=>typeof v==='string').map(v=>v.replace(/\s+/g,' ').trim().slice(0,200)).filter(Boolean))].slice(0,employerChoiceLimit(String(row.question||'')));
-  if(!options.length)continue;
+  if(!options.length&&row.field_type!=='checkbox')continue;
   const key=employerQuestionKey(String(row.question||''));if(!key)continue;
-  const existing=questions.find(q=>employerQuestionKey(String(q.question||''))===key&&['select','combobox'].includes(String(q.field_type)));
+  const existing=questions.find(q=>employerQuestionKey(String(q.question||''))===key&&q.field_type===row.field_type);
   const update={...row,options,optionsCheckedAt:at,optionsSource:source};
   if(existing)Object.assign(existing,update);else if(questions.length<200)questions.push(update);else{omitted++;continue;}
   refreshed++;
  }
  request.report={...request.report,questions};
  rememberEmployerQuestions(state,request,{questions:rows},at,true);
- const message=`Refreshed ${refreshed} employer dropdown ${refreshed===1?'menu':'menus'} for this vacancy.${omitted?` ${omitted} additional menus could not fit in the question catalogue.`:''} Existing answers and application status are unchanged; nothing was queued or submitted. Search-dependent menus are captured by the browser agent when their choices are available.`;
+ const message=`Refreshed ${refreshed} employer dropdown ${refreshed===1?'menu':'menus'} for this vacancy.${omitted?` ${omitted} additional menus could not fit in the question catalogue.`:''} Captured checkboxes are included. Existing answers and application status are unchanged; nothing was queued or submitted. Search-dependent menus are captured by the browser agent when their choices are available.`;
  record(state,'refresh_application_question_choices',message,'interface',at);
  return message;
 }

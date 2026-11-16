@@ -62,3 +62,14 @@ test('repeated choice refresh bounds new catalogue entries without dropping exis
  const message=mergeApplicationQuestionChoices(s,'request',[{question:'New menu',field_type:'combobox',options:['New']},{question:'Existing 0',field_type:'combobox',options:['Updated']}],'now');
  assert.equal(s.applications[0].report.questions.length,200);assert.deepEqual(s.applications[0].report.questions[0].options,['Updated']);assert.match(message,/1 additional menus could not fit/);
 });
+
+
+test('public checkbox groups preserve each original option and merge without answering or restarting',async()=>{
+ const rows=await fetchEmployerQuestions(job,async()=>Response.json({id:123,questions:[{label:'I acknowledge the statement',fields:[{type:'multi_value_multi_select',values:[{label:'Acknowledged'}]}]},{label:'Contact channels',fields:[{type:'multi_value_multi_select',values:[{label:'Email'},{label:'SMS'}]}]}]}));
+ assert.deepEqual(rows.map(q=>q.question),['I acknowledge the statement — Acknowledged','Contact channels — Email','Contact channels — SMS']);
+ assert.deepEqual(rows.map(q=>q.checkboxLabel),['Acknowledged','Email','SMS']);assert.ok(rows.every(q=>q.field_type==='checkbox'));
+ const s=emptyState();s.jobs=[job];s.accountProfile={fullName:'Fictional',headline:'',targetRole:'Analyst',completedAt:'now'};s.applications=[{id:'request',jobId:'job',status:'needs_attention',confirmedAnswers:[{question:'Existing',value:'No'}]}];
+ mergeApplicationQuestionChoices(s,'request',rows,'2026-11-16T12:00:00Z');
+ assert.equal(s.applications[0].report.questions.length,3);assert.equal(s.applications[0].status,'needs_attention');assert.deepEqual(s.applications[0].confirmedAnswers,[{question:'Existing',value:'No'}]);
+ assert.ok(s.accountProfile.employerQuestions.every(q=>!q.answer));
+});

@@ -1,5 +1,12 @@
 # CV application agent — 29 October 2026
 
+## Employer checkbox selections — 16 November 2026
+
+Answer this employer’s questions now mirrors captured employer checkboxes as checkboxes, including optional or already answered controls. Each checkbox option in a group keeps its statement and option label, rather than collapsing the group into one Yes/No question. Users select or clear boxes, then approve and save. The application and Answers library retain Yes/No values, and the runner applies those exact values to the corresponding labelled native or ARIA checkbox and checks its resulting state. Old true/false answers remain compatible.
+
+Required acknowledgements that the user declines remain unsent. Consent is specific to the exact employer statement and application; a library reference never grants new consent. Verification checks, final manual Submit on Greenhouse/reCAPTCHA, outcome confirmation and duplicate protection are unchanged. Existing applications are not retried merely to capture checkbox metadata.
+
+
 The new agent uses the exact uploaded CV attached to an Apply request. When enabled in Settings, swiping right queues a new request and keeps the user in Explore. A separate Python browser runner must be running on a computer; the hosted Site does not contain a browser. No new paid hosting or model API was activated.
 
 ## Current submit policy — 15 November 2026

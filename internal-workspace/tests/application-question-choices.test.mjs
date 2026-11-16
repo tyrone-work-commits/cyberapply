@@ -21,7 +21,7 @@ test('fresh same-vacancy profile choices replace outdated report choices',()=>{
  const report={...app,report:{questions:[{question:'Which shift?',field_type:'combobox',options:['Old']}]}},r=applicationQuestionChoices(report,entry,[memory({optionsCheckedAt:'2026-11-02T11:00:00Z'})]);assert.deepEqual(r.options,['Day','Night']);
 });
 test('missing choices stay empty and no option or human answer is automatically selected',()=>{
- const before=structuredClone(app);assert.deepEqual(applicationQuestionChoices(app,entry,[]),{isDropdown:true,options:[],truncated:false});assert.deepEqual(app,before);
+ const before=structuredClone(app);assert.deepEqual(applicationQuestionChoices(app,entry,[]),{isDropdown:true,isCheckbox:false,options:[],truncated:false});assert.deepEqual(app,before);
  const human={question:'Which describes you?',field_type:'combobox',options:['I am an AI, bot, or automated program.','I am a human.']};assert.deepEqual(applicationQuestionChoices(app,human).options,human.options);assert.equal(human.value,undefined);
 });
 test('truncated menus and malformed option entries are represented without executing content',()=>{
@@ -32,4 +32,18 @@ test('a technical text fallback uses the actual dropdown captured for that exact
  const report={...app,report:{questions:[{question:'Which shift?',field_type:'combobox',options:['Day','Night']}]}};
  assert.equal(applicationQuestionChoices(report,{...entry,field_type:'text'}).isDropdown,true);
  assert.deepEqual(applicationQuestionChoices(report,{...entry,field_type:'text'}).options,['Day','Night']);
+});
+
+
+test('checkbox metadata wins over an unresolved text fallback without turning it into a dropdown',()=>{
+ const request={...app,report:{questions:[{question:'Acknowledged',field_type:'checkbox'}]}};
+ const result=applicationQuestionChoices(request,{question:'Acknowledged',field_type:'text'});
+ assert.equal(result.isCheckbox,true);assert.equal(result.isDropdown,false);assert.deepEqual(result.options,[]);
+});
+
+
+test('an earlier text helper cannot hide the actual labelled checkbox',()=>{
+ const request={...app,report:{questions:[{question:'Acknowledged',field_type:'text'},{question:'Acknowledged',field_type:'checkbox'}]}};
+ const result=applicationQuestionChoices(request,{question:'Acknowledged',field_type:'text'});
+ assert.equal(result.isCheckbox,true);assert.equal(result.isDropdown,false);
 });

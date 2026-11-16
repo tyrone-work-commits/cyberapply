@@ -88,3 +88,20 @@ test('name parts use current profile first/middle/last with generic Name kept wh
  const p={fullName:'Tyrone Osadebame Ekhator'};
  for(const [question,value] of [['First name','Tyrone'],['Last name','Ekhator'],['Middle name','Osadebame'],['Full name',p.fullName],['Name',p.fullName]])assert.equal(prefill(app(),entry(question,{field_type:'text'}),{isDropdown:false,options:[]},[],p).value,value);
 });
+
+
+test('actual checkbox controls mirror confirmed true/false and retain independent labelled options',()=>{
+ const questions=[{question:'I acknowledge the statement',field_type:'checkbox',checkboxLabel:'Acknowledged'},{question:'Contact channels — SMS',field_type:'checkbox',checkboxLabel:'SMS'}];
+ const request=app({report:{questions},confirmedAnswers:[{question:questions[0].question,value:'true'},{question:questions[1].question,value:'false'}]});
+ const html=renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:request,employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
+ assert.match(html,/<input id="application-answer-fixture-0" type="checkbox" checked=""\/>/);assert.match(html,/<span>Acknowledged<\/span>/);
+ assert.match(html,/<input id="application-answer-fixture-1" type="checkbox"\/>/);assert.doesNotMatch(html,/<textarea|<select/);
+ const readOnly=renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:{...request,status:'uncertain'},employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
+ assert.match(readOnly,/<input id="application-answer-fixture-0" type="checkbox" disabled="" checked=""\/>/);
+});
+
+test('checkbox consent from another application is not preselected; explicit answers normalize booleans',()=>{
+ const field={question:'I acknowledge the statement',field_type:'checkbox'},control={isDropdown:false,isCheckbox:true,options:[]};
+ assert.equal(prefill(app(),field,control,[memory({question:field.question,fieldType:'checkbox',answer:'Yes',reusePolicy:'manual_only'})]).value,'');
+ for(const [answer,expected] of [['true','Yes'],['false','No'],['Yes','Yes'],['No','No']])assert.equal(prefill(app({confirmedAnswers:[{question:field.question,value:answer}]}),field,control).value,expected);
+});

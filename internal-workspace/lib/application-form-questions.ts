@@ -2,10 +2,10 @@ import type {ApplicationRequest} from './cyber-domain';
 import {employerQuestionKey,isAutomationCheck,type EmployerQuestion} from './employer-questions';
 
 export const MAX_APPLICATION_QUESTIONS=200;
-const dropdown=(kind:unknown)=>kind==='select'||kind==='combobox';
+const choiceControl=(kind:unknown)=>kind==='select'||kind==='combobox'||kind==='checkbox';
 const rows=(value:unknown)=>Array.isArray(value)?value.filter((row):row is Record<string,unknown>=>!!row&&typeof row==='object'):[];
 
-/** Include every captured menu, not only the questions that paused the agent. */
+/** Include every captured menu and checkbox, not only questions that paused the agent. */
 export function applicationFormQuestions(application:ApplicationRequest,memory:EmployerQuestion[]=[]){
  const questions=new Map<string,Record<string,unknown>>();
  function add(row:Record<string,unknown>){
@@ -14,11 +14,11 @@ export function applicationFormQuestions(application:ApplicationRequest,memory:E
   if(!questions.has(key)&&questions.size<MAX_APPLICATION_QUESTIONS)questions.set(key,{...row,question});
  }
  rows(application.report?.unresolved).forEach(add);
- rows(application.report?.questions).filter(row=>dropdown(row.field_type)).forEach(add);
+ rows(application.report?.questions).filter(row=>choiceControl(row.field_type)).forEach(add);
  // Oversized reports deliver their full catalog separately into owned memory.
  // Only metadata tied to this run/exact vacancy may fill an abbreviated report.
  for(const item of memory){
-  if(!dropdown(item.fieldType)||(item.optionsJobId||item.jobId)!==application.jobId)continue;
+  if(!choiceControl(item.fieldType)||(item.optionsJobId||item.jobId)!==application.jobId)continue;
   const currentRun=item.originRequestId===application.id||!!item.optionsCheckedAt&&Date.parse(item.optionsCheckedAt)>=Date.parse(application.at);
   if(currentRun)add({question:item.question,field_type:item.fieldType,options:item.options,optionsTruncated:!!item.optionsTruncated});
  }

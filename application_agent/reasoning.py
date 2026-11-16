@@ -129,6 +129,10 @@ def _confirmed(payload: dict, question: str, field: dict) -> tuple[bool, str | N
         return True, None, "The confirmed value is empty or unsupported for this field."
     proof = f"User confirmed question: {item['question']}\nUser confirmed answer: {item['value']}"
     if kind == "checkbox":
+        if value.casefold() in {"no", "false"}:
+            if field.get('required'):
+                return True, None, "The user declined this required checkbox; it will not be accepted automatically."
+            return True, "false", proof
         if value.casefold() not in {"yes", "true", "i agree"}:
             return True, None, "This checkbox needs an explicit affirmative answer to its exact statement."
         return True, "true", proof
@@ -243,7 +247,7 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         if kind=="checkbox" and value in {"Yes","No"}:value="true" if value=="Yes" else "false"
         if value:
             options = field.get("options") or []
-            if options and not field.get('phoneCountry'):
+            if options and kind!='checkbox' and not field.get('phoneCountry'):
                 value = unique_option(question, value, options, payload.get('applicantProfile') or {},
                     years=source=='cv' and experience['established'] and not experience['approximate'] and
                     bool(re.search(r'years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?', normalized)))

@@ -528,3 +528,33 @@ def test_reviewed_cover_letter_mismatch_stops_before_browser_opens():
     result=execute_application(payload,CV,cover_letter_bytes=b'wrong',playwright_factory=lambda:pytest.fail('Browser must not open'))
     assert result['status']=='needs_attention'
     assert 'cover-letter bytes' in result['message']
+
+
+def test_checkbox_group_options_are_independent_and_follow_saved_selections():
+    from application_agent.reasoning import build_plan
+    extra='<fieldset><legend>Contact channels</legend><label><input type="checkbox" name="email_opt" value="email">Email</label><label><input type="checkbox" name="sms_opt" value="sms" checked>SMS</label></fieldset>'
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'Contact channels — Email','value':'Yes'},{'question':'Contact channels — SMS','value':'No'}]}
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert b'name="email_opt"' in posts[0] and b'name="sms_opt"' not in posts[0]
+    checkboxes=[q for q in result['report']['questions'] if q['field_type']=='checkbox']
+    assert [(q['question'],q['checkboxLabel']) for q in checkboxes]==[('Contact channels — Email','Email'),('Contact channels — SMS','SMS')]
+    assert any(a['question']=='Contact channels — SMS' and a['value']=='false' for a in result['report']['answers'])
+
+
+def test_explicit_custom_checkbox_selection_uses_the_labelled_control_and_verifies_state():
+    from application_agent.reasoning import build_plan
+    extra='''<button type="button" role="checkbox" aria-label="I acknowledge this statement" aria-checked="false" onclick="this.setAttribute('aria-checked',this.getAttribute('aria-checked')==='true'?'false':'true');document.getElementById('ack').value=this.getAttribute('aria-checked')">Acknowledged</button><input type="hidden" id="ack" name="ack" value="false">'''
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'I acknowledge this statement','value':'Yes'}]}
+    result,posts=run(FORM.replace('{extra}',extra),payload=payload,planner=build_plan)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert b'name="ack"\r\n\r\ntrue' in posts[0]
+    assert any(a['question']=='I acknowledge this statement' and a['value']=='true' for a in result['report']['answers'])
+
+
+def test_declined_required_checkbox_remains_unsent_and_does_not_change_consent():
+    from application_agent.reasoning import build_plan
+    payload={**PAYLOAD,'confirmedAnswers':[{'question':'I acknowledge this statement','value':'No'}]}
+    result,posts=run(FORM.replace('{extra}','<label><input type="checkbox" name="ack" required>I acknowledge this statement</label>'),payload=payload,planner=build_plan)
+    assert result['status']=='needs_attention' and not posts
+    assert any('declined' in q.get('reason','') for q in result['report']['unresolved'])

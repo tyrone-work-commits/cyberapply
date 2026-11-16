@@ -121,11 +121,11 @@ INSPECT = """() => {
   const visible = e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden' && !e.disabled && !e.closest('[aria-hidden="true"],[inert]');
   const labelText = label => {const copy=label.cloneNode(true);copy.querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox],script,style').forEach(e=>e.remove());return (copy.textContent||'').replace(/\\s+/g,' ').trim();};
   return [...document.querySelectorAll('input,textarea,select,[role=combobox],[role=radio],[role=checkbox]')]
-    .filter(visible).filter(e => !['hidden','submit','button','reset'].includes(e.type)||(e.type==='button'&&e.getAttribute('role')==='combobox'))
+    .filter(visible).filter(e => !['hidden','submit','button','reset'].includes(e.type)||(e.type==='button'&&['combobox','checkbox'].includes(e.getAttribute('role'))))
     .filter(e => !e.parentElement?.closest('[role=combobox]'))
     .slice(0,101).map((e,i) => {
       const id='cyberapply-'+i; e.setAttribute('data-cyberapply-field',id);
-      const labels=[...(e.labels||[])].map(labelText).join(' ');
+      const labels=[...(e.labels||[])].map(labelText).join(' ')||labelText(e.closest('label')||document.createElement('span'));
       const labelled=(e.getAttribute('aria-labelledby')||'').split(/\\s+/).map(x=>document.getElementById(x)?.innerText||'').join(' ');
       let optionLabel=(labels||e.getAttribute('aria-label')||labelled||e.placeholder||e.name||e.id||'Unlabelled field').trim().slice(0,1000);
       if(e.type==='file'&&/^attach(?: file)?$/i.test(optionLabel)&&/^(?:resume|cv|cover[_-]?letter)$/i.test(e.name||e.id||'')) optionLabel=e.name||e.id;
@@ -136,7 +136,7 @@ INSPECT = """() => {
       const groupQuestion=(groupParent?.querySelector(':scope > legend')?.innerText||groupParent?.getAttribute('aria-label')||
         (groupParent?.getAttribute('aria-labelledby')||'').split(/\\s+/).map(x=>document.getElementById(x)?.innerText||'').join(' ')).trim();
       const peers=type==='radio'&&e.name?[...document.querySelectorAll('input[type=radio]')].filter(x=>visible(x)&&x.name===e.name&&x.form===e.form):[];
-      const label=type==='radio'&&groupQuestion?groupQuestion:optionLabel;
+      const label=(type==='radio'&&groupQuestion?groupQuestion:type==='checkbox'&&groupQuestion&&groupQuestion.toLowerCase()!==optionLabel.toLowerCase()?groupQuestion+' — '+optionLabel:optionLabel).slice(0,4000);
       return {id,domId:e.id||'',label,type,phoneCountry:!!phoneCountry,optionLabel,optionValue:e.value||'',group:type==='radio'?((e.name||e.id)+'@'+[...document.forms].indexOf(e.form)):'',groupQuestion,
         nativeControl:['INPUT','SELECT','TEXTAREA'].includes(e.tagName),numeric:e.type==='number'||['numeric','decimal'].includes(e.inputMode),
         required:e.required||e.getAttribute('aria-required')==='true',
@@ -555,7 +555,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     choices=(observed.get('options') or [])[:limit]
                     observed['optionsTruncated']=bool(observed.get('optionsTruncated')) or len(observed.get('options') or [])>limit
                     if (label,kind) not in known:
-                        questions.append({'question':label,'field_type':kind,'options':choices,'optionsTruncated':bool(observed.get('optionsTruncated'))});known.add((label,kind))
+                        questions.append({'question':label,'field_type':kind,'options':choices,'optionsTruncated':bool(observed.get('optionsTruncated')),**({'checkboxLabel':observed.get('optionLabel','')} if kind=='checkbox' else {})});known.add((label,kind))
                     elif choices:
                         next(q for q in questions if q['question']==label and q['field_type']==kind).update(options=choices,optionsTruncated=bool(observed.get('optionsTruncated')))
                 plan = planner(payload, fields, report["research"])
@@ -578,7 +578,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     return answer and answer.get('source')=='user_confirmed' and any(
                         normalize(item.get('question',''))==normalize(field['label']) and (
                             str(item.get('value',''))==str(answer['value']) or
-                            field['type']=='checkbox' and answer['value']=='true' and normalize(item.get('value','')) in {'true','yes','i agree'}
+                            field['type']=='checkbox' and (answer['value']=='true' and normalize(item.get('value','')) in {'true','yes','i agree'} or answer['value']=='false' and normalize(item.get('value','')) in {'false','no'})
                         ) for item in payload.get('confirmedAnswers',[]) if isinstance(item,dict))
                 def approved_choice(field,answer):
                     if exact_confirmed(field,answer):return True
@@ -643,7 +643,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         continue
                     answer = answers.get(field["id"])
                     if kind == 'checkbox':
-                        if approved_choice(field,answer) and answer['value'] in {'true','false'} and field.get('nativeControl'):
+                        if approved_choice(field,answer) and answer['value'] in {'true','false'}:
                             control.set_checked(answer['value']=='true')
                             expected_values[field['id']]=('checked',answer['value']=='true')
                             handled_confirmed.add(field['id'])
@@ -651,10 +651,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         elif field['required'] and not any(item.get('field_id')==field['id'] for item in unresolved):
                             unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required checkbox needs explicit confirmation for this exact question.'})
                         elif field.get('checked'):
-                            if not field.get('nativeControl'):
-                                raise ApplicationAttention('The employer preselected an optional custom choice. Review it before applying.')
                             control.set_checked(False)  # Employer default opt-in is not user consent.
-                        if field.get('nativeControl') and not field['required'] and field['id'] not in expected_values:
+                        if not field['required'] and field['id'] not in expected_values:
                             expected_values[field['id']]=('checked',False)
                         continue
                     if kind == 'radio':

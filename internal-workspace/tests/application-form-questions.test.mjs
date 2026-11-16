@@ -89,3 +89,28 @@ test('failed validation or library quota cannot partially save answers or silent
  s.profile.resumeText='x'.repeat(1650000);const full=structuredClone(s);assert.throws(()=>saveAnswers(s,[{question:'Why this role?',value:'Reviewed'}]),/size limit/);assert.deepEqual(s,full);
  delete s.accountProfile;assert.throws(()=>saveAnswers(s,[{question:'Why this role?',value:'Reviewed'}]),/Account Profile/);
 });
+
+
+test('all captured checkboxes join menus, including optional/answered boxes and current-run recovery',()=>{
+ const request=fixture({report:{unresolved:[{question:'Tell us more',field_type:'text'}],questions:[{question:'I acknowledge the statement',field_type:'checkbox'},{question:'Contact preferences — Email',field_type:'checkbox'},{question:'Contact preferences — SMS',field_type:'checkbox'}],answers:[{question:'Contact preferences — Email',value:'true'}]}});
+ const bank=[{question:'Recovered checkbox',fieldType:'checkbox',jobId:'job',originRequestId:'application',options:[]},{question:'Other vacancy',fieldType:'checkbox',jobId:'other',originRequestId:'application',options:[]}];
+ assert.deepEqual(applicationFormQuestions(request,bank).map(q=>q.question),['Tell us more','I acknowledge the statement','Contact preferences — Email','Contact preferences — SMS','Recovered checkbox']);
+});
+
+test('checkbox selections save canonical Yes/No in the request and library; invalid and foreign inputs fail atomically',()=>{
+ const s=emptyState();s.applications=[fixture({report:{questions:[{question:'I acknowledge this statement',field_type:'checkbox'},{question:'Optional newsletter',field_type:'checkbox'}]}})];
+ const result=saveAnswers(s,[{question:'I acknowledge this statement',value:'true'},{question:'Optional newsletter',value:'No'}]);
+ assert.deepEqual(result.state.applications[0].confirmedAnswers,[{question:'I acknowledge this statement',value:'Yes'},{question:'Optional newsletter',value:'No'}]);
+ const consent=result.state.accountProfile.employerQuestions.find(q=>q.question==='I acknowledge this statement');assert.equal(consent.fieldType,'checkbox');assert.equal(consent.answer,'Yes');assert.equal(consent.reusePolicy,'manual_only');
+ const reloaded=JSON.parse(JSON.stringify(result.state));assert.equal(reloaded.applications[0].confirmedAnswers[1].value,'No');
+ const before=structuredClone(s);assert.throws(()=>saveAnswers(s,[{question:'Optional newsletter',value:'Maybe'}]),/checkbox/);assert.deepEqual(s,before);
+ assert.throws(()=>saveAnswers(s,[{question:'Foreign checkbox',value:'Yes'}]),/recorded/);assert.deepEqual(s,before);
+});
+
+
+test('a checkbox save cannot target a request outside the loaded owner workspace',()=>{
+ const owner=emptyState();owner.applications=[fixture({id:'owned-request',report:{questions:[{question:'Acknowledged',field_type:'checkbox'}]}})];
+ const other=emptyState();other.applications=[];const before=structuredClone(other);
+ assert.throws(()=>reduceAction(other,{type:'answer_application_questions',applicationId:owner.applications[0].id,answers:[{question:'Acknowledged',value:'Yes'}],confirmation:'CONFIRMED'},'interface',at),/known unsent/);
+ assert.deepEqual(other,before);assert.equal(owner.applications[0].confirmedAnswers,undefined);
+});

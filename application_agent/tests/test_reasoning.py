@@ -133,6 +133,14 @@ class PlanningTests(unittest.TestCase):
         self.assertFalse(result["answers"])
         self.assertEqual(len(result["unresolved"]), 1)
 
+    def test_optional_checkbox_declines_are_explicit_false_and_options_are_not_dropdown_values(self):
+        for value in ('No','false'):
+            result=build_plan({'confirmedAnswers':[{'question':'Newsletter opt-in','value':value}]},[field('Newsletter opt-in','checkbox',required=False,options=['Subscribe'])])
+            self.assertEqual(result['answers'][0]['value'],'false')
+            self.assertFalse(result['unresolved'])
+        result=build_plan({'confirmedAnswers':[{'question':'Acknowledged','value':'Yes'}]},[field('Acknowledged','checkbox',options=['Acknowledged'])])
+        self.assertEqual(result['answers'][0]['value'],'true')
+
     def test_confirmed_radio_select_options_must_match_exactly(self):
         question = "Are you authorized to work here?"
         for kind in ("radio", "select"):

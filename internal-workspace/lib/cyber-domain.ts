@@ -1,5 +1,5 @@
 import {applicationFormQuestions,canEditApplicationQuestions,applicationVerificationQuestions} from './application-form-questions';
-import {applicationQuestionChoices} from './application-question-choices';
+import {applicationQuestionChoices,checkboxAnswer} from './application-question-choices';
 import { z } from 'zod';
 import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
 import { extractCandidateFacts } from './candidate-facts';
@@ -326,10 +326,10 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     const questions=applicationFormQuestions(request,state.accountProfile?.employerQuestions||[]);
     if(!state.accountProfile)throw new DomainError('Save your Account Profile before saving reusable employer answers.',409);
     if(action.answers.some(answer=>!questions.some(item=>item.question===answer.question)))throw new DomainError('Answer only the questions recorded for this application.',409);
-    for(const answer of action.answers){const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);if(choices.isDropdown&&(!choices.options.length||!choices.options.includes(answer.value)))throw new DomainError('Choose an option captured from this employer dropdown before saving.',409);}
-    const combined=new Map((request.confirmedAnswers||[]).map(answer=>[answer.question,answer]));action.answers.forEach(answer=>combined.set(answer.question,answer));
+    const supplied=action.answers.map(answer=>{const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);if(choices.isDropdown&&(!choices.options.length||!choices.options.includes(answer.value)))throw new DomainError('Choose an option captured from this employer dropdown before saving.',409);if(choices.isCheckbox&&!checkboxAnswer(answer.value))throw new DomainError('Select or clear the captured employer checkbox before saving.',409);return {...answer,value:choices.isCheckbox?checkboxAnswer(answer.value):answer.value};});
+    const combined=new Map((request.confirmedAnswers||[]).map(answer=>[answer.question,answer]));supplied.forEach(answer=>combined.set(answer.question,answer));
     request.confirmedAnswers=[...combined.values()].slice(-200);request.status='needs_action';delete request.agentAuthorizedAt;
-    const remembered=action.answers.map(answer=>{const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);return {...answer,fieldType:choices.isDropdown?(entry.field_type==='select'?'select':'combobox'):String(entry.field_type||'text'),options:choices.options,optionsTruncated:choices.truncated};});
+    const remembered=supplied.map(answer=>{const entry=questions.find(q=>q.question===answer.question)!,choices=applicationQuestionChoices(request,entry,state.accountProfile?.employerQuestions||[]);return {...answer,fieldType:choices.isCheckbox?'checkbox':choices.isDropdown?(entry.field_type==='select'?'select':'combobox'):String(entry.field_type||'text'),options:choices.options,optionsTruncated:choices.truncated};});
     request.answerSave={at,count:action.answers.length};
     if(!rememberConfirmedEmployerAnswers(state,request,remembered,at))throw new DomainError('Your saved answers exceed the workspace size limit. Shorten answers or remove unused library entries, then save again.',409);
     message='Answers saved to this application and Answers library. Future matching questions can reuse them; verification and employer consent remain reference-only. No application was queued or submitted.';

@@ -3,9 +3,10 @@ import {answerControlGroup,authorshipCheck,employerQuestionKey,isAutomationCheck
 import {canEditApplicationQuestions} from './application-form-questions';
 import {extractCandidateFacts} from './candidate-facts';
 import {convertUsdSalary} from './expected-salary';
+import {checkboxAnswer} from './application-question-choices';
 
 export type AnswerPrefill={value:string;source:'confirmed'|'recorded'|'profile'|'library'|'cv'|'suggestion'|''};
-type Choice={isDropdown:boolean;options:string[]};
+type Choice={isDropdown:boolean;isCheckbox?:boolean;options:string[]};
 const clean=(value:string)=>value.normalize('NFKC').replace(/\s+/g,' ').trim().replace(/[.*]+$/,'').toLowerCase();
 const country=(value:string)=>{
  const key=clean(value).replace(/[.]/g,'');
@@ -19,6 +20,7 @@ const single=(values:string[])=>values.length===1?values[0]:'';
 /** Return the actual offered label, never a made-up option or an arbitrary first choice. */
 export function offeredAnswer(value:string,choices:Choice,question:string,profile?:AccountProfile|ApplicantProfile){
  if(!value.trim())return '';
+ if(choices.isCheckbox)return checkboxAnswer(value);
  if(!choices.isDropdown)return value;
  if(choices.options.includes(value))return value;
  const exact=choices.options.filter(option=>clean(option)===clean(value));if(exact.length)return single(exact);
@@ -89,7 +91,7 @@ export function applicationAnswerPrefill(application:ApplicationRequest,entry:Re
  if(authoritative.matched)return fit(authoritative.value,'profile');
  const cvKey=/^(?:your )?(?:e-?mail(?: address)?)\s*\*?$/i.test(question.trim())?'email':/\blinkedin\b/i.test(question)?'linkedInUrl':/\bgithub\b/i.test(question)?'githubRepositoryUrl':/\b(?:portfolio|personal website)\b/i.test(question)?'portfolioWebsiteUrl':null;
  if(cvKey){const facts=extractCandidateFacts(application.candidate.resumeText),answer=fit(facts[cvKey],'cv');if(answer.value)return answer;}
- const kind=choices.isDropdown?'select':String(entry.field_type||'text');
+ const kind=choices.isCheckbox?'checkbox':choices.isDropdown?'select':String(entry.field_type||'text');
  const saved=memory.filter(item=>employerQuestionKey(item.question)===key&&answerControlGroup(item.fieldType)===answerControlGroup(kind)&&item.status==='answered'&&item.answer.trim()&&item.reusePolicy!=='manual_only'&&(!item.jobSpecific&&item.reusePolicy!=='job_only'||item.reusePolicy==='exact_question'||item.jobId===application.jobId)&&(!['cv','cv_and_job'].includes(item.source)||!!application.cvSha256&&item.cvSha256===application.cvSha256)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
  for(const item of saved){const answer=fit(item.answer,'library');if(answer.value)return answer;}
  // Drafts remain visible proposals requiring the existing explicit review/save action.
