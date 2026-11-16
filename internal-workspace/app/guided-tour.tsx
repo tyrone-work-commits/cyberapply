@@ -6,20 +6,23 @@ export type TourArea = 'search'|'explore'|'saved'|'applications'|'workspace'|'ac
 const areaLabel:Record<TourArea,string>={search:'Search',explore:'Explore',saved:'Saved',applications:'Applications',workspace:'CV review',activity:'Activity',account:'Settings'};
 type Step={area:TourArea;title:string;description:string;target:string;mobileTarget?:string;fallback?:string};
 export const tourSteps:ReadonlyArray<Step>=[
- {area:'explore',title:'Explore: find your next role',description:'Explore shows cybersecurity vacancies from your chosen employer boards. Review each role here before deciding. This guide only points to controls; it does not change jobs.',target:'.explore-preferences-button'},
- {area:'search',title:'Search: find live openings',description:'Search by job title, company or industry. Choose a suggested role or type to see suggestions, then select one or press Search. Results have Jobs and Companies tabs, location and remote filters. Manage employer sources in Edit Profile.',target:'.reference-search-bar'},
- {area:'explore',title:'Review and decide',description:'Read the card and original source. Swipe left to reject or right to Apply. Scroll the details to read more; use the bookmark or swipe up on the card header to save. Undo restores the latest choice. Apply alone is not proof of employer submission.',target:'.swipe-actions',fallback:'.swipe-stage'},
- {area:'saved',title:'Saved: revisit roles',description:'Saved keeps jobs you bookmarked so you can compare them later. Saving a role does not apply for it.',target:'.page-heading'},
- {area:'saved',title:'Use saved job actions',description:'Open a role and its original listing, remove the bookmark, or choose Apply when ready. If this page is empty, save a card in Explore first.',target:'.list-grid .listing-row .row-actions',fallback:'.list-grid .empty-state'},
- {area:'applications',title:'Applications: follow your agent',description:'Track each job from your Apply swipe to the agent’s result. Use the filters to see work in progress, jobs needing your input and confirmed applications.',target:'.page-heading'},
- {area:'applications',title:'Check progress and respond',description:'Each job keeps its own CV, agent report and confirmation. Answer missing questions in Answer this employer’s questions. Awaiting confirmation means delivery is not verified yet. Use the top-right Applications settings sliders for your agent and chosen CV. Only a recorded confirmation means Applied; do not submit the same application again.',target:'.application-overview-card',fallback:'.application-overview'},
- {area:'workspace',title:'CV review: improve your CV',description:'CV review keeps your files, readiness recommendations, job matching, CV optimization and LinkedIn Optimizer together. Choose a section above to review or improve your CV.',target:'.page-heading'},
- {area:'workspace',title:'Upload and assess',description:'Upload a searchable PDF, DOCX or TXT file. The page gives a score out of 100 and recommendations; this is guidance, not an employer ATS decision.',target:'.cv-upload-button'},
- {area:'workspace',title:'Choose your application CV',description:'Use the saved CV list to view, download, choose or delete a file. The chosen CV is attached to new Apply requests.',target:'#saved-cv-files'},
- {area:'activity',title:'Activity: see what changed',description:'Activity records actions and earlier saved versions, so you can review what happened in the workspace and show evidence of your work.',target:'.page-heading'},
- {area:'activity',title:'Review history and export',description:'View recent actions and earlier versions below. Export evidence to download your workspace records for your own review.',target:'.evidence-strip > a',fallback:'.activity-grid'},
- {area:'account',title:'Settings: manage your account',description:'Settings holds Account Profile, Answers library and account controls. You can export records, replay this guide, sign out or delete your CyberApply data.',target:'.account-main .account-intro'},
- {area:'account',title:'Replay or change settings',description:'Replay this tour whenever you need help. Manage your connected application runner, private notifications and Help. Choose Finish to return to Explore.',target:'.account-main .account-section:nth-of-type(2) a'},
+ {area:'explore',title:'Explore: review available jobs',description:'Explore automatically shows available cybersecurity vacancies from your saved employer sources. The sliders open application settings and the Cards or Grid layout. The gear opens Account Settings. This tour only explains controls; it never applies, rejects or saves a job.',target:'button[aria-label="Explore settings"]'},
+ {area:'explore',title:'Reject, undo, apply or save',description:'Read the vacancy and original source. Swipe left to reject, right to Apply, or up on the card header to save. The buttons below do the same; Undo is in the middle. Grid has job action buttons too. Apply creates a request and keeps you in Explore; it does not mean the employer received it.',target:'.swipe-actions, .explore-grid-decisions',fallback:'.explore-empty'},
+ {area:'search',title:'Search: find a specific vacancy',description:'Search by role, company or industry. Suggested titles come from available vacancies in your collection. Type for suggestions, then choose one or press Search. Companies to follow appear on the starting screen; results have Jobs and Companies tabs.',target:'.reference-search-bar'},
+ {area:'search',title:'Filter results and open a job',description:'Use location, Remote and search options to narrow results. Open a vacancy to read it in a popup, then swipe left to reject or right to Apply. Search options also hold Last Search and saved searches. Edit Profile manages employer boards and background refresh. Live refresh has a cooldown; saved results remain available.',target:'.reference-filter-chips, .reference-search-tools > summary',fallback:'.reference-search-bar'},
+ {area:'saved',title:'Saved: keep roles for later',description:'Saved holds vacancies you bookmarked in Explore or Search. It lets you revisit the details and original source before deciding. Saving a job does not send an application.',target:'.page-heading'},
+ {area:'saved',title:'Decide on a saved vacancy',description:'Swipe left or choose Pass to reject; swipe right or choose Apply to request an application. Either choice removes the vacancy from Saved. If this page is empty, bookmark a role in Explore first.',target:'.saved-swipe-item .row-actions',fallback:'.list-grid'},
+ {area:'applications',title:'Applications: track each request',description:'Applications follows your Apply requests, agent progress and employer outcomes. Filter by status or search by role, company or source. Requested and Agent working are not confirmation. Applied requires recorded employer evidence; never retry an uncertain submission without checking first.',target:'.application-filters'},
+ {area:'applications',title:'Answer questions and complete handoffs',description:'Answer employer questions using captured choices and your saved CV, profile or Answers library details. Save to continue. Complete human/AI checks yourself in the same agent browser, then return control. For Greenhouse/reCAPTCHA, press final Submit yourself only when Ready; leave that browser open.',target:'.application-question-answers',fallback:'.application-overview-card .application-next-step, .application-overview-empty'},
+ {area:'applications',title:'Agent controls, source and recording',description:'These sliders hold your agent, next CV, receipt checking and Clear all applications. The gear opens Settings. Cards have an employer link and, when available, Watch recording with a download option. The video updates as work continues; it is not an employer receipt.',target:'button[aria-label="Applications settings"]'},
+ {area:'workspace',title:'CV review: your career tools together',description:'CV review holds CV files and their quality review, Match a job, Optimize CV and LinkedIn Optimizer. Use these sections to assess and improve your materials. Scores and suggestions are guidance; they do not guarantee an employer decision.',target:'.cv-review-sections'},
+ {area:'workspace',title:'Upload and review your CV',description:'Upload a searchable PDF, DOCX or TXT file for a quality score out of 100 and recommendations. Review the feedback and check the original file. Match a job compares it with a vacancy; Optimize CV and LinkedIn Optimizer provide suggestions to review before accepting.',target:'.cv-upload',fallback:'.cv-review-sections'},
+ {area:'workspace',title:'Choose the CV for new applications',description:'Your saved CV files let you view, download, choose or delete a file. Choose the original CV you want the agent to use. New Apply requests keep that selected file; changing the selection does not silently replace a CV already attached to an existing request.',target:'#saved-cv-files'},
+ {area:'activity',title:'Activity: review actions and evidence',description:'Activity records workspace actions and earlier saved versions. Open a version to inspect it without overwriting your current work, or export your records here. You can return to Activity from Account Settings, above Export my records.',target:'.evidence-strip > a',fallback:'.activity-grid'},
+ {area:'account',title:'Settings: profile, answers and records',description:'The gear opens Account Settings. Edit account profile holds your contact details, location, salary and work permissions. This page also holds Answers library, Companies you follow, Activity and Export my records. Your records belong to your signed-in account.',target:'.account-main .account-intro'},
+ {area:'account',title:'Keep profile facts and answers accurate',description:'Keep Edit account profile up to date. Answers library stores employer questions, dropdown choices and your editable answers for reuse when the question and choices match. The agent combines this information with your chosen CV. Missing personal facts are not invented, and human verification still needs you.',target:'#account-answers-button'},
+ {area:'account',title:'Connect and check your application agent',description:'This section shows whether your background runner is connected and offers Open agent setup to reconnect it on your Windows computer. Keep that computer awake and online. A connection token alone does not prove the runner is working. The exact browser must stay open during a personal verification or final-submit handoff.',target:'#application-agent-heading'},
+ {area:'account',title:'Help, replay and account controls',description:'Help contains Help centre, Privacy and Internal terms. Both notice pages link back to Account Settings. Replay tutorial is under App tutorial above. Below are local-cache reset, Sign out and account deletion with confirmation. Choose Finish to return to Explore; this guide has not submitted any job applications.',target:'.account-help-section'},
 ];
 type Box={top:number;left:number;width:number;height:number};
 function visible(selector:string):HTMLElement|null{
@@ -32,30 +35,38 @@ export function GuidedTour({step,busy,error,onBack,onNext,onExit}:{step:number;b
  const panel=useRef<HTMLElement>(null);
  const heading=useRef<HTMLHeadingElement>(null);
  const [box,setBox]=useState<Box|null>(null);
- const [popup,setPopup]=useState<{top:number;left:number;above:boolean}|null>(null);
+ const [popup,setPopup]=useState<{top:number;left:number;width:number;above:boolean}|null>(null);
  useEffect(()=>{
   let target:HTMLElement|null=null;let timer:ReturnType<typeof setTimeout>|undefined;
   const place=()=>{
    if(!target?.isConnected)return;
-   const r=target.getBoundingClientRect(),pad=6,width=Math.min(360,window.innerWidth-24),height=250;
-   setBox({top:Math.max(5,r.top-pad),left:Math.max(5,r.left-pad),width:Math.min(window.innerWidth-10,r.width+pad*2),height:r.height+pad*2});
-   const below=window.innerHeight-r.bottom>=height+18;
-   setPopup({top:below?Math.min(window.innerHeight-height-12,r.bottom+18):Math.max(12,r.top-height-18),left:Math.max(12,Math.min(window.innerWidth-width-12,r.left+r.width/2-width/2)),above:!below});
+   const viewportWidth=document.documentElement.clientWidth||window.innerWidth,viewportHeight=document.documentElement.clientHeight||window.innerHeight;
+   const r=target.getBoundingClientRect(),pad=6,width=Math.min(360,viewportWidth-24),height=panel.current?.getBoundingClientRect().height||250;
+   const top=Math.max(5,r.top-pad),left=Math.max(5,r.left-pad);
+   setBox({top,left,width:Math.max(0,Math.min(viewportWidth-5,r.right+pad)-left),height:Math.max(0,Math.min(viewportHeight-5,r.bottom+pad)-top)});
+   const below=viewportHeight-r.bottom>=height+18;
+   const preferredTop=below?r.bottom+18:r.top-height-18;
+   setPopup({top:Math.max(12,Math.min(viewportHeight-height-12,preferredTop)),left:Math.max(12,Math.min(viewportWidth-width-12,r.left+r.width/2-width/2)),width,above:!below});
   };
+  const pickTarget=()=>{const mobile=window.matchMedia('(max-width: 950px)').matches;return visible(mobile&&current.mobileTarget?current.mobileTarget:current.target)||visible(current.fallback||'')||visible('.page-heading');};
   const find=()=>{
-   const mobile=window.matchMedia('(max-width: 950px)').matches;
-   target=visible(mobile&&current.mobileTarget?current.mobileTarget:current.target)||visible(current.fallback||'')||visible('.page-heading');
+   target=pickTarget();
    if(!target)return;
    const r=target.getBoundingClientRect();
+   clearTimeout(timer);
    if(r.top<70||r.bottom>window.innerHeight-80){target.scrollIntoView({block:'center',behavior:'smooth'});timer=setTimeout(place,420);}
    place();
   };
   setBox(null);setPopup(null);
   const frame=requestAnimationFrame(find);
+  const observer=new MutationObserver(()=>{if(pickTarget()!==target)find();});
+  observer.observe(document.body,{childList:true,subtree:true});
+  const panelObserver=new ResizeObserver(place);
+  if(panel.current)panelObserver.observe(panel.current);
   window.addEventListener('resize',find);window.addEventListener('scroll',place,true);
-  return()=>{cancelAnimationFrame(frame);clearTimeout(timer);window.removeEventListener('resize',find);window.removeEventListener('scroll',place,true);};
+  return()=>{cancelAnimationFrame(frame);clearTimeout(timer);observer.disconnect();panelObserver.disconnect();window.removeEventListener('resize',find);window.removeEventListener('scroll',place,true);};
  },[step,current]);
- useEffect(()=>{heading.current?.focus({preventScroll:true});},[step]);
+ useEffect(()=>{if(panel.current)panel.current.scrollTop=0;heading.current?.focus({preventScroll:true});},[step]);
  useEffect(()=>{
   const key=(e:KeyboardEvent)=>{
    if(e.key==='Tab'){
@@ -76,7 +87,7 @@ export function GuidedTour({step,busy,error,onBack,onNext,onExit}:{step:number;b
  return <div className="guided-tour-layer" role="dialog" aria-modal="true" aria-labelledby="tour-title" aria-describedby="tour-description">
   <div className="tour-shield" aria-hidden="true"/>
   {box&&<><div className="tour-spotlight" style={box} aria-hidden="true"/><span className="tour-pointer" style={{top:box.top+Math.min(box.height/2,28),left:box.left+Math.min(box.width/2,28)}} aria-hidden="true"/></>}
-  <section ref={panel} className={'guided-tour'+(popup?.above?' tour-above':'')} style={popup?{top:popup.top,left:popup.left}:undefined}>
+  <section ref={panel} className={'guided-tour'+(popup?.above?' tour-above':'')} style={popup?{top:popup.top,left:popup.left,width:popup.width}:undefined}>
    <div className="tour-top"><span className="tour-counter">{areaLabel[current.area].toUpperCase()} · GUIDE {step+1} OF {tourSteps.length}</span><button type="button" className="tour-close" aria-label="Skip tutorial" title="Skip tutorial" disabled={busy} onClick={onExit}><X size={18}/></button></div>
    <div className="tour-progress" role="progressbar" aria-valuemin={1} aria-valuemax={tourSteps.length} aria-valuenow={step+1}><span style={{width:((step+1)/tourSteps.length*100)+'%'}}/></div>
    <h2 id="tour-title" ref={heading} tabIndex={-1}>{current.title}</h2><p id="tour-description" className="tour-description">{current.description}</p>
