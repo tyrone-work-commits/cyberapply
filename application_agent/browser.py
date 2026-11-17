@@ -10,6 +10,7 @@ import json
 import ipaddress
 import re
 import socket
+import sys
 import time
 from urllib.parse import urlsplit, parse_qsl
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
@@ -184,6 +185,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     form_interaction = False
     journey = Journey(report, time.monotonic)
     browser = None
+    visibility = None
     context = None
     session_active = False
     human_proofs={}
@@ -244,13 +246,18 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             from playwright.sync_api import sync_playwright
             playwright_factory = sync_playwright
         with playwright_factory() as runtime:
-            launch_options=dict(headless=not (verification_handler or manual_submit_handler), args=(['--start-minimized'] if verification_handler or manual_submit_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
+            background_args=['--start-minimized']+(['--window-position=-32000,-32000','--window-size=1280,900'] if sys.platform=='win32' else [])
+            launch_options=dict(headless=not (verification_handler or manual_submit_handler), args=(background_args if verification_handler or manual_submit_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
             browser = runtime.chromium.launch(**launch_options)
             if verification_handler:verification_handler.recaptcha=RecaptchaAccess(recaptcha_pins)
             saved_session=session_store.load(job,hosts) if session_store else None
             session_active=bool(saved_session)
             report['login_session']={'reused':session_active,'saved':False}
             context = browser.new_context(accept_downloads=False, service_workers="block",**({'storage_state':saved_session} if saved_session else {}))
+            if (verification_handler or manual_submit_handler) and hasattr(browser,'new_browser_cdp_session'):
+                from .window_visibility import BrowserVisibility
+                try:visibility=BrowserVisibility.attach(browser,context)
+                except Exception:raise ApplicationAttention('The background browser could not be kept hidden. No employer form was opened. Restart the runner before trying again.')
             def observe_city_lookup(response):
                 request=response.request
                 if not allowed_city_lookup(request.url,request.method,request.resource_type,application_host,payload.get('applicantProfile') or {}):return
@@ -373,7 +380,8 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 try:
                     if manual_submit_handler:manual_submit_handler.minimize(context,page)
                     else:verification_handler.window(context,page,'minimized')
-                except Exception:pass
+                except Exception:
+                    if visibility:raise ApplicationAttention('The background browser could not be hidden. No employer form was opened.')
             if live_watch:live_watch.attach(context,page)
             page.set_default_timeout(timeout)
             recovery=FormRecovery(report,
@@ -473,6 +481,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     report['login_session']['saved']=True
                     context.close()
                     context=browser.new_context(accept_downloads=False,service_workers='block',storage_state=restored)
+                    if visibility:context._cyberapply_visibility=visibility
                     context.on('response',observe_city_lookup)
                     context.on('response',uploads.observe_ticket)
                     context.on('response',uploads.observe_upload)
@@ -970,3 +979,4 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 browser.close()
             except Exception:
                 pass
+        if visibility:visibility.close()

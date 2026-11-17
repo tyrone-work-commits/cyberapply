@@ -9,7 +9,7 @@ const upload=new FormData();upload.set('revision',String(current.revision));uplo
 const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(pair.status,200);const worker={Authorization:'Bearer '+JSON.parse(pair.data.token).token};current=(await call('/api/workspace')).data;
 await act({type:'add_job',title:'Fictional SOC Analyst',company:'Handoff fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Isolated fixture; no employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
 eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:1,verificationHandoffVersion:2}})).status,409);
-const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:3,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
 
 const workerPath='/api/application-agent/manual-submit',ownerPath='/api/applications/manual-submit',query='?requestId='+task.requestId;
 const begin={...ids,id,event:'ready',challengeHosts:['www.google.com'],report:{journey:{version:1,submit_click_attempts:0,possible_delivery:false}}};
@@ -44,7 +44,7 @@ eq((await command('cancel')).status,409);
 // An accidentally closed, positively unsent form stays Ready; only an explicit
 // checkbox + Reopen can reprepare the SAME request and original CV. No employer contacted.
 await act({type:'add_job',title:'Fictional second SOC Analyst',company:'Closed fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/closed/'+owner,description:'Isolated closure fixture.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs.find(j=>j.company==='Closed fixture').id,decision:'apply'});
-const claim=()=>call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:3,verificationHandoffVersion:2}});
+const claim=()=>call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2}});
 const next=(await claim()).data.task,closedId=randomUUID(),closedIds={requestId:next.requestId,claimId:next.claimId};
 const unsent={journey:{version:1,continue_click_attempts:0,submit_click_attempts:0,possible_delivery:false,manual_submit_observed:false,human_submit_observed:0},manual_submission:{policy:'user_final_submit',human_submit_observed:0,state:'ready'}};
 const event=(event,extra={})=>call(workerPath,{method:'POST',headers:worker,body:{...closedIds,id:closedId,event,...extra}});
@@ -69,4 +69,5 @@ eq((await call(ownerPath+'?requestId='+next.requestId)).data.session,null);
 // Older workers must never claim jobs under the retired automatic final-submit policy.
 eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).status,409);
 eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:2,verificationHandoffVersion:2}})).status,409);
+eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:3,verificationHandoffVersion:2}})).status,409);
 console.log(`PASS ${checks} persistent manual-submit HTTP checks: owner/claim isolation, explicit native CAPTCHA access, idempotent state and confirmation, cancellation race, report preservation and old-runner rejection.`);

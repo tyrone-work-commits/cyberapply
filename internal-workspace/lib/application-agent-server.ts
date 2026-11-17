@@ -201,7 +201,7 @@ export async function pair(request:Request){try{
 }catch(error){return failure(error);}}
 
 export async function claim(request:Request){try{
-  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==5||capability?.manualSubmitVersion!==3||capability?.verificationHandoffVersion!==2)throw new DomainError('Update the browser runner: manual submission must preserve closed-before-submit recovery and require explicit browser opening. Install the current runner.',409);
+  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==5||capability?.manualSubmitVersion!==4||capability?.verificationHandoffVersion!==2)throw new DomainError('Update the browser runner: the filled browser must stay hidden until your explicit Open request. Install the current runner.',409);
   for(let attempt=0;attempt<3;attempt++){
     const current=await load(user);stillConnected(current.state,user);if(current.state.applications?.some(a=>locationCapture(a.report)?.state==='reading'&&Date.parse(locationCapture(a.report)!.expiresAt)>Date.now()))return response({task:null});const before=JSON.stringify(current.state),item=claimApplication(current.state);
     if(!item&&JSON.stringify(current.state)===before)return response({task:null});
@@ -214,7 +214,7 @@ export async function claim(request:Request){try{
         const bytes=new Uint8Array(await object.arrayBuffer()),extracted=await extractResume(bytes,file.name);
         if(item.coverLetter&&capability?.coverLetterVersion!==1)throw new Error('cover_letter_runner_update');
         item.cvSha256=await digest(bytes);
-        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:5,manualSubmitVersion:3,applicantProfile:item.applicantProfile,job:{id:job.id,title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],...(item.coverLetter?{coverLetter:{text:item.coverLetter.text,name:item.coverLetter.name,type:item.coverLetter.type,sha256:item.coverLetter.sha256,version:item.coverLetter.version}}:{}),expiresAt:item.claim!.expiresAt};
+        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:5,manualSubmitVersion:4,applicantProfile:item.applicantProfile,job:{id:job.id,title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],...(item.coverLetter?{coverLetter:{text:item.coverLetter.text,name:item.coverLetter.name,type:item.coverLetter.type,sha256:item.coverLetter.sha256,version:item.coverLetter.version}}:{}),expiresAt:item.claim!.expiresAt};
       }catch(error){item.status='needs_attention';item.result={at:new Date().toISOString(),message:error instanceof Error&&error.message==='cover_letter_runner_update'?'Update your browser runner to use the reviewed cover-letter attachment. No employer submission was started.':'The chosen CV or reviewed cover letter could not be read. Check the saved materials before continuing.'};}
     }
     try{await save(user,current.revision,current.state,'application_agent_claim');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}

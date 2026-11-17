@@ -26,11 +26,17 @@ class BrowserHandoff:
         self.blocked_navigation=False
         self.protected_frames=set();self.failure_reason=''
     def window(self,context,page,state):
+        visibility=getattr(context,'_cyberapply_visibility',None)
+        if visibility and state=='minimized':visibility.hide();return
         session=context.new_cdp_session(page)
         try:
             info=session.send('Browser.getWindowForTarget')
             session.send('Browser.setWindowBounds',{'windowId':info['windowId'],'bounds':{'windowState':state}})
-            if state=='normal':page.bring_to_front()
+            if state=='normal':
+                if visibility:
+                    session.send('Browser.setWindowBounds',{'windowId':info['windowId'],'bounds':{'left':40,'top':40,'width':1280,'height':850}})
+                    visibility.show()
+                page.bring_to_front()
         finally:session.detach()
     def __call__(self,context,page,questions,authorize,completed,watch=None,kind='question',phase='before_submit'):
         if kind not in {'question','recaptcha'} or not questions or (kind=='question' and not all(identity_question(q) for q in questions)) or self.turns>=2:return False
