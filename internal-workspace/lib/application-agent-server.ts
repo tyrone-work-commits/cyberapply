@@ -56,13 +56,13 @@ const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','u
 
 export async function manualSubmitOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
- const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel']),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel']),openConfirmed:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
  if(body)sameOrigin(request);
  const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user),item=current.state.applications?.find(a=>a.id===id);if(!item)throw new DomainError('This application is not in your workspace.',404);
   if(!body)return response({session:manualSession(item)});
-  const session=manualCommand(item,body.id,body.command,body.approvedHosts);
+  const session=manualCommand(item,body.id,body.command,body.approvedHosts,body.openConfirmed===true);
   try{await save(user,current.revision,current.state,'manual_submit_'+body.command);return response({session});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
  }
  throw new DomainError('Browser status changed. Refresh before trying again.',409);
@@ -176,7 +176,7 @@ export async function pair(request:Request){try{
 }catch(error){return failure(error);}}
 
 export async function claim(request:Request){try{
-  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==5||capability?.manualSubmitVersion!==1||capability?.verificationHandoffVersion!==2)throw new DomainError('Update the browser runner: the persistent same-browser handoff and manual final submission require the current runner.',409);
+  const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==5||capability?.manualSubmitVersion!==2||capability?.verificationHandoffVersion!==2)throw new DomainError('Update the browser runner: manual submission must keep the browser minimized until you explicitly open it. Install the current runner.',409);
   for(let attempt=0;attempt<3;attempt++){
     const current=await load(user);stillConnected(current.state,user);if(current.state.applications?.some(a=>locationCapture(a.report)?.state==='reading'&&Date.parse(locationCapture(a.report)!.expiresAt)>Date.now()))return response({task:null});const before=JSON.stringify(current.state),item=claimApplication(current.state);
     if(!item&&JSON.stringify(current.state)===before)return response({task:null});
@@ -189,7 +189,7 @@ export async function claim(request:Request){try{
         const bytes=new Uint8Array(await object.arrayBuffer()),extracted=await extractResume(bytes,file.name);
         if(item.coverLetter&&capability?.coverLetterVersion!==1)throw new Error('cover_letter_runner_update');
         item.cvSha256=await digest(bytes);
-        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:5,manualSubmitVersion:1,applicantProfile:item.applicantProfile,job:{id:job.id,title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],...(item.coverLetter?{coverLetter:{text:item.coverLetter.text,name:item.coverLetter.name,type:item.coverLetter.type,sha256:item.coverLetter.sha256,version:item.coverLetter.version}}:{}),expiresAt:item.claim!.expiresAt};
+        task={requestId:item.id,claimId:item.claim!.id,profileAnswersVersion:5,manualSubmitVersion:2,applicantProfile:item.applicantProfile,job:{id:job.id,title:job.title,company:job.company,description:job.description,url:job.url,applyUrl:job.applyUrl,location:job.location,source:job.source},cv:{id:file.id,name:file.name,type:file.type,sha256:item.cvSha256,text:extracted.text},confirmedAnswers:item.confirmedAnswers||[],...(item.coverLetter?{coverLetter:{text:item.coverLetter.text,name:item.coverLetter.name,type:item.coverLetter.type,sha256:item.coverLetter.sha256,version:item.coverLetter.version}}:{}),expiresAt:item.claim!.expiresAt};
       }catch(error){item.status='needs_attention';item.result={at:new Date().toISOString(),message:error instanceof Error&&error.message==='cover_letter_runner_update'?'Update your browser runner to use the reviewed cover-letter attachment. No employer submission was started.':'The chosen CV or reviewed cover letter could not be read. Check the saved materials before continuing.'};}
     }
     try{await save(user,current.revision,current.state,'application_agent_claim');return response({task});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}

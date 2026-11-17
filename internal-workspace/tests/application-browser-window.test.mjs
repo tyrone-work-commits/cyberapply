@@ -47,3 +47,12 @@ test('Open employer application opens the exact HTTPS employer page in an indepe
  assert.match(html,/Open employer application/);assert.ok(html.includes('href="'+url+'"'));assert.match(html,/target="_blank"/);assert.match(html,/rel="noopener noreferrer"/);assert.match(html,/opens in a new tab/);assert.doesNotMatch(html,/<button|browser-window/);
  for(const invalid of ['javascript:alert(1)','http://employer.example/form','https://user:secret@employer.example/form','not a URL'])assert.equal(renderToStaticMarkup(createElement(ApplicationBrowserButton,{url:invalid})), '');
 });
+
+
+test('legacy window commands cannot bypass the manual-submit checkbox gate',async()=>{
+ const item=app('manual-gate');await ready('a',item,'manual-session');await open(db,'a',item,'manual-session','claim-one',now);
+ item.manualSubmission={id:'manual-one',claimId:'claim-one',state:'ready',challengeHosts:[],approvedHosts:[]};
+ assert.equal(status('a',item,await get(db,'a',item.id),now).available,false);
+ await assert.rejects(open(db,'a',item,'manual-session','claim-one',now),/not available/);
+ assert.equal((await update(db,'a',item,{sessionId:'manual-session',event:'poll'},now)).openId,null);
+});

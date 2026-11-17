@@ -1,5 +1,11 @@
 # CV application agent — 29 October 2026
 
+## Explicit manual-submit window opening — 17 November 2026
+
+At Ready – submit it yourself, the headed browser remains minimized. The runner keeps the exact page/context and selected CV alive, sends the existing silent readiness notification, and never brings the window forward merely because it is ready or while polling. The user must tick the session-specific checkbox and click Open CyberApply browser window. The checkbox is present even when no new reCAPTCHA hosts need approval; it resets after opening and is bound to the exact request/session/pending hosts. Checkbox-only changes do not send an open command.
+
+The owner API requires explicit openConfirmed=true plus the displayed pending host permissions. Legacy generic focus commands cannot bypass this gate during manual submission. The waiting loop processes only this manual handoff's one-shot open request. The runner advertises manualSubmitVersion 2, and older auto-opening workers cannot claim new requests. Cancel remains available without checking the box. Final Submit remains the user's action, the browser is retained without a short timeout, and Applied still needs genuine employer confirmation. Existing authentication/access and duplicate protection are unchanged.
+
 ## Keep selected choices when the employer hides them — 17 November 2026
 
 React-select multi-selects may remove selected values from the remaining menu while displaying them as chips on the control. The runner now combines those observed selected labels with the visible menu choices, so reopening or reinspecting the same form does not invalidate an answer it already filled. The selected-label lookup is bounded to the one labelled combobox, reused for fill verification, and does not use saved answers as evidence that an employer offers an option. In a truncated catalog, visibly selected labels are retained within the bound before remaining choices. Duplicate/unsupported choices and verification/consent rules remain guarded. No selection is changed merely to capture the catalog. The question editor hides only the old multi-choice validation prompt once a current valid nonempty selection is present. Genuine invalid choices, other employer instructions and read-only/uncertain history remain visible.

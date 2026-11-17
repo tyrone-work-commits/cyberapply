@@ -55,7 +55,12 @@ class ManualSubmit:
         from .verification_handoff import BrowserHandoff
         BrowserHandoff.window(self,context,page,'normal')
 
+    def minimize(self,context,page):
+        from .verification_handoff import BrowserHandoff
+        BrowserHandoff.window(self,context,page,'minimized')
+
     def wait(self,context,page,report,journey,hosts,success,recaptcha=None,watch=None):
+        self.context,self.page=context,page
         self.active=True;initial=page.url;session=None;state='ready';last_poll=0;last_event=None
         # Observe only event counts, never CAPTCHA values/tokens. No click is performed here.
         context.add_init_script('('+HUMAN_EVENTS+')()')
@@ -63,13 +68,17 @@ class ManualSubmit:
             if (urlsplit(frame.url).hostname or '').lower() in hosts:
                 try:frame.evaluate(HUMAN_EVENTS)
                 except Exception:pass
-        try:self.window(context,page);report['manual_submission']={'policy':'user_final_submit','window':'visible','notification_sent':self.notify(),'state':state}
-        except Exception:report['manual_submission']={'policy':'user_final_submit','window':'foreground_unavailable','notification_sent':self.notify(),'state':state}
+        # Readiness is a notification, never permission to take foreground.
+        try:self.minimize(context,page);window='minimized'
+        except Exception:window='background_unavailable'
+        try:notified=self.notify()
+        except Exception:notified=False
+        report['manual_submission']={'policy':'user_final_submit','window':window,'notification_sent':notified,'state':state}
         # Snapshot may be retried idempotently; neither this loop nor any callback submits.
         endpoint='/api/application-agent/manual-submit'
         pending_evidence=None;closed=False
         while True:
-            if getattr(self,'window_control',None):self.window_control.check()
+            # Only this handoff's checkbox-confirmed open command may focus it.
             closed=page.is_closed()
             frames=[] if closed else [f for f in page.frames if (urlsplit(f.url).hostname or '').lower() in hosts]
             for frame in frames:
@@ -108,8 +117,8 @@ class ManualSubmit:
                         recaptcha.approved.update(session.get('approvedHosts',[]));recaptcha.pending.difference_update(recaptcha.approved)
                         if newly:recaptcha.restore(page)
                     if session.get('openRequested'):
-                        try:self.window(context,page)
-                        except Exception:pass
+                        try:self.window(context,page);report['manual_submission']['window']='visible'
+                        except Exception:report['manual_submission']['window']='foreground_unavailable'
                 except Exception:
                     # Temporary HTTP, token, or desktop connectivity failures do not
                     # close/refresh/recreate the filled browser or replay any action.

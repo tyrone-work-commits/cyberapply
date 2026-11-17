@@ -8,7 +8,8 @@ current=(await call('/api/workspace')).data;await act({type:'complete_onboarding
 const upload=new FormData();upload.set('revision',String(current.revision));upload.set('file',new File(['Fictional Handoff Applicant\nhandoff@example.test\nEXPERIENCE\nInvestigated security alerts and documented incidents.'],'handoff-fixture.txt',{type:'text/plain'}));const up=await call('/api/files',{method:'POST',body:upload});eq(up.status,200);current=up.data;
 const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(pair.status,200);const worker={Authorization:'Bearer '+JSON.parse(pair.data.token).token};current=(await call('/api/workspace')).data;
 await act({type:'add_job',title:'Fictional SOC Analyst',company:'Handoff fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Isolated fixture; no employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
-const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:1,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
+eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:1,verificationHandoffVersion:2}})).status,409);
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:2,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
 
 const workerPath='/api/application-agent/manual-submit',ownerPath='/api/applications/manual-submit',query='?requestId='+task.requestId;
 const begin={...ids,id,event:'ready',challengeHosts:['www.google.com'],report:{journey:{version:1,submit_click_attempts:0,possible_delivery:false}}};
@@ -19,9 +20,16 @@ eq((await call(ownerPath+query,{headers:{}})).status,401);
 eq((await call(ownerPath+query,{headers:{'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'}})).status,404);
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...begin,id:randomUUID()}})).status,409);
 async function command(command,extra={}){return call(ownerPath,{method:'POST',body:{requestId:task.requestId,id,command,...extra}});}
-eq((await command('open',{approvedHosts:['evil.test']})).status,409);
-eq((await command('open',{approvedHosts:['www.google.com']})).status,200);
+eq((await command('open',{openConfirmed:true,approvedHosts:['evil.test']})).status,409);
+eq((await command('open',{approvedHosts:['www.google.com']})).status,409);
+eq((await command('open',{openConfirmed:false,approvedHosts:['www.google.com']})).status,409);
+eq((await command('open',{openConfirmed:true,approvedHosts:[]})).status,409);
+eq((await command('open',{openConfirmed:true,approvedHosts:['www.google.com']})).status,200);
 r=await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'poll'}});eq(r.data.session.openRequested,true);eq(r.data.session.approvedHosts,['www.google.com']);
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'poll'}})).data.session.openRequested,false);
+eq((await command('open')).status,409);
+eq((await command('open',{openConfirmed:true})).status,200);
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'poll'}})).data.session.openRequested,true);
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'poll'}})).data.session.openRequested,false);
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'needs_submit'}})).data.session.state,'needs_submit');
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'confirmed'}})).status,409);

@@ -2,8 +2,9 @@ import {DomainError,type ApplicationRequest} from './cyber-domain';
 export const BROWSER_WINDOW_FRESH_MS=20000;
 export type BrowserWindowRow={owner_id:string;request_id:string;claim_id:string;session_id:string;seen_at:number;closed:number;open_id:string|null;opened_id:string|null;error:string};
 export type BrowserWindowState={available:boolean;sessionId?:string;claimId?:string;opening?:boolean;opened?:boolean;error?:string};
+const manualOpenOnly=(item:ApplicationRequest)=>item.status==='processing'&&item.manualSubmission?.claimId===item.claim?.id&&['ready','needs_submit','cancel_requested'].includes(item.manualSubmission?.state||'');
 export function browserWindowState(owner:string,item:ApplicationRequest,row:BrowserWindowRow|null,now=Date.now()):BrowserWindowState{
- if(!row||row.owner_id!==owner||row.request_id!==item.id||item.status!=='processing'||row.claim_id!==item.claim?.id||row.closed||row.seen_at<now-BROWSER_WINDOW_FRESH_MS||row.seen_at>now+1000)return {available:false};
+ if(manualOpenOnly(item)||!row||row.owner_id!==owner||row.request_id!==item.id||item.status!=='processing'||row.claim_id!==item.claim?.id||row.closed||row.seen_at<now-BROWSER_WINDOW_FRESH_MS||row.seen_at>now+1000)return {available:false};
  return {available:true,sessionId:row.session_id,claimId:row.claim_id,opening:!!row.open_id&&row.open_id!==row.opened_id,opened:!!row.open_id&&row.open_id===row.opened_id&&!row.error,...(row.error?{error:row.error}:{})};
 }
 export const getBrowserWindow=(db:D1Database,owner:string,id:string)=>db.prepare('SELECT * FROM cyber_application_browser_windows WHERE owner_id=? AND request_id=?').bind(owner,id).first<BrowserWindowRow>();
@@ -24,5 +25,5 @@ export async function updateBrowserWindow(db:D1Database,owner:string,item:Applic
  const result=await db.prepare(`UPDATE cyber_application_browser_windows SET seen_at=?,closed=?,opened_id=CASE WHEN open_id=? THEN ? ELSE opened_id END,error=CASE WHEN open_id=? THEN ? ELSE error END WHERE owner_id=? AND request_id=? AND claim_id=? AND session_id=? AND closed=0`).bind(now,input.event==='closed'?1:0,input.openedId||'',input.openedId||null,input.openedId||'',input.error||'',owner,item.id,claim,input.sessionId).run();
  if(result.meta.changes!==1)throw new DomainError('This exact browser session is no longer active.',409);
  const row=await getBrowserWindow(db,owner,item.id);
- return {openId:input.event==='closed'?null:row?.open_id!==row?.opened_id?row?.open_id:null};
+ return {openId:input.event==='closed'||manualOpenOnly(item)?null:row?.open_id!==row?.opened_id?row?.open_id:null};
 }

@@ -8,7 +8,7 @@ current=(await call('/api/workspace')).data;await act({type:'complete_onboarding
 const upload=new FormData();upload.set('revision',String(current.revision));upload.set('file',new File(['Fictional Handoff Applicant\nhandoff@example.test\nEXPERIENCE\nInvestigated security alerts and documented incidents.'],'handoff-fixture.txt',{type:'text/plain'}));const up=await call('/api/files',{method:'POST',body:upload});eq(up.status,200);current=up.data;
 const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(pair.status,200);const worker={Authorization:'Bearer '+JSON.parse(pair.data.token).token};current=(await call('/api/workspace')).data;
 await act({type:'add_job',title:'Fictional SOC Analyst',company:'Handoff fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Isolated fixture; no employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
-const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:1,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:2,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
 
 const workerPath='/api/application-agent/handoff',ownerPath='/api/applications/handoff',query='?requestId='+task.requestId;
 const begin={...ids,id,event:'begin',persistent:true,kind:'question',questions:['Which of the following best describes you?'],challengeHosts:[]};
@@ -25,6 +25,6 @@ eq((await command('resume')).data.handoff.state,'resuming');
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'resumed'}})).data.handoff.state,'resumed');
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'resumed'}})).data.handoff.state,'resumed');
 current=(await call('/api/workspace')).data;eq(current.state.applications[0].claim.id,task.claimId);eq(current.state.applications[0].cv.fileId,task.cv.id);eq(current.state.applications[0].status,'processing');assert.ok(Date.parse(current.state.applications[0].claim.expiresAt)>Date.now()+14*60000);checks++;
-eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:1}})).status,409);
+eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:2}})).status,409);
 eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...ids,status:'needs_attention',message:'Isolated fixture completed. No employer visited or application submitted.'}})).status,200);
 console.log(`PASS ${checks} persistent identity handoff HTTP checks: exact owner/claim/CV, no external access, idempotent status messages, incomplete input, lease renewal and old-runner rejection.`);

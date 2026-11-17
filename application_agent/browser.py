@@ -244,7 +244,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             from playwright.sync_api import sync_playwright
             playwright_factory = sync_playwright
         with playwright_factory() as runtime:
-            launch_options=dict(headless=not (verification_handler or manual_submit_handler), args=(['--start-minimized'] if verification_handler and not manual_submit_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
+            launch_options=dict(headless=not (verification_handler or manual_submit_handler), args=(['--start-minimized'] if verification_handler or manual_submit_handler else [])+['--no-proxy-server','--disable-quic','--force-webrtc-ip-handling-policy=disable_non_proxied_udp','--host-resolver-rules='+', '.join(pins)],**({'channel':browser_channel} if browser_channel else {}))
             browser = runtime.chromium.launch(**launch_options)
             if verification_handler:verification_handler.recaptcha=RecaptchaAccess(recaptcha_pins)
             saved_session=session_store.load(job,hosts) if session_store else None
@@ -369,8 +369,10 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
 
             context.route("**/*", guard)
             page = context.new_page()
-            if verification_handler and not manual_submit_handler:
-                try:verification_handler.window(context,page,'minimized')
+            if verification_handler or manual_submit_handler:
+                try:
+                    if manual_submit_handler:manual_submit_handler.minimize(context,page)
+                    else:verification_handler.window(context,page,'minimized')
                 except Exception:pass
             if live_watch:live_watch.attach(context,page)
             page.set_default_timeout(timeout)

@@ -142,7 +142,7 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
     except Exception:pass
-    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":5,"manualSubmitVersion":1,"verificationHandoffVersion":2,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
+    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":5,"manualSubmitVersion":2,"verificationHandoffVersion":2,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
     if not task:
         maybe_refresh_sources(site,token,site_access_token)
         return False
