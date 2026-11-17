@@ -41,8 +41,9 @@ def notify_ready():
 
 
 HUMAN_EVENTS="""()=>{if(window.__cyberapplyManualObserver)return;window.__cyberapplyManualObserver=true;window.__cyberapplyManualSubmitCount=0;
- document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(e.isTrusted&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application)$/i.test((b.innerText||b.value||'').trim()))window.__cyberapplyManualSubmitCount++;},true);
- document.addEventListener('submit',e=>{if(e.isTrusted)window.__cyberapplyManualSubmitCount=Math.max(1,window.__cyberapplyManualSubmitCount);},true);
+ const observed=()=>{window.__cyberapplyManualSubmitCount++;try{window.__cyberapplySubmitObserved?.(window.__cyberapplyManualSubmitCount)?.catch(()=>{});}catch{}};
+ document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(e.isTrusted&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application)$/i.test((b.innerText||b.value||'').trim()))observed();},true);
+ document.addEventListener('submit',e=>{if(e.isTrusted)observed();},true);
 }"""
 
 
@@ -63,6 +64,9 @@ class ManualSubmit:
         self.context,self.page=context,page
         self.active=True;initial=page.url;session=None;state='ready';last_poll=0;last_event=None
         # Observe only event counts, never CAPTCHA values/tokens. No click is performed here.
+        def observed(source,count):
+            if source.get('page') is page and isinstance(count,int) and count>0:self.human_attempts=max(self.human_attempts,count)
+        context.expose_binding('__cyberapplySubmitObserved',observed)
         context.add_init_script('('+HUMAN_EVENTS+')()')
         for frame in page.frames:
             if (urlsplit(frame.url).hostname or '').lower() in hosts:
@@ -101,7 +105,8 @@ class ManualSubmit:
             report['manual_submission']['human_submit_observed']=self.human_attempts
             now=time.monotonic()
             if now-last_poll>=2 or pending_evidence or closed:
-                event='confirmed' if pending_evidence else 'cancelled' if closed else 'ready' if session is None else 'needs_submit' if state=='needs_submit' and session.get('state')!='needs_submit' else 'poll'
+                unsent=closed and not self.delivery and self.human_attempts==0 and journey.data.get('continue_click_attempts')==0 and journey.data.get('submit_click_attempts')==0 and journey.data.get('possible_delivery') is False
+                event='confirmed' if pending_evidence else ('closed_before_submit' if unsent else 'cancelled') if closed else 'ready' if session is None else 'needs_submit' if state=='needs_submit' and session.get('state')!='needs_submit' else 'poll'
                 # Keep the main report small enough for the bounded endpoint. No CV bytes.
                 snapshot={k:report[k] for k in ('journey','manual_submission','unresolved','submission_control') if k in report}
                 try:
@@ -109,6 +114,9 @@ class ManualSubmit:
                     session=result['session'];last_event=event
                     report['manual_submission'].pop('connection',None)
                     if pending_evidence and session['state']=='confirmed':return {'status':'applied','message':'The employer displayed confirmation after you submitted.','receipt':pending_evidence['text'],'evidence':pending_evidence}
+                    if closed and session['state']=='closed_before_submit':
+                        report['manual_submission']['state']='closed_before_submit'
+                        return {'status':'needs_attention','message':'Ready – submit it yourself. The browser closed before Submit. Use the application card to confirm this and reopen with the original CV and saved answers.'}
                     if session['state'] in {'cancel_requested','cancelled'} or closed:
                         report['manual_submission']['state']='cancelled'
                         return {'status':'uncertain','message':'Manual submission was cancelled or the browser was closed. No automatic retry will be made; check the employer outcome before trying again.'}

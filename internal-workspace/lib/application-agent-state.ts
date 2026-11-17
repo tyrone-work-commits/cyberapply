@@ -19,6 +19,7 @@ export function claimApplication(state:State,at=new Date().toISOString()){
   state.applicationUsage={day:at.slice(0,10),started:applicationRunsToday(state,at)+1};
   request.applicantProfile=applicationProfile(state);
   request.status='processing';request.claim={id:crypto.randomUUID(),at,expiresAt:new Date(Date.parse(at)+15*60_000).toISOString()};
+  if(request.manualSubmission?.state==='reopening')request.manualSubmission.claimId=request.claim.id;
   record(state,'application_agent_claim','The CV application agent started an authorized request.','agent',at);
   return request;
 }

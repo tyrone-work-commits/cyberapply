@@ -2,7 +2,7 @@ import {DomainError,type ApplicationRequest} from './cyber-domain';
 export const BROWSER_WINDOW_FRESH_MS=20000;
 export type BrowserWindowRow={owner_id:string;request_id:string;claim_id:string;session_id:string;seen_at:number;closed:number;open_id:string|null;opened_id:string|null;error:string};
 export type BrowserWindowState={available:boolean;sessionId?:string;claimId?:string;opening?:boolean;opened?:boolean;error?:string};
-const manualOpenOnly=(item:ApplicationRequest)=>item.status==='processing'&&item.manualSubmission?.claimId===item.claim?.id&&['ready','needs_submit','cancel_requested'].includes(item.manualSubmission?.state||'');
+const manualOpenOnly=(item:ApplicationRequest)=>item.status==='processing'&&item.manualSubmission?.claimId===item.claim?.id&&['ready','needs_submit','reopening','cancel_requested'].includes(item.manualSubmission?.state||'');
 export function browserWindowState(owner:string,item:ApplicationRequest,row:BrowserWindowRow|null,now=Date.now()):BrowserWindowState{
  if(manualOpenOnly(item)||!row||row.owner_id!==owner||row.request_id!==item.id||item.status!=='processing'||row.claim_id!==item.claim?.id||row.closed||row.seen_at<now-BROWSER_WINDOW_FRESH_MS||row.seen_at>now+1000)return {available:false};
  return {available:true,sessionId:row.session_id,claimId:row.claim_id,opening:!!row.open_id&&row.open_id!==row.opened_id,opened:!!row.open_id&&row.open_id===row.opened_id&&!row.error,...(row.error?{error:row.error}:{})};

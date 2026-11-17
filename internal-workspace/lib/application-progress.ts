@@ -1,4 +1,5 @@
 import type { ApplicationRequest } from './cyber-domain';
+import {manualDisplaySession} from './manual-submission';
 
 export type ProgressGroup = 'in_progress' | 'needs_you' | 'applied' | 'check_outcome';
 type Step = {label:string;state:'done'|'current'|'pending'};
@@ -25,12 +26,12 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   const status=application.status;
   const confirmed=status==='applied'&&hasConfirmation(application);
   const expiresAt=Date.parse(application.claim?.expiresAt||'');
-  const manual=status==='processing'&&application.manualSubmission?.claimId===application.claim?.id?application.manualSubmission:null;
+  const manual=manualDisplaySession(application);
   const h=application.verificationHandoff;
   const persistentVerification=status==='processing'&&h?.persistent===true&&h.kind==='question'&&h.claimId===application.claim?.id&&!h.challengeHosts.length&&!h.approvedHosts.length&&h.questions.length>0&&h.questions.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' ')))&&['waiting','opening','opened','resuming'].includes(h.state);
   const lostClaim=status==='processing'&&!manual&&!persistentVerification&&(!Number.isFinite(expiresAt)||expiresAt<=now);
   const possibleDelivery=!!application.report?.journey&&typeof application.report.journey==='object'&&(application.report.journey as Record<string,unknown>).possible_delivery===true;
-  const checkOutcome=possibleDelivery&&!confirmed&&!manual&&!persistentVerification||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed);
+  const checkOutcome=!manual&&(possibleDelivery&&!confirmed&&!persistentVerification||status==='uncertain'||lostClaim||(status==='applied'&&!confirmed));
   const journey=application.report?.journey as Record<string,unknown>|undefined;
   const recordedJourney=journey&&journey.version===1;
   const count=(key:string)=>recordedJourney&&Number.isSafeInteger(journey[key])&&(journey[key] as number)>=0?journey[key] as number:null;
@@ -49,6 +50,8 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     group='applied';label='Applied';tone='success';description='Employer confirmation is recorded. Review the confirmation details below.';
   }else if(manual){
     group='needs_you';label=manual.state==='needs_submit'?'Needs you: submit':manual.state==='cancel_requested'?'Cancellation requested':'Ready – submit it yourself';tone='warning';description='Open the CyberApply browser window and press Submit. Complete any reCAPTCHA yourself. The same form stays open until you submit or cancel; the agent never retries Submit.';
+    if(manual.state==='closed_before_submit')description='The browser closed before any recorded Continue or Submit. Confirm you closed before submitting to reopen and refill this application with the original CV and saved answers.';
+    if(manual.state==='reopening'){label='Reopening your unsent form';description='The runner is refilling the original application after your explicit reopen request. It will wait for you to press Submit.';}
   }else if(checkOutcome){
     group='check_outcome';label='Awaiting confirmation';tone='neutral';
     description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or your email account before trying again.':
@@ -94,5 +97,5 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   add('Agent started',application.claim?.at);
   if(application.result)add(confirmed?'Employer confirmation recorded':checkOutcome?'Outcome needs checking':status==='needs_attention'?'Agent requested your input':'Agent update recorded',application.result.at);
   events.sort((first,second)=>Date.parse(first.at)-Date.parse(second.at));
-  return {group,label,description,tone,canQueue:!checkOutcome&&canQueue,actionEvidence,steps,events};
+  return {group,label,description,tone,canQueue:!manual&&!checkOutcome&&canQueue,actionEvidence,steps,events};
 }

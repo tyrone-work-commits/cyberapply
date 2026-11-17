@@ -3,10 +3,16 @@ import assert from 'node:assert/strict';
 import ts from 'typescript';
 import {mkdir,readFile,writeFile} from 'node:fs/promises';
 await mkdir('.sites-runtime/application-progress-tests',{recursive:true});
-const code=ts.transpileModule(await readFile('lib/application-progress.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
+await writeFile('.sites-runtime/application-progress-tests/cyber-domain.mjs','export class DomainError extends Error {}');
+await writeFile('.sites-runtime/application-progress-tests/manual-submission.mjs',ts.transpileModule(await readFile('lib/manual-submission.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("'./cyber-domain'","'./cyber-domain.mjs'"));
+const code=ts.transpileModule(await readFile('lib/application-progress.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace("'./manual-submission'","'./manual-submission.mjs'");
 await writeFile('.sites-runtime/application-progress-tests/application-progress.mjs',code);
 const {applicationProgress}=await import('../.sites-runtime/application-progress-tests/application-progress.mjs');
 const at='2026-10-28T12:00:00.000Z',now=Date.parse(at);
+test('closed-before-submit legacy record stays Ready with no ordinary retry or confirmation step',()=>{
+ const item=request({status:'uncertain',claim:{id:'old',at,expiresAt:at},manualSubmission:{id:'manual',claimId:'old',state:'cancelled',challengeHosts:[],approvedHosts:[]},report:{journey:{version:1,continue_click_attempts:0,submit_click_attempts:0,possible_delivery:false,manual_submit_observed:false,human_submit_observed:0},manual_submission:{policy:'user_final_submit',human_submit_observed:0}}});
+ const before=structuredClone(item),progress=applicationProgress(item,now+86400000);assert.equal(progress.label,'Ready – submit it yourself');assert.equal(progress.group,'needs_you');assert.equal(progress.canQueue,false);assert.equal(progress.steps[2].state,'pending');assert.deepEqual(item,before);
+});
 function request(overrides={}){return {id:'request-test',jobId:'job',draftId:'draft',draftVersion:1,text:'Original draft',candidate:{fullName:'Test Candidate',email:'test@example.test',skills:[],preferredRoles:[],resumeText:'CV snapshot',reviewed:false},cv:{fileId:'original-cv',name:'original.pdf',type:'application/pdf',size:1000},at,status:'needs_action',reason:'connection_required',sourceUrl:'https://employer.example/job',...overrides};}
 
 test('queued means waiting for the runner, without claiming work has started',()=>{

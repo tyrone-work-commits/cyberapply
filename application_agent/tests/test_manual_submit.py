@@ -9,7 +9,8 @@ from application_agent.tests.test_browser import FORM,PAYLOAD,CV,dns,plan,browse
 
 
 class Actor(ManualSubmit):
-    def __init__(self,posts,cancel=False,outage=0,red=False):
+    def __init__(self,posts,cancel=False,outage=0,red=False,close=False,close_after_click=False):
+        self.close=close;self.close_after_click=close_after_click
         self.posts=posts;self.cancel=cancel;self.outage=outage;self.red=red;self.events=[];self.session=None;self.notifications=0;self.calls=0;self.windows=0;self.real_pages=[];self.minimized=0;self.open_issued=False
         super().__init__(self.api,{'requestId':'one','claimId':'fixture-claim'},notify=self.notification)
     def notification(self):self.notifications+=1;return True
@@ -17,6 +18,11 @@ class Actor(ManualSubmit):
     def window(self,context,page):
         self.context=context;self.page=page;self.real_pages.append(page);self.windows+=1
         assert self.open_issued, 'Window focused before the synthetic user requested Open.'
+        if self.close:
+            if self.close_after_click:
+                self.page.evaluate("()=>{document.querySelector('form').addEventListener('submit',e=>e.preventDefault());}")
+                self.page.get_by_role('button',name='Submit application').click(no_wait_after=True,timeout=1500)
+            self.page.close();return
         if not self.cancel:
             # Separate synthetic human actor acts only after checkbox-confirmed Open.
             if self.page.get_by_role('button',name='Verify fixture').count():self.page.get_by_role('button',name='Verify fixture').click()
@@ -33,6 +39,8 @@ class Actor(ManualSubmit):
             assert self.windows==0 and self.notifications==1
         if self.cancel:self.session['state']='cancel_requested'
         if event=='confirmed':self.session['state']='confirmed';assert body['evidence']['text']
+        if event=='closed_before_submit':self.session['state']='closed_before_submit';assert not self.posts
+        if event=='cancelled':self.session['state']='cancelled'
         if event=='needs_submit':
             self.session['state']='needs_submit'
             assert len(self.posts)==0
@@ -45,8 +53,8 @@ class Actor(ManualSubmit):
         return {'session':reply}
 
 
-def run_manual(html,greenhouse=False,cancel=False,outage=0,red=False):
-    posts=[];launch=[];actor=Actor(posts,cancel,outage,red)
+def run_manual(html,greenhouse=False,cancel=False,outage=0,red=False,close=False,close_after_click=False):
+    posts=[];launch=[];actor=Actor(posts,cancel,outage,red,close,close_after_click)
     @contextmanager
     def factory():
         with browser_factory(html,posts) as runtime:
@@ -80,6 +88,21 @@ def test_cancel_keeps_application_unverified_and_does_not_submit():
     assert result['status']=='uncertain' and not posts
     assert result['report']['journey']['submit_click_attempts']==0
     assert actor.windows==0 and actor.notifications==1 and actor.minimized>=2
+
+
+def test_accidental_close_before_submit_keeps_recoverable_ready_state_without_submitting():
+    result,posts,actor,_=run_manual(FORM.replace('{extra}',''),True,close=True)
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'closed_before_submit' in actor.events and 'cancelled' not in actor.events
+    assert result['report']['journey']['human_submit_observed']==0
+    assert result['report']['journey']['possible_delivery'] is False
+
+
+def test_submit_then_close_is_uncertain_even_when_validation_prevents_a_post():
+    result,posts,actor,_=run_manual(FORM.replace('{extra}',''),True,close=True,close_after_click=True)
+    assert result['status']=='uncertain' and not posts,result
+    assert 'closed_before_submit' not in actor.events and 'cancelled' in actor.events
+    assert result['report']['journey']['human_submit_observed']>0
 
 
 def test_temporary_connection_failure_keeps_exact_page_and_selected_cv():
