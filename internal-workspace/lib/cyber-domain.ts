@@ -40,11 +40,11 @@ export function savedJobListings(state:Pick<State,'jobs'|'applications'>){const 
 export type State = { applicationSettings?:ApplySettings; applicationUsage?:{day:string;started:number}; profile: Profile; jobs: Job[]; drafts: Draft[]; attachments: Attachment[]; selectedCvId?:string; pendingFileDeletions?:Attachment[]; newApplicationAgent?:NewApplicationAgent; agentPairing?:{tokenHash:string;issuedAt:string;expiresAt:string}; theme: Theme; activity: Activity[]; resumeReview?: ResumeReview; applications?: ApplicationRequest[]; applicationArchive?:ApplicationArchive; applicationSafetyJobIds?:string[]; legacyCandidateFactsDeleted?:boolean; accountProfile?: AccountProfile; tutorialCompletedAt?: string; discovery?: { settings:JobSearch; lastSearch:DiscoveryReport }; lastDecision?:LastDecision; decisionOperations?:{id:string;signature:string}[] };
 export class DomainError extends Error { constructor(message: string, public status = 400) { super(message); } }
 // Legacy stored mode values are read as Automatic Apply; reads never requeue old requests.
-export type ApplySettings={mode:'automatic';dailyLimit:number;minimumMatch:number;autoConsentAt?:string;tutorialSeen:boolean};
-export function getApplySettings(state:State):ApplySettings{return{mode:'automatic',dailyLimit:state.applicationSettings?.dailyLimit??20,minimumMatch:state.applicationSettings?.minimumMatch??0,autoConsentAt:state.applicationSettings?.autoConsentAt||(state.newApplicationAgent?.enabled?state.newApplicationAgent.issuedAt:undefined),tutorialSeen:state.applicationSettings?.tutorialSeen??false};}
+export type ApplySettings={mode:'automatic';dailyLimit:number|null;minimumMatch:number;autoConsentAt?:string;tutorialSeen:boolean};
+export function getApplySettings(state:State):ApplySettings{return{mode:'automatic',dailyLimit:null,minimumMatch:state.applicationSettings?.minimumMatch??0,autoConsentAt:state.applicationSettings?.autoConsentAt||(state.newApplicationAgent?.enabled?state.newApplicationAgent.issuedAt:undefined),tutorialSeen:state.applicationSettings?.tutorialSeen??false};}
 export function applicationRunsToday(state:State,at=new Date().toISOString()){return state.applicationUsage?.day===at.slice(0,10)?state.applicationUsage.started:[...(state.applications||[]),...(state.applicationArchive?.applications||[])].filter(a=>a.claim?.at.slice(0,10)===at.slice(0,10)).length;}
 export function applicationMatchScore(text:string,job:Job){if(!text.trim()||!job.skills.length)return null;const norm=(s:string)=>s.toLowerCase().replace(/[^a-z0-9+#.]+/g,' ').replace(/\.(?=\s|$)/g,' ').trim(),cv=' '+norm(text)+' ';return Math.round(100*job.skills.filter(s=>cv.includes(' '+norm(s)+' ')).length/job.skills.length);}
-export function applicationPolicyIssue(state:State,job:Job,cvText:string,at:string,automatic=false){const settings=getApplySettings(state);if(automatic&&!settings.autoConsentAt)return 'authorization_required';if(applicationRunsToday(state,at)>=settings.dailyLimit)return 'daily_limit';const score=applicationMatchScore(cvText,job);if(settings.minimumMatch>0&&(score===null||score<settings.minimumMatch))return 'below_minimum_match';return '';}
+export function applicationPolicyIssue(state:State,job:Job,cvText:string,at:string,automatic=false){const settings=getApplySettings(state);if(automatic&&!settings.autoConsentAt)return 'authorization_required';const score=applicationMatchScore(cvText,job);if(settings.minimumMatch>0&&(score===null||score<settings.minimumMatch))return 'below_minimum_match';return '';}
 
 // D1 caps a string/table row at 2,000,000 bytes. Leave room for row metadata.
 // Check UTF-8 bytes rather than UTF-16 characters, in both optimistic and saved writes.
@@ -69,7 +69,7 @@ const accountDetails = {
 };
 const profile = z.object({ fullName: short, email: z.union([z.literal(''), z.string().email().max(254)]), skills, preferredRoles: z.array(short).max(20), resumeText: z.string().max(120000), reviewed: z.boolean(), githubRepositoryUrl: candidateLink, linkedInUrl: candidateLink, portfolioWebsiteUrl: candidateLink, location: short.optional(), totalExperienceYears: z.number().min(0).max(60).optional(), cybersecurityExperienceYears: z.number().min(0).max(60).optional(), currentSalary:z.object({amount:z.number().finite().positive().max(1_000_000_000_000),currency:z.enum(['USD','NGN','GBP','EUR','CAD','AUD','GHS','KES','ZAR','AED','INR','SGD']),period:z.enum(['year','month','hour'])}).strict().optional() }).strict().superRefine((value,ctx)=>{if(value.totalExperienceYears!==undefined&&value.cybersecurityExperienceYears!==undefined&&value.cybersecurityExperienceYears>value.totalExperienceYears)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Cybersecurity experience cannot exceed total experience.'});});
 export const actionSchema = z.discriminatedUnion('type', [
-  z.object({type:z.literal('set_apply_settings'),mode:z.literal('automatic'),dailyLimit:z.number().int().min(1).max(100),minimumMatch:z.number().int().min(0).max(100),authorizeAutomatic:z.boolean().optional(),tutorialSeen:z.boolean().optional()}).strict(),
+  z.object({type:z.literal('set_apply_settings'),mode:z.literal('automatic'),dailyLimit:z.number().int().positive().nullable().optional(),minimumMatch:z.number().int().min(0).max(100),authorizeAutomatic:z.boolean().optional(),tutorialSeen:z.boolean().optional()}).strict(),
   z.object({type:z.literal('delete_employer_answer'),questionId:id}).strict(),
   z.object({ type: z.literal('save_profile'), profile }).strict(),
   z.object({ type: z.literal('complete_onboarding'), fullName: short.min(1), headline: short, targetRole: short.min(1), ...accountDetails }).strict(),
@@ -210,8 +210,8 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if(action.mode!=='automatic')throw new DomainError('Only Automatic Apply is supported.',400);
     const previous=getApplySettings(state),consent=action.authorizeAutomatic?at:previous.autoConsentAt;
     if(!consent)throw new DomainError('Read and authorize automatic applications before enabling automatic mode.',409);
-    state.applicationSettings={mode:action.mode,dailyLimit:action.dailyLimit,minimumMatch:action.minimumMatch,...(consent?{autoConsentAt:consent}:{}),tutorialSeen:action.tutorialSeen??previous.tutorialSeen};
-    message='Automatic Apply settings saved. Future Apply requests use these limits.';
+    state.applicationSettings={mode:action.mode,dailyLimit:null,minimumMatch:action.minimumMatch,...(consent?{autoConsentAt:consent}:{}),tutorialSeen:action.tutorialSeen??previous.tutorialSeen};
+    message='Automatic Apply settings saved. Application runs have no daily limit.';
   } else if(action.type==='delete_employer_answer'){
     const bank=state.accountProfile?.employerQuestions;if(!bank?.some(q=>q.id===action.questionId))throw new DomainError('This saved answer no longer exists.',404);state.accountProfile!.employerQuestions=bank.filter(q=>q.id!==action.questionId);invalidateUnsent(state);message='Saved answer removed from your reusable library. Existing application records remain.';
   } else if (action.type === 'save_profile') {
@@ -355,7 +355,7 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if(!state.newApplicationAgent?.enabled||Date.parse(state.newApplicationAgent.expiresAt)<=Date.parse(at))throw new DomainError('Connect the new application agent in Settings first.',409);
     if(!request.cv||!state.attachments.some(file=>file.id===request.cv?.fileId))throw new DomainError('Attach an available CV to this request first.',409);
     if(request.reason==='materials_changed')throw new DomainError('Update this request with the chosen CV before queuing it.',409);
-    const job=getJob(state,request.jobId),policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at);if(policy)throw new DomainError(policy==='daily_limit'?'Your daily application-run limit is reached. Queued requests can continue after the UTC day changes.':'This request does not meet your minimum match setting. Review your CV or application settings.',409);
+    const job=getJob(state,request.jobId),policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at);if(policy)throw new DomainError('This request does not meet your minimum match setting. Review your CV or application settings.',409);
     request.reviewedForSubmissionAt=at;request.reason='connection_required';request.status='queued';request.agentVersion=2;request.agentAuthorizedAt=at;delete request.claim;delete request.result;delete request.report;
     message='Request queued for the application agent. It will pause if information or employer confirmation is missing.';
   } else if (action.type === 'review_resume') {
@@ -417,7 +417,7 @@ export function liveState(input: State): State {
   const state = structuredClone(input) as State & {demo?: boolean; submissions?: unknown};
   delete state.demo; delete state.submissions;
   delete (state as State & {receiptChecksEnabled?:boolean}).receiptChecksEnabled;
-  if(state.applicationSettings)state.applicationSettings.mode='automatic';
+  if(state.applicationSettings){state.applicationSettings.mode='automatic';state.applicationSettings.dailyLimit=null;}
   state.jobs = state.jobs.filter(job => !job.sample);
   const jobs = new Set(state.jobs.map(job => job.id));
   state.drafts = state.drafts.filter(draft => jobs.has(draft.jobId));

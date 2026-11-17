@@ -15,7 +15,8 @@ export function claimApplication(state:State,at=new Date().toISOString()){
     request.status='needs_attention';request.result={at,message:'The chosen CV is unavailable. Attach a CV before trying again.'};return null;
   }
   const job=state.jobs.find(j=>j.id===request.jobId);if(!job||job.source?.availability==='closed'){request.status='needs_attention';request.result={at,message:'This vacancy is no longer available. No employer form was opened.'};return null;}
-  const policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at,!request.reviewedForSubmissionAt);if(policy){request.reason=policy;if(policy!=='daily_limit'){request.status='needs_action';delete request.agentAuthorizedAt;}return null;}
+  const policy=applicationPolicyIssue(state,job,request.candidate.resumeText,at,!request.reviewedForSubmissionAt);if(policy){request.reason=policy;request.status='needs_action';delete request.agentAuthorizedAt;return null;}
+  if(request.reason==='daily_limit')request.reason='connection_required';
   state.applicationUsage={day:at.slice(0,10),started:applicationRunsToday(state,at)+1};
   request.applicantProfile=applicationProfile(state);
   request.status='processing';request.claim={id:crypto.randomUUID(),at,expiresAt:new Date(Date.parse(at)+15*60_000).toISOString()};

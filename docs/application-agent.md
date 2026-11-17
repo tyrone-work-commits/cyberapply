@@ -1,5 +1,9 @@
 # CV application agent — 29 October 2026
 
+## Unlimited daily application runs — 17 November 2026
+
+Application runs have no daily cap. The header shows Unlimited runs, and application settings retain CV selection, authorization and minimum keyword match without a daily-limit input. Historical run counts remain metadata only. Stored numeric caps and old client cap fields are accepted for compatibility but ignored; unlimited is represented by null plus an explicit API flag, never a JSON Infinity value. Existing queued work can be claimed immediately regardless of its old quota marker or today's run count. No paused, uncertain or confirmed application is restarted merely by loading/saving settings. Original CV/profile authorization, duplicate protection, bounded repairs, manual verification/Submit, one active browser and genuine employer confirmation remain required. Other API/file/storage/optional AI protections are separate and unchanged.
+
 ## Explicit manual-submit window opening — 17 November 2026
 
 While preparing and at Ready – submit it yourself, the Windows headed browser stays hidden (not just minimized). Its dedicated browser PID is obtained from Chrome CDP, and only that process's Chrome windows are hidden. Startup uses a minimized off-screen position; a process-scoped Windows visibility guard keeps the form out of view until an explicit owner Open command. The form and selected CV are filled before it is shown. The runner keeps the exact page/context and selected CV alive, sends the existing silent readiness notification, and never brings the window forward merely because it is ready or while polling. The user must tick the session-specific checkbox and click Open CyberApply browser window. The checkbox is present even when no new reCAPTCHA hosts need approval; it resets after opening and is bound to the exact request/session/pending hosts. Checkbox-only changes do not send an open command.
