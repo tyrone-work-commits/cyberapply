@@ -1,7 +1,7 @@
 """Exact, explicitly chosen labels in native/linked ARIA multi-selects."""
 import json
 import time
-from .combobox import DropdownAttention,_open_dropdown,_popup,_options
+from .combobox import DropdownAttention,_open_dropdown,_popup,_options,multiselect_scope as _scope,multiselect_chips
 
 def parse_multiple(value,options):
     try:values=json.loads(value)
@@ -9,21 +9,12 @@ def parse_multiple(value,options):
     if not isinstance(values,list) or len(values)>100 or any(not isinstance(v,str) or options.count(v)!=1 for v in values) or len(set(values))!=len(values):return None
     return [option for option in options if option in values]
 
-def _scope(control):
-    node=control;last=control
-    for _ in range(4):
-        node=node.locator('xpath=..')
-        if node.locator('[role=combobox]').count()!=1:break
-        last=node
-        if node.locator('[class*="multi-value__label"],[class*="multiValueLabel"]').count():return node
-    return last
-
 def _selected(frame,control):
     if control.evaluate("e=>e.tagName==='SELECT'"):
         if not control.evaluate('e=>e.multiple'):raise DropdownAttention('The employer changed this multi-select to a single-choice field.')
         return control.evaluate('e=>[...e.selectedOptions].map(o=>o.text)')
-    chips=_scope(control).locator('[class*="multi-value__label"],[class*="multiValueLabel"]')
-    if chips.count():return chips.all_inner_texts()
+    chips=multiselect_chips(control)
+    if chips:return chips
     _open_dropdown(control,750);popup=_popup(frame,control,750,allow_multiple=True)
     if popup.get_attribute('aria-multiselectable')!='true':raise DropdownAttention('The employer menu does not confirm multiple selection.')
     return popup.locator('[role=option][aria-selected=true]').all_inner_texts()

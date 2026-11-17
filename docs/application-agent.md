@@ -1,5 +1,9 @@
 # CV application agent — 29 October 2026
 
+## Keep selected choices when the employer hides them — 17 November 2026
+
+React-select multi-selects may remove selected values from the remaining menu while displaying them as chips on the control. The runner now combines those observed selected labels with the visible menu choices, so reopening or reinspecting the same form does not invalidate an answer it already filled. The selected-label lookup is bounded to the one labelled combobox, reused for fill verification, and does not use saved answers as evidence that an employer offers an option. In a truncated catalog, visibly selected labels are retained within the bound before remaining choices. Duplicate/unsupported choices and verification/consent rules remain guarded. No selection is changed merely to capture the catalog. The question editor hides only the old multi-choice validation prompt once a current valid nonempty selection is present. Genuine invalid choices, other employer instructions and read-only/uncertain history remain visible.
+
 ## Highlight questions needing attention — 17 November 2026
 
 Editable employer questions now use an amber border/background and explicit text badges for unresolved/required blanks, invalid saved choices, draft reviews and employer verification. A summary counts the highlighted rows. Controls retain their original accessible question labels and reference the badge through aria-describedby; invalid menu choices also expose aria-invalid. Answering a question or selecting a valid offered option updates its highlight immediately. Existing No/false answers count as answers, optional blank captured menus are not presented as mandatory, and a missing employer option catalog is labelled separately from missing applicant facts. Completed/read-only and uncertain application records are not presented as new answer tasks. The save/approval/library, browser-agent and submission flows are unchanged.

@@ -103,6 +103,24 @@ def _options(popup):
     return controls, choices
 
 
+def multiselect_scope(control):
+    """Bound the selected-chip lookup to this one combobox, never another field."""
+    node=control;last=control
+    for _ in range(4):
+        node=node.locator('xpath=..')
+        if node.locator('[role=combobox]').count()!=1:break
+        last=node
+        if node.locator('[class*="multi-value__label"],[class*="multiValueLabel"]').count():return node
+    return last
+
+
+def multiselect_chips(control):
+    """Read visible selected labels; saved answers are not evidence of offered choices."""
+    chips=multiselect_scope(control).locator('[class*="multi-value__label"],[class*="multiValueLabel"]')
+    if chips.count()>100:raise DropdownAttention('This multi-select has too many selected labels to verify reliably.')
+    return chips.evaluate_all("""items=>items.filter(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'&&!e.closest('[aria-hidden=true],[inert]')).map(e=>(e.innerText||'').trim()).filter(Boolean)""")
+
+
 def capture_combobox_options(frame,control,timeout=1500,option_limit=100,field=None):
     """Read a linked menu without typing, selecting, or triggering Continue."""
     if (field is None and control.get_attribute('aria-multiselectable')=='true') or control.evaluate("e=>e.tagName==='BUTTON'&&e.type==='submit'"):
@@ -135,6 +153,23 @@ def capture_combobox_options(frame,control,timeout=1500,option_limit=100,field=N
                     stable=0
             previous=current
             frame.wait_for_timeout(75)
+        # React-select removes already-selected values from the popup. They
+        # remain offered choices, evidenced by this exact control's visible
+        # chips. Retain them when reinspecting or every option is selected.
+        if field is not None and field.get('multiple'):
+            selected_counts={};selected_labels=[]
+            for selected in multiselect_chips(control):
+                selected=re.sub(r'\s+',' ',selected).strip()[:200]
+                selected_counts[selected]=selected_counts.get(selected,0)+1
+                if selected:
+                    selected_labels.append(selected)
+                    if labels.count(selected)<selected_counts[selected]:labels.append(selected)
+            # Keep observed selections within the caller's bounded catalog even
+            # when a large popup is truncated. Preserve its normal order otherwise.
+            if len(labels)>max(1,min(option_limit,400)):
+                remaining=list(labels)
+                for selected in selected_labels:remaining.remove(selected)
+                labels=selected_labels+remaining
         return labels
     except Exception:
         return []

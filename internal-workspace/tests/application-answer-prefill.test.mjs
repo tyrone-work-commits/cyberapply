@@ -145,3 +145,12 @@ test('saved No/cleared optional selections and completed answers do not keep fal
  assert.doesNotMatch(renderToStaticMarkup(createElement(ApplicationQuestionAnswers,props)),/data-attention=|questions need your attention/);
  for(const status of ['applied','uncertain'])assert.doesNotMatch(renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{...props,application:{...request,status,confirmedAnswers:[]}})),/data-attention=|questions need your attention/);
 });
+
+
+test('a saved travel selection remains selected and clears only a stale resolved choice prompt',()=>{
+ const question='Are you open to travel if required?*',reason='Select valid offered choices for this required multiple-choice question.',options=['No Travel','0-25%','25-50%','50%+'];
+ const render=(choices,note=reason,status='needs_attention')=>renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:app({status,confirmedAnswers:[{question,value:'["25-50%"]'}],report:{unresolved:[{question,field_type:'combobox',reason:note}],questions:[{question,field_type:'combobox',multiple:true,options:choices}]}}),employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
+ const valid=render(options);assert.match(valid,/<option value="25-50%" selected="">/);assert.doesNotMatch(valid,/data-attention=|Select valid offered choices/);
+ assert.match(render(options.filter(o=>o!=='25-50%')),/Select valid offered choices/);assert.match(render(options.filter(o=>o!=='25-50%')),/data-attention="invalid"/);
+ assert.match(render(options,'The employer requires a separate travel document.'),/separate travel document/);assert.match(render(options,reason,'uncertain'),/Select valid offered choices/);
+});
