@@ -107,9 +107,23 @@ test('checkbox consent from another application is not preselected; explicit ans
 });
 
 
-test('multi-select controls render every employer option and the previously saved selections',()=>{
- const q='Are you open to travel if required?',options=['No Travel','0-25%','25-50%','50%+'];const request=app({report:{questions:[{question:q,field_type:'combobox',multiple:true,options}]},confirmedAnswers:[{question:q,value:'["0-25%","25-50%"]'}]});
+test('other multi-select controls retain every employer option and previously saved selections',()=>{
+ const q='Preferred travel schedules?',options=['No Travel','0-25%','25-50%','50%+'];const request=app({report:{questions:[{question:q,field_type:'combobox',multiple:true,options}]},confirmedAnswers:[{question:q,value:'["0-25%","25-50%"]'}]});
  const html=renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:request,employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
  assert.match(html,/<select[^>]*multiple=""/);for(const option of options)assert.ok(html.includes('>'+option+'</option>'));assert.match(html,/<option value="0-25%" selected="">/);assert.match(html,/<option value="25-50%" selected="">/);assert.doesNotMatch(html,/<textarea/);
  assert.equal(prefill(app(),{question:q,field_type:'combobox'},{isDropdown:true,multiple:true,options},[memory({question:q,answer:'["0-25%","25-50%"]',multiple:true})]).value,'["0-25%","25-50%"]');
+});
+
+
+test('travel preference uses a collapsed pick-one menu while retaining the employer array format',()=>{
+ const q='Are you open to travel if required?*',options=['No Travel','0-25%','25-50%','50%+'];
+ for(const [answer,selection] of [['',''],['["0-25%"]','0-25%'],['["0-25%","25-50%"]','']]){
+  const request=app({report:{questions:[{question:q,field_type:'combobox',multiple:true,options}]},confirmedAnswers:answer?[{question:q,value:answer}]:[]});
+  const before=structuredClone(request),html=renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:request,employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
+  assert.doesNotMatch(html,/<select[^>]*(?:multiple|size)=/);assert.doesNotMatch(html,/hold Ctrl/);
+  for(const option of options)assert.ok(html.includes('>'+option+'</option>'));
+  if(selection)assert.match(html,/<option value="0-25%" selected="">/);
+  if(answer.includes('25-50%'))assert.match(html,/2 saved selections — choose one to replace/);
+  assert.deepEqual(request,before);
+ }
 });

@@ -7,6 +7,10 @@ Open employer application on Applications cards/details and the recording page i
 A short-lived owner/request/claim/session-scoped D1 row carries readiness, focus-command nonce and acknowledgement only. The runner exchanges metadata in a background thread; only the Playwright owner thread performs the existing-window foreground operation, including during verification/manual-submit waits. Lost acknowledgements do not repeat an already handled focus operation. Stale, closed, replaced and terminal sessions are unavailable, and no blank form is opened as a fallback. Rows are cleaned on record/account deletion and stale rows are pruned on registration. No cookies, CV text, form values or browser-control URL are exposed by this feature. On a phone, the button opens the window on the computer running the agent; it does not relay that browser to the phone.
 
 
+## Travel preference presentation — 17 November 2026
+
+“Are you open to travel if required?” uses the same collapsed native dropdown and down arrow as the other single-choice menus in Applications and Answers library. The user opens it and picks one employer-offered option. The employer's actual multi-select metadata and exact-label array answer format are preserved for the runner. Previously saved multiple choices remain unchanged until the user explicitly replaces them with one; a placeholder identifies those retained selections instead of silently choosing one. Other multi-select questions retain their existing controls. No employer preference is set by this presentation change.
+
 ## Employer multi-select menus — 16 November 2026
 
 The travel-question regression was caused by treating Greenhouse `multi_value_multi_select` metadata as individual checkboxes and by rejecting linked list IDs containing `[]`. Public-feed multiple-choice fields now remain one menu, with a `multiple` flag and the employer's exact options. Browser-observed real checkboxes retain their actual type. A metadata refresh retires only the old synthetic feed checkbox catalog entries and their blank missing-answer placeholders; saved user answers, application outcomes and duplicate protection are retained.
