@@ -1,8 +1,12 @@
 # CV application agent — 29 October 2026
 
-## Open the existing employer browser — 16 November 2026
+## Open employer application — restored 17 November 2026
 
-Open employer application on Applications cards/details and the recording page is now an authenticated window-focus command, rather than a fresh-tab vacancy link. After answers are approved/saved and the runner begins filling the request, this button brings its exact current browser window forward on the agent’s computer. It never opens a page, navigates, reloads, starts a request, resumes verification or submits a form. The separate View vacancy source link remains available for browsing.
+Open employer application on Applications cards/details and the recording page now opens the original HTTPS employer application URL in an independent new tab, restoring the previous link behavior. It does not request the agent window, poll its session, queue or resume an application, or submit a form. The new employer tab does not contain the agent's prepared fields or attachments. Existing dedicated verification/manual-submit handoffs remain separate and unchanged. Original application destinations are validated before rendering; credential-bearing and non-HTTPS URLs are rejected.
+
+## Historical existing-window implementation — 16 November 2026 (superseded for this button)
+
+Before the 17 November restoration, Open employer application on Applications cards/details and the recording page was an authenticated window-focus command, rather than a fresh-tab vacancy link. After answers are approved/saved and the runner begins filling the request, this button brings its exact current browser window forward on the agent’s computer. It never opens a page, navigates, reloads, starts a request, resumes verification or submits a form. The separate View vacancy source link remains available for browsing.
 
 A short-lived owner/request/claim/session-scoped D1 row carries readiness, focus-command nonce and acknowledgement only. The runner exchanges metadata in a background thread; only the Playwright owner thread performs the existing-window foreground operation, including during verification/manual-submit waits. Lost acknowledgements do not repeat an already handled focus operation. Stale, closed, replaced and terminal sessions are unavailable, and no blank form is opened as a fallback. Rows are cleaned on record/account deletion and stale rows are pruned on registration. No cookies, CV text, form values or browser-control URL are exposed by this feature. On a phone, the button opens the window on the computer running the agent; it does not relay that browser to the phone.
 

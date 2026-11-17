@@ -41,6 +41,9 @@ test('focus errors are honest and reopening requests a new nonce; cleanup is own
 });
 await writeFile(`${dir}/button.mjs`,ts.transpileModule(await readFile('app/application-browser-button.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText);
 const{ApplicationBrowserButton}=await import('../'+dir+'/button.mjs');
-test('Open employer application is a command button, never a fresh-tab employer link',()=>{
- const html=renderToStaticMarkup(createElement(ApplicationBrowserButton,{requestId:'one',status:'processing'}));assert.match(html,/Open employer application/);assert.match(html,/<button type="button"/);assert.doesNotMatch(html,/href=|target=/);
+test('Open employer application opens the exact HTTPS employer page in an independent new tab',()=>{
+ const url='https://employer.example/jobs/123?source=board#apply';
+ const html=renderToStaticMarkup(createElement(ApplicationBrowserButton,{url}));
+ assert.match(html,/Open employer application/);assert.ok(html.includes('href="'+url+'"'));assert.match(html,/target="_blank"/);assert.match(html,/rel="noopener noreferrer"/);assert.match(html,/opens in a new tab/);assert.doesNotMatch(html,/<button|browser-window/);
+ for(const invalid of ['javascript:alert(1)','http://employer.example/form','https://user:secret@employer.example/form','not a URL'])assert.equal(renderToStaticMarkup(createElement(ApplicationBrowserButton,{url:invalid})), '');
 });
