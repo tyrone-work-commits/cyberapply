@@ -1,5 +1,9 @@
 # CV application agent — 29 October 2026
 
+## Highlight questions needing attention — 17 November 2026
+
+Editable employer questions now use an amber border/background and explicit text badges for unresolved/required blanks, invalid saved choices, draft reviews and employer verification. A summary counts the highlighted rows. Controls retain their original accessible question labels and reference the badge through aria-describedby; invalid menu choices also expose aria-invalid. Answering a question or selecting a valid offered option updates its highlight immediately. Existing No/false answers count as answers, optional blank captured menus are not presented as mandatory, and a missing employer option catalog is labelled separately from missing applicant facts. Completed/read-only and uncertain application records are not presented as new answer tasks. The save/approval/library, browser-agent and submission flows are unchanged.
+
 ## Open employer application — restored 17 November 2026
 
 Open employer application on Applications cards/details and the recording page now opens the original HTTPS employer application URL in an independent new tab, restoring the previous link behavior. It does not request the agent window, poll its session, queue or resume an application, or submit a form. The new employer tab does not contain the agent's prepared fields or attachments. Existing dedicated verification/manual-submit handoffs remain separate and unchanged. Original application destinations are validated before rendering; credential-bearing and non-HTTPS URLs are rejected.

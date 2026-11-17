@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';import ts
 import {createElement} from 'react';import {renderToStaticMarkup} from 'react-dom/server';
 const dir='.sites-runtime/application-answer-prefill-tests';await mkdir(dir,{recursive:true});
 for(const name of ['verification-question','application-answer-prefill','application-form-questions','application-question-choices','employer-questions','employer-location-choices','candidate-facts','expected-salary'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
-const component=ts.transpileModule(await readFile('app/application-question-answers.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText.replace(/from ['"]@\/lib\/([^'"]+)['"]/g,"from './$1.mjs'");await writeFile(`${dir}/application-question-answers.mjs`,component.replace(/from '(\.\/[^']+)'/g,(_,name)=>"from '"+name+(name.endsWith('.mjs')?'':'.mjs')+"'"));
+const component=ts.transpileModule((await readFile('app/application-question-answers.tsx','utf8')).replace("import './application-question-attention.css';",''),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText.replace(/from ['"]@\/lib\/([^'"]+)['"]/g,"from './$1.mjs'");await writeFile(`${dir}/application-question-answers.mjs`,component.replace(/from '(\.\/[^']+)'/g,(_,name)=>"from '"+name+(name.endsWith('.mjs')?'':'.mjs')+"'"));
 const child=ts.transpileModule(await readFile('app/application-verification-handoff.tsx','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;await writeFile(`${dir}/application-verification-handoff.mjs`,child);
 const {applicationAnswerPrefill:prefill,offeredAnswer}=await import('../'+dir+'/application-answer-prefill.mjs');
 const {ApplicationQuestionAnswers}=await import('../'+dir+'/application-question-answers.mjs');
@@ -126,4 +126,22 @@ test('travel preference uses a collapsed pick-one menu while retaining the emplo
   if(answer.includes('25-50%'))assert.match(html,/2 saved selections — choose one to replace/);
   assert.deepEqual(request,before);
  }
+});
+
+
+test('only unresolved/required blanks, invalid choices, drafts and verification are highlighted',()=>{
+ const unresolved=[{question:'Your motivation*',field_type:'textarea'},{question:'Work remotely?*',field_type:'combobox'},{question:'Missing menu*',field_type:'combobox'},{question:'Preferred shift*',field_type:'combobox'},{question:'Draft explanation*',field_type:'textarea',source:'generated',suggested_value:'A CV-based draft'},{question:'Which of the following best describes you?',field_type:'combobox',source:'verification'}];
+ const request=app({report:{unresolved,questions:[{question:'Work remotely?*',field_type:'combobox',options:['Yes','No']},{question:'Preferred shift*',field_type:'combobox',options:['Day','Night']},{question:'Optional preference',field_type:'combobox',options:['A','B']},{question:'Which of the following best describes you?',field_type:'combobox',options:['I am a human.','I am an AI agent.']}]},confirmedAnswers:[{question:'Work remotely?*',value:'No'},{question:'Preferred shift*',value:'Old shift'}]});
+ const html=renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{application:request,employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''}));
+ assert.match(html,/5 questions need.*attention/);assert.equal((html.match(/data-attention="input"/g)||[]).length,1);assert.equal((html.match(/data-attention="choices"/g)||[]).length,1);assert.equal((html.match(/data-attention="invalid"/g)||[]).length,1);assert.equal((html.match(/data-attention="review"/g)||[]).length,1);assert.equal((html.match(/data-attention="verification"/g)||[]).length,1);
+ assert.match(html,/<textarea[^>]*aria-describedby="application-answer-fixture-0-attention"/);assert.match(html,/<select[^>]*aria-invalid="true"/);
+ assert.match(html,/<option value="No" selected="">/);assert.match(html,/>Needs your input</);assert.match(html,/>Employer choices unavailable</);
+});
+
+test('saved No/cleared optional selections and completed answers do not keep false attention highlights',()=>{
+ const unresolved=[{question:'Explanation*',field_type:'textarea'},{question:'Travel schedules',field_type:'combobox'},{question:'I acknowledge this statement*',field_type:'checkbox'}];
+ const request=app({report:{unresolved,questions:[{question:'Travel schedules',field_type:'combobox',multiple:true,options:['A','B']}]},confirmedAnswers:[{question:'Explanation*',value:'My accurate answer'},{question:'Travel schedules',value:'[]'},{question:'I acknowledge this statement*',value:'No'}]});
+ const props={application:request,employerQuestions:[],busy:false,onSave:async()=>true,onRefreshChoices:async()=>''};
+ assert.doesNotMatch(renderToStaticMarkup(createElement(ApplicationQuestionAnswers,props)),/data-attention=|questions need your attention/);
+ for(const status of ['applied','uncertain'])assert.doesNotMatch(renderToStaticMarkup(createElement(ApplicationQuestionAnswers,{...props,application:{...request,status,confirmedAnswers:[]}})),/data-attention=|questions need your attention/);
 });

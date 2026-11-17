@@ -1,0 +1,4 @@
+.application-question-answers .employer-answer-attention{display:grid;gap:8px;min-width:0;padding:14px;border:1px solid #d3b171;border-left:4px solid #a67524;border-radius:10px;background:#fff9ec}
+.application-question-answers .employer-answer-attention-label{display:block;width:fit-content;max-width:100%;padding:3px 8px;border-radius:6px;background:#f6e8c8;color:#64420d;font-size:11px;font-weight:700;line-height:1.5;overflow-wrap:anywhere}
+.application-question-answers .employer-answer-attention-summary{padding:10px 12px;border:1px solid #d3b171;border-radius:8px;background:#fff9ec;color:#64420d;font-weight:600;line-height:1.6}
+@media(max-width:600px){.application-question-answers .employer-answer-attention{padding:12px;border-left-width:3px}}
