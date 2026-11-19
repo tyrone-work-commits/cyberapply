@@ -1,0 +1,4 @@
+.application-overview .application-video-actions{display:flex;gap:8px;max-width:100%;min-width:0}
+.application-overview .application-video-actions .button{min-width:0;min-height:44px}
+.application-overview .application-video-actions svg{flex-shrink:0}
+@media(max-width:600px){.application-overview .application-video-actions{width:100%}.application-overview .application-video-actions .button{flex:1;padding:10px 8px;font-size:.875rem;gap:6px;white-space:normal}.application-overview .application-video-actions a>svg:last-of-type{display:none}}
