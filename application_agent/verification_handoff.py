@@ -109,7 +109,9 @@ class BrowserHandoff:
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
         def wait():
             if getattr(self,'window_control',None):self.window_control.check()
-            try:page.wait_for_timeout(1000)
+            try:
+                if watch:watch.capture()
+                page.wait_for_timeout(1000)
             except Exception:time.sleep(1)
         def send(name,**extra):
             while True:
@@ -119,7 +121,7 @@ class BrowserHandoff:
                     if not isinstance(error,(OSError,URLError)):raise
                     wait()  # Preserve this exact page/context during an outage.
         if watch:
-            watch.set_control('waiting');watch.detach()
+            watch.set_control('waiting');watch.attach(context,page);watch.capture(force=True)
         try:
             for frame in page.frames:
                 if recaptcha_resource(frame.url):continue

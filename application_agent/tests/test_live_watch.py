@@ -9,6 +9,10 @@ class Session:
   self.sent.append((name,data))
   return {'data':base64.b64encode(jpeg()).decode()} if name=='Page.captureScreenshot' else {}
  def detach(self):self.sent.append(('detach',None))
+class SafePage:
+ frames=[type('Frame',(),{'url':'https://fixture.example/form','evaluate':lambda *_:False})()]
+ def is_closed(self):return False
+
 class WatchTests(unittest.TestCase):
  def test_private_viewer_receives_encoded_video_and_stop_without_page_controls(self):
   calls=[];received=threading.Event()
@@ -18,7 +22,7 @@ class WatchTests(unittest.TestCase):
    return {'watching':True}
   watch=LiveWatch(call,'request','claim',interval=.01)
   try:
-   self.assertTrue(watch.watching.wait(1));session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),object())
+   self.assertTrue(watch.watching.wait(1));session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),SafePage())
    session.handler({'sessionId':1,'data':base64.b64encode(jpeg()).decode()})
    self.assertTrue(received.wait(5));self.assertIn(('Page.screencastFrameAck',{'sessionId':1}),session.sent)
    videos=[c['video'] for c in calls if c.get('video')];self.assertEqual(videos[0]['kind'],'init');self.assertEqual(base64.b64decode(videos[1]['data'])[4:8],b'moof')
@@ -30,18 +34,18 @@ class WatchTests(unittest.TestCase):
   def call(body):calls.append(body);return {'watching':False}
   watch=LiveWatch(call,'request','claim',interval=.01)
   try:
-   session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),object())
+   session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),SafePage())
    session.handler({'sessionId':2,'data':base64.b64encode(jpeg()).decode()});time.sleep(.1);self.assertFalse(any('video' in body for body in calls));watch.capture()
   finally:watch.detach();watch.close()
  def test_capture_and_unsupported_browser_are_nonfatal(self):
   watch=LiveWatch(lambda body:{'watching':True},'request','claim',interval=.01)
   try:
-   self.assertTrue(watch.watching.wait(1));session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),object());watch.capture()
-   self.assertTrue(any(name=='Page.captureScreenshot' for name,_ in session.sent));watch.attach(object(),object());self.assertIsNone(watch.session)
+   self.assertTrue(watch.watching.wait(1));session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),SafePage());watch.capture()
+   self.assertTrue(any(name=='Page.captureScreenshot' for name,_ in session.sent));watch.attach(object(),SafePage());self.assertIsNone(watch.session)
   finally:watch.close()
  def test_media_connection_failure_is_nonfatal_and_disables_viewing(self):
   called=threading.Event()
   def fail(body):called.set();raise OSError('Fixture connection lost')
   watch=LiveWatch(fail,'request','claim',interval=.01)
-  try:self.assertTrue(called.wait(1));self.assertFalse(watch.watching.is_set());watch.attach(object(),object());watch.capture()
+  try:self.assertTrue(called.wait(1));self.assertFalse(watch.watching.is_set());watch.attach(object(),SafePage());watch.capture()
   finally:watch.close()

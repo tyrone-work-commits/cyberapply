@@ -73,7 +73,7 @@ class ManualSubmit:
                 try:frame.evaluate(HUMAN_EVENTS)
                 except Exception:pass
         if watch:
-            watch.set_control('submit');watch.detach()
+            watch.set_control('submit');watch.attach(context,page);watch.capture(force=True)
         # Readiness is a notification, never permission to take foreground.
         try:self.minimize(context,page);window='hidden' if getattr(context,'_cyberapply_visibility',None) else 'minimized'
         except Exception:window='background_unavailable'

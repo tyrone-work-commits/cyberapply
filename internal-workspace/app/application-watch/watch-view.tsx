@@ -2,6 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import '../workspace-header.css';
 import './live-video.css';
+import {ApplicationRecording} from '../application-recording';
 import {ApplicationVerificationHandoff} from '../application-verification-handoff';
 import {ApplicationManualSubmit} from '../application-manual-submit';
 import {createPortal} from 'react-dom';
@@ -10,6 +11,7 @@ type Info={active:boolean;status:string;title:string;company:string;message:stri
 type Manifest={streamId:string;mimeCodec:string;oldest:number;latest:number;at:number};
 export default function AgentWatch({requestId,embedded=false,onClose}:{requestId:string;embedded?:boolean;onClose?:()=>void}){
  const pausedByUser=useRef(false),video=useRef<HTMLVideoElement>(null),panel=useRef<HTMLElement>(null),close=useRef<HTMLButtonElement>(null);
+ const [viewMode,setViewMode]=useState<'live'|'beginning'>('live');
  const [info,setInfo]=useState<Info|null>(null),[message,setMessage]=useState('Connecting to your private live video…'),[phase,setPhase]=useState('waiting'),[mobile,setMobile]=useState(false);
  useEffect(()=>{if(!embedded)return;const query=matchMedia('(max-width:600px)'),update=()=>setMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[embedded]);
  useEffect(()=>{
@@ -19,7 +21,7 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
  },[mobile]);
  useEffect(()=>{
   let disposed=false,timer:ReturnType<typeof setTimeout>|undefined,renewed=0,active=true,status='',privateCheck=false,stream='',cursor=-1,objectUrl='',source:MediaSource|undefined,buffer:SourceBuffer|undefined,controller:AbortController|undefined;
-  const node=video.current;if(!node)return;const element:HTMLVideoElement=node;
+  const node=video.current;if(!node||viewMode!=='live')return;const element:HTMLVideoElement=node;
   const base='/api/applications/watch?requestId='+encodeURIComponent(requestId);
   function reset(){pausedByUser.current=false;element!.pause();element!.removeAttribute('src');element!.load();if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl='';source=undefined;buffer=undefined;stream='';cursor=-1;if(!disposed)setPhase('waiting');}
   async function binary(part:string,manifest:Manifest,sequence?:number){
@@ -75,13 +77,16 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
    if(!disposed)timer=setTimeout(poll,500);
   }
   void poll();return()=>{disposed=true;controller?.abort();if(timer)clearTimeout(timer);reset();};
- },[requestId,mobile]);
+ },[requestId,mobile,viewMode]);
  function keyboard(event:React.KeyboardEvent){
   if(event.key==='Escape'&&onClose){event.preventDefault();onClose();}
   if(mobile&&event.key==='Tab'){const nodes=panel.current?.querySelectorAll<HTMLElement>('button,a[href],video[controls]');if(nodes?.length){const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}}
  }
  const content=<section ref={panel} className={embedded?'application-live-view'+(mobile?' mobile-live-video':''):'agent-watch-page'} role={mobile?'dialog':'region'} aria-modal={mobile||undefined} aria-label="Live application agent video" onKeyDown={keyboard}>
   <header className="agent-watch-header signed-in-page-header">{!embedded&&<a className="brand" href="/workspace">CyberApply</a>}<strong><Video size={19}/>Live agent video</strong>{onClose?<button ref={close} type="button" className="button quiet" onClick={onClose}><X size={17}/>{mobile?'Close':'Hide'}</button>:<a className="button quiet" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a>}</header>
+  <div className="watch-process-modes" role="group" aria-label="Application video playback"><button type="button" className="button quiet" aria-pressed={viewMode==='live'} onClick={()=>setViewMode('live')}>Live now</button><button type="button" className="button quiet" aria-pressed={viewMode==='beginning'} onClick={()=>setViewMode('beginning')}>Watch from beginning</button></div>
+  {viewMode==='beginning'&&<ApplicationRecording requestId={requestId} embedded/>}
+  <div hidden={viewMode!=='live'}>
   <div className="agent-watch-intro"><h2>{info?.title||'Your application'}{info?.company?' · '+info.company:''}</h2><p role="status">{phase==='live'?'Live video from the browser filling your application.':message}</p><p className="subtle"><LockKeyhole size={15}/>Private video of the agent browser. Watching never queues, retries or submits an application.</p></div>
   <div className="agent-watch-screen" aria-label="Live browser video"><div className="live-control-badge" data-control={info?.control||'queued'} role="status">{info?.control==='manual'?'You have control · agent paused':info?.control==='needs_input'?'Your input needed · agent paused':info?.control==='resuming'?'Returning control to agent':info?.control==='submit'?'Ready · submit it yourself':info?.control==='ended'?'Live session ended':'Agent filling the form'}</div><video ref={video} autoPlay muted playsInline controls controlsList="nodownload noplaybackrate" disableRemotePlayback onPlay={()=>{pausedByUser.current=false;}} onPause={()=>{if(video.current?.getAttribute('src')){pausedByUser.current=true;setPhase('paused');setMessage('Video paused; your application continues.');}}} onPlaying={()=>setPhase('live')} onWaiting={()=>setMessage('Buffering live video…')}/>{phase!=='live'&&phase!=='paused'&&<div className="agent-watch-wait"><Video size={32}/><h3>{phase==='ended'?'Agent session ended':info?.status==='queued'?'Waiting for the agent':['needs_input','manual','submit'].includes(info?.control||'')?'Agent paused for you':'Connecting to live video'}</h3><p>{phase==='ended'?'Replay and download the saved video below. Watching does not restart this application.':info?.privateCheck?'Private verification is not shown or recorded. Complete it in the exact agent browser.':'An H.264 video stream will appear while the agent works.'}</p></div>}</div>
   {info&&['needs_input','manual','resuming','submit'].includes(info.control||'')&&<p className="live-handoff-message" role="status">{info.message}</p>}
@@ -89,7 +94,8 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
   {info?.control==='submit'&&<ApplicationManualSubmit requestId={requestId}/>}
   <div className="application-overview-actions"><a className="button quiet" href={'/application-watch?request='+encodeURIComponent(requestId)+'&mode=recording'}>Replay &amp; download video</a></div>
   <p className="subtle">Take manual control on the computer running the agent: open its exact browser, fill the requested fields, then return control here. On a phone you can watch, but the filled browser opens on the runner computer. Keep the browser open. Final Submit on Greenhouse/reCAPTCHA forms remains yours.</p>
-  <p className="subtle">Screen video only — no microphone or audio. Form capture pauses during manual control. Status captions mark the handoff in the saved video. Password, sign-in and verification-check screens are excluded. A short connection delay is normal. Hide or close to stop watching. Live playback uses a short private buffer. New agent runs also save a private recording for replay.</p>
+  <p className="subtle">Screen video only — no microphone or audio. New agent runs capture opening the employer page, filling the form, ordinary manual input, resuming and the final result. Status captions identify who has control. Password, sign-in, emailed-code and CAPTCHA screens are hidden; their private-check pause is marked in the recording. Idle manual waits are shortened; actions resume recording when the form changes. A short connection delay is normal. Hide or close to stop watching. Live now follows current activity. Watch from beginning plays the saved process so far and adds later footage automatically. Existing recordings cannot recover footage that was never captured.</p>
+ </div>
  </section>;
  return mobile?createPortal(content,document.body):content;
 }

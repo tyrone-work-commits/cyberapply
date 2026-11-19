@@ -1,6 +1,6 @@
 """Burn a fixed status label into video pixels, without altering the employer page."""
 
-LABELS={'confirmed':'EMPLOYER CONFIRMATION OBSERVED','agent':'AGENT FILLING FORM','waiting':'USER INPUT NEEDED - AGENT PAUSED',
+LABELS={'opening':'OPENING EMPLOYER WEBSITE','reading':'READING APPLICATION FORM','confirmed':'EMPLOYER CONFIRMATION OBSERVED','agent':'AGENT FILLING FORM','waiting':'USER INPUT NEEDED - AGENT PAUSED',
         'manual':'YOU HAVE CONTROL - AGENT PAUSED','resuming':'RETURNING CONTROL TO AGENT',
         'submit':'READY - SUBMIT IT YOURSELF','private':'PRIVATE CHECK - VIDEO PAUSED'}
 # A small fixed alphabet avoids external fonts, binaries and image dependencies.
@@ -25,6 +25,7 @@ FONT={
 'T':['11111','00100','00100','00100','00100','00100','00100'],
 'U':['10001','10001','10001','10001','10001','10001','01110'],
 'V':['10001','10001','10001','10001','10001','01010','00100'],
+'W':['10001','10001','10001','10101','10101','10101','01010'],
 'Y':['10001','10001','01010','00100','00100','00100','00100'],
 '-':['00000','00000','00000','11111','00000','00000','00000']}
 

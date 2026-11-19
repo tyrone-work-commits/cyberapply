@@ -10,7 +10,7 @@ class LiveWatch:
   self.call=call;self.ids={'requestId':request_id,'claimId':claim_id};self.interval=interval
   self.stop_event=threading.Event();self.watching=threading.Event();self.reset=threading.Event();self.active=threading.Event()
   self.lock=threading.Lock();self.latest=None;self.session=None;self.last_capture=0;self.queue=deque();self.generation=0
-  self.recording=None;self.recording_info=None;self.label='agent';self.control_frame=None
+  self.recording=None;self.recording_info=None;self.label='agent';self.control_frame=None;self.page=None;self.privacy_latched=False;self.checking_privacy=False
   if record:
    try:
     from .recording import ApplicationRecording
@@ -26,15 +26,29 @@ class LiveWatch:
    self.label=label;frame=self.latest or self.control_frame
    if frame:self.control_frame=frame
   if self.recording:self.recording.set_label(label,frame)
+ def media_allowed(self,page):
+  if self.privacy_latched or self.checking_privacy:return False
+  self.checking_privacy=True
+  try:
+   from .media_privacy import private_media_page
+   private=private_media_page(page)
+  finally:self.checking_privacy=False
+  if private:
+   self.privacy_latched=True;self.active.clear();self.reset.set()
+   with self.lock:frame=self.latest or self.control_frame;self.latest=None
+   if self.recording:self.recording.set_label('private',frame);self.recording.set_active(False)
+   return False
+  return True
  def attach(self,context,page):
-  self.detach()
+  self.detach();self.page=page;self.privacy_latched=False
+  if not self.media_allowed(page):return
   try:
    session=context.new_cdp_session(page);self.session=session
    def frame(event):
     try:session.send('Page.screencastFrameAck',{'sessionId':event['sessionId']})
     except Exception:return
     data=event.get('data','')
-    if self.session is session and (self.watching.is_set() or self.recording) and isinstance(data,str) and 0<len(data)<=320000:
+    if self.session is session and (self.watching.is_set() or self.recording) and isinstance(data,str) and 0<len(data)<=320000 and self.media_allowed(page):
      with self.lock:self.latest=data
      if self.recording:self.recording.offer(data)
    session.on('Page.screencastFrame',frame)
@@ -54,10 +68,11 @@ class LiveWatch:
   with self.lock:self.latest=None;self.generation+=1
  def capture(self,force=False):
   if not self.session or not (self.watching.is_set() or self.recording) or not force and time.monotonic()-self.last_capture<.5:return
+  if not self.page or not self.media_allowed(self.page):return
   self.last_capture=time.monotonic()
   try:
    data=self.session.send('Page.captureScreenshot',{'format':'jpeg','quality':65})['data']
-   if len(data)<=320000:
+   if len(data)<=320000 and self.media_allowed(self.page):
     with self.lock:self.latest=data
     if self.recording:self.recording.offer(data)
   except Exception:pass

@@ -5,7 +5,7 @@ import av
 from application_agent.recording import ApplicationRecording
 from application_agent.video_encoder import RecordingEncoder
 from application_agent.live_watch import LiveWatch
-from application_agent.tests.test_live_watch import Session
+from application_agent.tests.test_live_watch import Session,SafePage
 from application_agent.tests.test_video_encoder import jpeg
 from application_agent.runner import run_once
 
@@ -21,7 +21,7 @@ class RecordingTests(unittest.TestCase):
  def test_records_without_live_viewer_and_cleans_temp_file(self):
   calls=[];watch=LiveWatch(lambda body:(calls.append(body) or {'watching':False}),'request','claim',interval=.01,record=True)
   try:
-   session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),object())
+   session=Session();watch.attach(type('Context',(),{'new_cdp_session':lambda _,page:session})(),SafePage())
    session.handler({'sessionId':1,'data':base64.b64encode(jpeg()).decode()});time.sleep(.5);watch.finish_capture();watch.close()
    info=watch.recording_info;self.assertIsNotNone(info);self.assertFalse(any('video' in body for body in calls))
    with av.open(str(info['path'])) as movie:self.assertGreaterEqual(len(list(movie.decode(video=0))),2)
@@ -92,3 +92,12 @@ class RecordingTests(unittest.TestCase):
    a=outbox('https://site.example','ca2.ownerA.secret');b=outbox('https://site.example','ca2.ownerB.secret');self.assertNotEqual(a,b)
    for name in ['../private.mp4','a'*32+'.mp4/..','C:/private.mp4']:
     with self.assertRaises(ValueError):media_path(a,name)
+
+ def test_idle_manual_wait_does_not_consume_recording_limit(self):
+  recording=ApplicationRecording();recording.set_label('manual');recording.set_active(True);recording.offer(base64.b64encode(jpeg(50)).decode());time.sleep(.4)
+  try:
+   with recording.lock:recording.changed_at=time.monotonic()-10
+   time.sleep(.2);before=recording.frames;time.sleep(.25);self.assertEqual(recording.frames,before)
+   recording.offer(base64.b64encode(jpeg(150)).decode());time.sleep(.3);self.assertGreater(recording.frames,before)
+   self.assertIsNotNone(recording.finish())
+  finally:recording.finish();recording.cleanup()

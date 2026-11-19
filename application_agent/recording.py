@@ -16,17 +16,20 @@ class ApplicationRecording:
  def __init__(self,on_part=None):
   self.lock=threading.Lock();self.active=threading.Event();self.stop=threading.Event();self.discard=threading.Event()
   self.latest=None;self.final=None;self.info=None;self.path=None;self.partial=False;self.reason='';self.error=''
-  self.on_part=on_part;self.parts=0;self.frames=0;self.bytes=0;self.label='agent';self.markers=deque()
+  self.changed_at=time.monotonic();self.on_part=on_part;self.parts=0;self.frames=0;self.bytes=0;self.label='agent';self.markers=deque()
   self.thread=threading.Thread(target=self._run,name='CyberApply private recording',daemon=True);self.thread.start()
  def set_label(self,label,frame=None):
   from .video_labels import LABELS
   if label not in LABELS:return
   with self.lock:
+   if self.label!=label:self.changed_at=time.monotonic()
    self.label=label
    if frame and len(self.markers)<16:self.markers.append((frame,label))
  def offer(self,data):
   if isinstance(data,str) and 0<len(data)<=320000:
-   with self.lock:self.latest=data
+   with self.lock:
+    if data!=self.latest:self.changed_at=time.monotonic()
+    self.latest=data
  def set_active(self,active):
   if active:self.active.set()
   else:
@@ -52,7 +55,7 @@ class ApplicationRecording:
     with self.lock:
      marker=self.markers.popleft() if self.markers else None
      data=marker[0] if marker else self.latest;label=marker[1] if marker else self.label
-    if not marker and (not self.active.is_set() or not data):self.stop.wait(.05);next_frame=time.monotonic();continue
+    if not marker and (not self.active.is_set() or not data or label in {'waiting','manual','submit'} and time.monotonic()-self.changed_at>2):self.stop.wait(.05);next_frame=time.monotonic();continue
     if self.frames>=FPS*MAX_RECORDING_SECONDS or self.bytes+(self.path.stat().st_size if encoder and self.path else 0)>MAX_RECORDING_BYTES:
      self.partial=True;self.reason='recording_limit';break
     if encoder is None:

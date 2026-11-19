@@ -382,7 +382,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     else:verification_handler.window(context,page,'minimized')
                 except Exception:
                     if visibility:raise ApplicationAttention('The background browser could not be hidden. No employer form was opened.')
-            if live_watch:live_watch.attach(context,page)
+            if live_watch:live_watch.attach(context,page);live_watch.set_control('opening')
             page.set_default_timeout(timeout)
             recovery=FormRecovery(report,
                 can_retry=lambda:not submitted and not blocked and (not submit or before_submit is not None and before_submit() is True),
@@ -412,6 +412,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     raise TransientFormError('The employer page is temporarily unavailable.')
             recovery.run('open_employer_page',open_initial_page)
             page.wait_for_timeout(700)
+            if live_watch:live_watch.set_control('reading');live_watch.capture(force=True)
             if feed_source and original_host not in APPLICATION_HOST_GROUPS[0]:
                 # Follow only an observed, exact board + vacancy embed. Keep its
                 # signed URL in memory, never in the report or a constructed URL.
@@ -616,170 +617,177 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     else:return False
                     if field['type']=='checkbox' and expected in {'Yes','No'}:expected='true' if expected=='Yes' else 'false'
                     return expected is not None and expected==answer.get('value')
+                if live_watch:live_watch.set_control('agent')
                 for field in fields:
-                    if browser_window:browser_window.check()
-                    if live_watch:live_watch.capture()
-                    control = controls[field["id"]]
-                    kind, label = field["type"], field["label"].lower()
-                    answer = answers.get(field["id"])
-                    identity=control.evaluate(CONTROL_IDENTITY)
-                    if field['id'] in verification_ids:
-                        proof=human_proofs.get(identity)
-                        if proof and manual_value(field,control)==proof:
-                            expected_values[field['id']]=proof;handled_confirmed.add(field['id'])
-                        continue  # Only the person may fill this control.
-                    def same_question(operation):
-                        if control.evaluate(CONTROL_IDENTITY)!=identity:
-                            raise ApplicationAttention('The employer changed this question during preparation. The old answer was not replayed; inspect the changed form before continuing.')
-                        return operation()
-                    if kind == "file":
-                        if re.search(r"cover.?letter", label):
-                            if not answer or not (answer.get('source')=='user_confirmed' or answer.get('source')=='cv_and_job' and answer.get('automatic') is True):
-                                if not any(item.get('field_id')==field['id'] for item in unresolved):unresolved.append({'field_id':field['id'],'question':field['label'],'source':'generated','suggested_value':report['cover_letter'],'reason':'Approve the generated cover letter before upload.'})
-                                continue
-                            report['cover_letter']=str(answer['value'])
-                            report['answers'].append({**answer,'question':field['label']})
-                            if not report["cover_letter"]:
-                                unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"No grounded cover letter was prepared."})
-                            else:
-                                approved_file=bool(cover_letter_bytes and reviewed_letter.get('text')==report['cover_letter'])
-                                letter_bytes=cover_letter_bytes if approved_file else report['cover_letter'].encode()
-                                letter_name='cover-letter.docx' if approved_file else 'cover-letter.txt'
-                                letter_type=reviewed_letter['type'] if approved_file else 'text/plain'
-                                uploads.arm('cover_letter',letter_name,letter_type,letter_bytes)
-                                control.set_input_files({"name":letter_name,"mimeType":letter_type,"buffer":letter_bytes})
-                                expected_values[field['id']]=('file',{'name':letter_name,'size':len(letter_bytes)})
-                                attachment_hashes[field['id']]=hashlib.sha256(letter_bytes).hexdigest()
-                        elif re.search(r"resume|résumé|\bcv\b", label):
-                            name = str(cv.get("name") or "CV.pdf").replace('\\','/').split('/')[-1]
-                            uploads.arm('resume',name,cv.get('type') or 'application/octet-stream',cv_bytes)
-                            control.set_input_files({"name":name,"mimeType":cv.get("type") or "application/octet-stream","buffer":cv_bytes})
-                            expected_values[field['id']]=('file',{'name':name,'size':len(cv_bytes)})
-                            attachment_hashes[field['id']]=hashlib.sha256(cv_bytes).hexdigest()
-                            journey.data['cv_attached']=True
-                        elif field["required"]:
-                            unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This required attachment is not the selected CV."})
-                        continue
-                    answer = answers.get(field["id"])
-                    if field.get('multiple') and kind in {'combobox','select'}:
-                        from .multiselect import select_multiple, selected_multiple, parse_multiple
-                        if approved_choice(field,answer) and answer:
-                            try:
-                                selected=same_question(lambda:select_multiple(frames[int(field['id'].split(':',1)[0])],control,field,answer['value'],min(timeout,3000)))
-                                expected_values[field['id']]=('multiple',selected)
-                                handled_confirmed.add(field['id']);report['answers'].append({**answer,'question':field['label']})
-                            except DropdownAttention as error:unresolved.append({'field_id':field['id'],'question':field['label'],'field_type':kind,'reason':str(error),'source':'agent_recovery'})
-                        elif field['required'] and not any(q.get('field_id')==field['id'] for q in unresolved):
-                            unresolved.append({'field_id':field['id'],'question':field['label'],'field_type':kind,'reason':'Select the applicable employer choices in CyberApply; no selection was assumed.'})
-                        continue
-                    if kind == 'checkbox':
-                        if approved_choice(field,answer) and answer['value'] in {'true','false'}:
-                            control.set_checked(answer['value']=='true')
-                            expected_values[field['id']]=('checked',answer['value']=='true')
-                            handled_confirmed.add(field['id'])
-                            report['answers'].append({**answer, 'question':field['label']})
-                        elif field['required'] and not any(item.get('field_id')==field['id'] for item in unresolved):
-                            unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required checkbox needs explicit confirmation for this exact question.'})
-                        elif field.get('checked'):
-                            control.set_checked(False)  # Employer default opt-in is not user consent.
-                        if not field['required'] and field['id'] not in expected_values:
-                            expected_values[field['id']]=('checked',False)
-                        continue
-                    if kind == 'radio':
-                        if approved_choice(field,answer) and field.get('nativeControl') and field.get('groupQuestion') and field['options'].count(str(answer['value']))==1:
-                            if str(answer['value'])==field.get('optionLabel'):
-                                control.check()
-                                expected_values[field['id']]=('checked',True)
-                                report['answers'].append({**answer, 'question':field['label']})
-                            handled_confirmed.add(field['id'])
-                        elif field['required']:
-                            if not any(item.get('field_id')==field['id'] for item in unresolved):
-                                unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required radio question needs an explicit matching choice.'})
-                        elif field.get('checked'):
-                            if not field.get('nativeControl'):
-                                raise ApplicationAttention('The employer preselected an optional personal choice. Review it before applying.')
-                            control.evaluate("e=>{e.checked=false;e.dispatchEvent(new Event('change',{bubbles:true}));}")
-                        if not approved_choice(field,answer) and not field['required'] and field.get('nativeControl'):
-                            expected_values[field['id']]=('checked',False)
-                        continue
-                    if kind == "combobox":
-                        from .profile_answers import profile_field, saved_profile_answer
-                        normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
-                        unique=sum(f['type']=='combobox' and normalize(f['label'])==normalize(field['label']) for f in fields)==1
-                        permitted=bool(unique and exact_confirmed(field,answer))
-                        if unique and answer and answer.get('source')=='edit_profile' and profile_field(field['label']):
-                            expected,_,_=saved_profile_answer(payload,field['label'],field)
-                            from .choice_matching import unique_option
-                            mapped=unique_option(field['label'],expected,field.get('options') or [],payload.get('applicantProfile') or {}) if expected is not None and field.get('options') and not field.get('phoneCountry') else expected
-                            permitted=mapped is not None and mapped==answer.get('value')
-                        elif unique and answer and answer.get('source')=='saved_profile':
-                            from .answer_memory import remembered_answer
-                            remembered=remembered_answer(payload,field['label'],field)
-                            permitted=bool(remembered and remembered[0]==answer.get('value'))
-                        elif unique and answer and answer.get('source')=='cv':
-                            # Recompute from the exact chosen CV, not an arbitrary
-                            # planner assertion or a previous employer's option.
-                            from .reasoning import build_plan
-                            known=build_plan(payload,[field]).get('answers',[])
-                            permitted=bool(len(known)==1 and known[0]['source']=='cv' and known[0]['value']==answer.get('value'))
-                        try:
-                            if answer and permitted:
-                                dropdown_issue=['']
-                                def choose_dropdown():
-                                    try:return select_combobox(frames[int(field['id'].split(':',1)[0])],control,({**field,'phoneCountry':False} if field.get('phoneCountry') else field),str(answer['value']),payload.get('applicantProfile') or {},timeout)
-                                    except DropdownAttention as error:
-                                        dropdown_issue[0]=str(error)
-                                        if error.transient:raise TransientFormError(str(error)) from None
-                                        raise
-                                selected=recovery.run('select_labelled_dropdown',lambda:same_question(choose_dropdown),field['id'])
-                                expected_values[field['id']]=('combobox',selected)
+                    try:
+                        if browser_window:browser_window.check()
+                        control = controls[field["id"]]
+                        kind, label = field["type"], field["label"].lower()
+                        answer = answers.get(field["id"])
+                        identity=control.evaluate(CONTROL_IDENTITY)
+                        if field['id'] in verification_ids:
+                            proof=human_proofs.get(identity)
+                            if proof and manual_value(field,control)==proof:
+                                expected_values[field['id']]=proof;handled_confirmed.add(field['id'])
+                            continue  # Only the person may fill this control.
+                        def same_question(operation):
+                            if control.evaluate(CONTROL_IDENTITY)!=identity:
+                                raise ApplicationAttention('The employer changed this question during preparation. The old answer was not replayed; inspect the changed form before continuing.')
+                            return operation()
+                        if kind == "file":
+                            if re.search(r"cover.?letter", label):
+                                if not answer or not (answer.get('source')=='user_confirmed' or answer.get('source')=='cv_and_job' and answer.get('automatic') is True):
+                                    if not any(item.get('field_id')==field['id'] for item in unresolved):unresolved.append({'field_id':field['id'],'question':field['label'],'source':'generated','suggested_value':report['cover_letter'],'reason':'Approve the generated cover letter before upload.'})
+                                    continue
+                                report['cover_letter']=str(answer['value'])
+                                report['answers'].append({**answer,'question':field['label']})
+                                if not report["cover_letter"]:
+                                    unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"No grounded cover letter was prepared."})
+                                else:
+                                    approved_file=bool(cover_letter_bytes and reviewed_letter.get('text')==report['cover_letter'])
+                                    letter_bytes=cover_letter_bytes if approved_file else report['cover_letter'].encode()
+                                    letter_name='cover-letter.docx' if approved_file else 'cover-letter.txt'
+                                    letter_type=reviewed_letter['type'] if approved_file else 'text/plain'
+                                    uploads.arm('cover_letter',letter_name,letter_type,letter_bytes)
+                                    control.set_input_files({"name":letter_name,"mimeType":letter_type,"buffer":letter_bytes})
+                                    expected_values[field['id']]=('file',{'name':letter_name,'size':len(letter_bytes)})
+                                    attachment_hashes[field['id']]=hashlib.sha256(letter_bytes).hexdigest()
+                            elif re.search(r"resume|résumé|\bcv\b", label):
+                                name = str(cv.get("name") or "CV.pdf").replace('\\','/').split('/')[-1]
+                                uploads.arm('resume',name,cv.get('type') or 'application/octet-stream',cv_bytes)
+                                control.set_input_files({"name":name,"mimeType":cv.get("type") or "application/octet-stream","buffer":cv_bytes})
+                                expected_values[field['id']]=('file',{'name':name,'size':len(cv_bytes)})
+                                attachment_hashes[field['id']]=hashlib.sha256(cv_bytes).hexdigest()
+                                journey.data['cv_attached']=True
+                            elif field["required"]:
+                                unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This required attachment is not the selected CV."})
+                            continue
+                        answer = answers.get(field["id"])
+                        if field.get('multiple') and kind in {'combobox','select'}:
+                            from .multiselect import select_multiple, selected_multiple, parse_multiple
+                            if approved_choice(field,answer) and answer:
+                                try:
+                                    selected=same_question(lambda:select_multiple(frames[int(field['id'].split(':',1)[0])],control,field,answer['value'],min(timeout,3000)))
+                                    expected_values[field['id']]=('multiple',selected)
+                                    handled_confirmed.add(field['id']);report['answers'].append({**answer,'question':field['label']})
+                                except DropdownAttention as error:unresolved.append({'field_id':field['id'],'question':field['label'],'field_type':kind,'reason':str(error),'source':'agent_recovery'})
+                            elif field['required'] and not any(q.get('field_id')==field['id'] for q in unresolved):
+                                unresolved.append({'field_id':field['id'],'question':field['label'],'field_type':kind,'reason':'Select the applicable employer choices in CyberApply; no selection was assumed.'})
+                            continue
+                        if kind == 'checkbox':
+                            if approved_choice(field,answer) and answer['value'] in {'true','false'}:
+                                control.set_checked(answer['value']=='true')
+                                expected_values[field['id']]=('checked',answer['value']=='true')
                                 handled_confirmed.add(field['id'])
-                                report['answers'].append({**answer,'question':field['label'],'selected_option':selected})
-                            elif field['required'] or has_unreviewed_selection(control):
+                                report['answers'].append({**answer, 'question':field['label']})
+                            elif field['required'] and not any(item.get('field_id')==field['id'] for item in unresolved):
+                                unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required checkbox needs explicit confirmation for this exact question.'})
+                            elif field.get('checked'):
+                                control.set_checked(False)  # Employer default opt-in is not user consent.
+                            if not field['required'] and field['id'] not in expected_values:
+                                expected_values[field['id']]=('checked',False)
+                            continue
+                        if kind == 'radio':
+                            if approved_choice(field,answer) and field.get('nativeControl') and field.get('groupQuestion') and field['options'].count(str(answer['value']))==1:
+                                if str(answer['value'])==field.get('optionLabel'):
+                                    control.check()
+                                    expected_values[field['id']]=('checked',True)
+                                    report['answers'].append({**answer, 'question':field['label']})
+                                handled_confirmed.add(field['id'])
+                            elif field['required']:
                                 if not any(item.get('field_id')==field['id'] for item in unresolved):
-                                    unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This dropdown needs a unique, fact-backed or explicitly confirmed answer. No option was assumed.'})
-                        except RecoveryStopped as error:
-                            report['unresolved']=[{'field_id':field['id'],'question':field['label'],'reason':dropdown_issue[0]+' '+str(error),'source':'agent_recovery'}]
-                            if profile_field(field['label'])=='city' and report.get('city_lookup',{}).get('status')=='no_results':
-                                message="The employer's city search found no match for the saved City. Enter your full city name in Edit Profile, then continue. No location was guessed."
-                                report['unresolved'][0].update(reason=message,source='edit_profile')
-                                raise ApplicationAttention(message) from None
-                            raise
-                        except DropdownAttention as error:
-                            unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error),'source':'agent_recovery'})
-                        continue
-                    if answer:
-                        value = str(answer["value"])
-                        if kind == "select":
-                            if value not in field["options"]:
-                                raise ApplicationAttention("A suggested answer does not match the employer's available choices.")
-                            def select_native():
-                                choices=control.locator('option').evaluate_all("items=>items.filter(e=>!e.disabled&&!e.closest('optgroup[disabled]')).map(e=>e.text)")
-                                if choices.count(value)!=1:
-                                    raise DropdownAttention('No unique enabled employer option matches the saved answer.')
-                                control.select_option(label=value,timeout=min(timeout,3000))
-                                if control.evaluate("e=>e.selectedOptions[0]?.text||''")!=value:
-                                    raise TransientFormError('The employer dropdown did not retain the selected answer.')
+                                    unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This required radio question needs an explicit matching choice.'})
+                            elif field.get('checked'):
+                                if not field.get('nativeControl'):
+                                    raise ApplicationAttention('The employer preselected an optional personal choice. Review it before applying.')
+                                control.evaluate("e=>{e.checked=false;e.dispatchEvent(new Event('change',{bubbles:true}));}")
+                            if not approved_choice(field,answer) and not field['required'] and field.get('nativeControl'):
+                                expected_values[field['id']]=('checked',False)
+                            continue
+                        if kind == "combobox":
+                            from .profile_answers import profile_field, saved_profile_answer
+                            normalize=lambda s:re.sub(r'\s+',' ',str(s)).strip().casefold()
+                            unique=sum(f['type']=='combobox' and normalize(f['label'])==normalize(field['label']) for f in fields)==1
+                            permitted=bool(unique and exact_confirmed(field,answer))
+                            if unique and answer and answer.get('source')=='edit_profile' and profile_field(field['label']):
+                                expected,_,_=saved_profile_answer(payload,field['label'],field)
+                                from .choice_matching import unique_option
+                                mapped=unique_option(field['label'],expected,field.get('options') or [],payload.get('applicantProfile') or {}) if expected is not None and field.get('options') and not field.get('phoneCountry') else expected
+                                permitted=mapped is not None and mapped==answer.get('value')
+                            elif unique and answer and answer.get('source')=='saved_profile':
+                                from .answer_memory import remembered_answer
+                                remembered=remembered_answer(payload,field['label'],field)
+                                permitted=bool(remembered and remembered[0]==answer.get('value'))
+                            elif unique and answer and answer.get('source')=='cv':
+                                # Recompute from the exact chosen CV, not an arbitrary
+                                # planner assertion or a previous employer's option.
+                                from .reasoning import build_plan
+                                known=build_plan(payload,[field]).get('answers',[])
+                                permitted=bool(len(known)==1 and known[0]['source']=='cv' and known[0]['value']==answer.get('value'))
                             try:
-                                recovery.run('select_native_option',lambda:same_question(select_native),field['id'])
+                                if answer and permitted:
+                                    dropdown_issue=['']
+                                    def choose_dropdown():
+                                        try:return select_combobox(frames[int(field['id'].split(':',1)[0])],control,({**field,'phoneCountry':False} if field.get('phoneCountry') else field),str(answer['value']),payload.get('applicantProfile') or {},timeout)
+                                        except DropdownAttention as error:
+                                            dropdown_issue[0]=str(error)
+                                            if error.transient:raise TransientFormError(str(error)) from None
+                                            raise
+                                    selected=recovery.run('select_labelled_dropdown',lambda:same_question(choose_dropdown),field['id'])
+                                    expected_values[field['id']]=('combobox',selected)
+                                    handled_confirmed.add(field['id'])
+                                    report['answers'].append({**answer,'question':field['label'],'selected_option':selected})
+                                elif field['required'] or has_unreviewed_selection(control):
+                                    if not any(item.get('field_id')==field['id'] for item in unresolved):
+                                        unresolved.append({'field_id':field['id'],'question':field['label'],'reason':'This dropdown needs a unique, fact-backed or explicitly confirmed answer. No option was assumed.'})
+                            except RecoveryStopped as error:
+                                report['unresolved']=[{'field_id':field['id'],'question':field['label'],'reason':dropdown_issue[0]+' '+str(error),'source':'agent_recovery'}]
+                                if profile_field(field['label'])=='city' and report.get('city_lookup',{}).get('status')=='no_results':
+                                    message="The employer's city search found no match for the saved City. Enter your full city name in Edit Profile, then continue. No location was guessed."
+                                    report['unresolved'][0].update(reason=message,source='edit_profile')
+                                    raise ApplicationAttention(message) from None
+                                raise
                             except DropdownAttention as error:
                                 unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error),'source':'agent_recovery'})
-                                continue
-                            expected_values[field['id']]=('select',value)
-                        elif kind in ("text", "email", "tel", "url", "number", "textarea", "search", "date"):
-                            def fill_saved():
-                                control.fill(value,timeout=min(timeout,3000))
+                            continue
+                        if answer:
+                            value = str(answer["value"])
+                            if kind == "select":
+                                if value not in field["options"]:
+                                    raise ApplicationAttention("A suggested answer does not match the employer's available choices.")
+                                def select_native():
+                                    choices=control.locator('option').evaluate_all("items=>items.filter(e=>!e.disabled&&!e.closest('optgroup[disabled]')).map(e=>e.text)")
+                                    if choices.count(value)!=1:
+                                        raise DropdownAttention('No unique enabled employer option matches the saved answer.')
+                                    control.select_option(label=value,timeout=min(timeout,3000))
+                                    if control.evaluate("e=>e.selectedOptions[0]?.text||''")!=value:
+                                        raise TransientFormError('The employer dropdown did not retain the selected answer.')
+                                try:
+                                    recovery.run('select_native_option',lambda:same_question(select_native),field['id'])
+                                except DropdownAttention as error:
+                                    unresolved.append({'field_id':field['id'],'question':field['label'],'reason':str(error),'source':'agent_recovery'})
+                                    continue
+                                expected_values[field['id']]=('select',value)
+                            elif kind in ("text", "email", "tel", "url", "number", "textarea", "search", "date"):
+                                def fill_saved():
+                                    control.fill(value,timeout=min(timeout,3000))
+                                    from .profile_answers import profile_field
+                                    from .phone import matches_phone
+                                    if not (matches_phone(control,value) if profile_field(field['label'])=='phone' else control.input_value()==value):raise TransientFormError('The field did not retain the saved answer.')
+                                recovery.run('fill_saved_answer',lambda:same_question(fill_saved),field['id'])
                                 from .profile_answers import profile_field
-                                from .phone import matches_phone
-                                if not (matches_phone(control,value) if profile_field(field['label'])=='phone' else control.input_value()==value):raise TransientFormError('The field did not retain the saved answer.')
-                            recovery.run('fill_saved_answer',lambda:same_question(fill_saved),field['id'])
-                            from .profile_answers import profile_field
-                            expected_values[field['id']]=('phone' if profile_field(field['label'])=='phone' else 'value',value)
-                        else:
-                            unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This control is not supported."})
-                        report["answers"].append({**answer, "question":field["label"]})
-                    elif field["required"] and not any(item.get('field_id')==field['id'] for item in unresolved):
-                        unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV or saved Edit Profile does not establish an answer."})
+                                expected_values[field['id']]=('phone' if profile_field(field['label'])=='phone' else 'value',value)
+                            else:
+                                unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"This control is not supported."})
+                            report["answers"].append({**answer, "question":field["label"]})
+                        elif field["required"] and not any(item.get('field_id')==field['id'] for item in unresolved):
+                            unresolved.append({"field_id":field["id"],"question":field["label"],"reason":"The CV or saved Edit Profile does not establish an answer."})
+                    finally:
+                        if live_watch:
+                            try:
+                                live_watch.capture(force=True)
+                                page.wait_for_timeout(150)  # Let the video retain this actual form action.
+                            except Exception:pass
                 # Menus may load only after phone/country or earlier answers settle.
                 # Refresh metadata before returning a pause; no answers are replayed.
                 from .form_choices import refresh_missing_choices
