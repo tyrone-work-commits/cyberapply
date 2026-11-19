@@ -30,24 +30,23 @@ class InputHandoff(BrowserHandoff):
         return {'handoff':self.current}
 
 
-def test_missing_answer_keeps_exact_cv_and_browser_then_resumes_once():
+def test_missing_answer_returns_to_existing_in_app_question_editor_without_browser_handoff():
     h=InputHandoff();posts=[]
     html=FORM.replace('{extra}','<label>What motivates you?<textarea name="motivation" required></textarea></label>')
     result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _: {},resolver=dns,timeout=800,
       before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
-    assert result['status']=='applied',result
-    assert len(posts)==1 and CV in posts[0] and b'I enjoy investigating security incidents.' in posts[0]
-    assert [e['event'] for e in h.events]==['begin','opened','resumed']
-    assert h.events[0]['kind']=='input' and h.events[0]['persistent']
-    assert any(a['source']=='manual_browser' for a in result['report']['answers'])
+    assert result['status']=='needs_attention',result
+    assert not posts and not h.events
+    assert any(q['question']=='What motivates you?' for q in result['report']['unresolved'])
+    assert result['report']['journey']['possible_delivery'] is False
 
 
-def test_cancelled_missing_answer_does_not_submit_or_restart():
+def test_ordinary_answer_pause_does_not_require_opening_or_cancelling_a_browser_handoff():
     h=InputHandoff(cancel=True);posts=[]
     html=FORM.replace('{extra}','<label>What motivates you?<input name="motivation" required></label>')
     result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _: {},resolver=dns,timeout=800,
       before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
-    assert result['status']=='needs_attention' and not posts
+    assert result['status']=='needs_attention' and not posts and not h.events
 
 
 def test_downloaded_mp4_has_status_captions_in_its_actual_pixels():
@@ -62,3 +61,16 @@ def test_downloaded_mp4_has_status_captions_in_its_actual_pixels():
         # Captions differ in decoded Y pixels, so downloads retain them.
         rows=[bytes(frames[index].planes[0])[504*frames[index].planes[0].line_size:] for index in [0,8,16,24]]
         assert len(set(rows))==4
+
+
+def test_ordinary_dropdown_keeps_exact_employer_options_in_the_report_for_the_app():
+    h=InputHandoff();posts=[]
+    html=FORM.replace('{extra}',"<label>Source of work authorization<select name='work_source' required><option value=''>Choose</option><option>Citizen</option><option>Permanent resident</option><option>Sponsored work visa</option></select></label>")
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _: {},resolver=dns,timeout=800,
+      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
+    assert result['status']=='needs_attention' and not posts and not h.events,result
+    question=next(q for q in result['report']['questions'] if q['question']=='Source of work authorization')
+    assert question['field_type']=='select'
+    assert question['options']==['Choose','Citizen','Permanent resident','Sponsored work visa']
+    assert any(q['question']=='Source of work authorization' for q in result['report']['unresolved'])
+    assert result['report']['journey']['possible_delivery'] is False

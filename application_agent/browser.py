@@ -218,7 +218,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
         asset_candidates=static_asset_hosts(job)
         read_candidates={CITY_LOOKUP_HOST} if application_host in APPLICATION_HOST_GROUPS[0] and (payload.get('applicantProfile') or {}).get('city') else set()
         upload_candidates={UPLOAD_HOST} if application_host in APPLICATION_HOST_GROUPS[0] else set()
-        from .verification_handoff import manual_value,manual_input_value,identity_dropdown
+        from .verification_handoff import manual_value,identity_dropdown
         recaptcha_candidates=RECAPTCHA_HOSTS if verification_handler else set();recaptcha_pins=set()
         requested_hosts = {original_host, *automatic, *asset_candidates, *read_candidates, *upload_candidates, *recaptcha_candidates, *(str(x).lower().rstrip('.') for x in allowed_hosts)}
         hosts=set()
@@ -829,26 +829,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                         if not proof:raise ApplicationAttention('The employer changed its verification control. No old answer was replayed.')
                         expected_values[field['id']]=proof
                     report['unresolved']=[]
-                # Keep ordinary missing answers in this exact filled browser.
-                # A person supplies facts; the agent only observes and validates them.
-                if report['unresolved'] and submit and verification_handler and not submitted and not journey.data['submit_click_attempts']:
-                    pending_ids={item['field_id'] for item in report['unresolved']}
-                    manual_fields=[f for f in fields if f['id'] in pending_ids]
-                    supported={'text','textarea','email','tel','url','number','search','date','select','combobox','checkbox'}
-                    if manual_fields and len(manual_fields)<=10 and all(f['type'] in supported and not re.search(r'captcha|password|verification code|security code|one.time.code',f['label'],re.I) for f in manual_fields):
-                        observed_values={}
-                        def input_completed():
-                            found={}
-                            for field in manual_fields:
-                                value=manual_input_value(field,controls[field['id']])
-                                if value is None:return False
-                                found[field['id']]=value
-                            observed_values.update(found);return True
-                        human_pause([f['label'] for f in manual_fields],input_completed,'input')
-                        for field in manual_fields:
-                            proof=observed_values[field['id']];expected_values[field['id']]=proof
-                            report['answers'].append({'field_id':field['id'],'question':field['label'],'value':'true' if proof[0]=='checked' else proof[1],'source':'manual_browser'})
-                        report['unresolved']=[]
+                # Ordinary employer questions stay in CyberApply's existing answer
+                # editor, with captured dropdown/checkbox metadata. Only actual
+                # verification uses a browser handoff; never invent missing facts.
                 if report["unresolved"]:
                     technical=any(item.get('source')=='agent_recovery' for item in report['unresolved'])
                     return finish("uncertain" if submitted else "needs_attention", "The employer may have saved a partial application before requesting more answers. Check its status before retrying; review the agent report." if submitted else "Automatic form repairs could not confirm an employer control. Saved details are preserved; review the technical reason in the report." if technical else "The form needs answers or choices missing from the CV or saved Edit Profile. Review the saved agent report.", report)
