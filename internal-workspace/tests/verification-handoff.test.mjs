@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {mkdir,readFile,writeFile} from 'node:fs/promises';
 const dir='.sites-runtime/handoff-tests';await mkdir(dir,{recursive:true});
-for(const name of ['verification-handoff','application-progress','verification-question','verification-handoff','employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
+for(const name of ['application-live-state','manual-submission','verification-handoff','application-progress','verification-question','verification-handoff','employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
 const {currentHandoff,handoffCommand}=await import('../'+dir+'/verification-handoff.mjs'),{applicationProgress}=await import('../'+dir+'/application-progress.mjs');
 const now=Date.parse('2026-11-13T12:00:00Z');
 const app=()=>({id:'app',jobId:'job',status:'processing',reason:'connection_required',sourceUrl:'https://fixture.example',cv:{fileId:'cv'},claim:{id:'claim',at:new Date(now-1000).toISOString(),expiresAt:new Date(now+600000).toISOString()},verificationHandoff:{id:'handoff',claimId:'claim',turn:1,state:'waiting',kind:'question',questions:['Which of the following best describes you?'],challengeHosts:[],approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(now+240000).toISOString()}});
@@ -18,4 +18,18 @@ test('persistent human/AI handoff survives long waits without permitting other v
  assert.equal(currentHandoff(a,later).id,'handoff');handoffCommand(a,'handoff','open',[],later);a.verificationHandoff.state='opened';handoffCommand(a,'handoff','resume',[],later);assert.equal(a.verificationHandoff.state,'resuming');
  const p=applicationProgress(a,later);assert.equal(p.label,'Resuming after verification');assert.equal(p.canQueue,false);
  for(const change of [{claimId:'other'},{questions:['Salary expectation?']},{challengeHosts:['www.google.com']},{kind:'recaptcha'}]){const b=app();Object.assign(b.verificationHandoff,{persistent:true},change);assert.equal(currentHandoff(b,later),null);}
+});
+
+const {applicationLiveState}=await import('../'+dir+'/application-live-state.mjs');
+test('live state preserves a long-lived manual form and shows control without changing outcome',()=>{
+ const a=app();Object.assign(a.verificationHandoff,{kind:'input',persistent:true,questions:['What motivates you?']});const later=now+48*3600000;
+ assert.equal(currentHandoff(a,later).id,'handoff');assert.equal(applicationLiveState(a,later).control,'needs_input');
+ handoffCommand(a,'handoff','open',[],later);a.verificationHandoff.state='opened';assert.equal(applicationLiveState(a,later).control,'manual');
+ handoffCommand(a,'handoff','resume',[],later);assert.equal(applicationLiveState(a,later).control,'resuming');assert.equal(a.status,'processing');assert.equal(a.claim.id,'claim');
+ a.verificationHandoff.state='resumed';assert.equal(applicationLiveState(a,now).control,'agent');a.status='applied';assert.equal(applicationLiveState(a,now).active,false);
+});
+test('private CAPTCHA video is excluded, and general input cannot grant new hosts or cover passwords',()=>{
+ const a=app();Object.assign(a.verificationHandoff,{kind:'recaptcha',questions:['Complete the employer reCAPTCHA in this browser.'],challengeHosts:['www.google.com']});assert.equal(applicationLiveState(a,now).privateCheck,true);
+ for(const question of ['Password','Security code','reCAPTCHA','One time code']){const b=app();Object.assign(b.verificationHandoff,{kind:'input',persistent:true,questions:[question]});assert.equal(currentHandoff(b,now),null);}
+ const b=app();Object.assign(b.verificationHandoff,{kind:'input',persistent:true,questions:['Motivation?']});assert.throws(()=>handoffCommand(b,'handoff','open',['www.google.com'],now),/does not grant/);
 });

@@ -50,10 +50,11 @@ class VideoEncoder:
    result.append({'kind':kind,'sequence':self.sequence if kind=='segment' else 0,'mimeCodec':self.mime,'bytes':data})
    if kind=='segment':self.sequence+=1
   return result
- def add(self,jpeg):
+ def add(self,jpeg,label=""):
   frames=self.decoder.decode(self.av.Packet(jpeg))
   if not frames:return []
-  frame=frames[0].reformat(width=960,height=540,format='yuv420p');frame.pict_type=self.av.video.frame.PictureType.NONE;frame.pts=self.index;frame.time_base=Fraction(1,FPS);self.index+=1
+  from .video_labels import label_frame
+  frame=label_frame(frames[0].reformat(width=960,height=540,format='yuv420p'),label);frame.pict_type=self.av.video.frame.PictureType.NONE;frame.pts=self.index;frame.time_base=Fraction(1,FPS);self.index+=1
   for packet in self.stream.encode(frame):self.container.mux(packet)
   return self._events()
  def close(self):
@@ -73,10 +74,11 @@ class RecordingEncoder:
   self.stream.codec_context.thread_count=1;self.stream.codec_context.gop_size=FPS
   self.stream.options={'preset':'ultrafast','tune':'zerolatency','profile':'baseline','level':'3.1','crf':'25','bf':'0','sc_threshold':'0'}
   self.decoder=av.CodecContext.create('mjpeg','r')
- def add(self,jpeg):
+ def add(self,jpeg,label=""):
   frames=self.decoder.decode(self.av.Packet(jpeg))
   if not frames:return
-  frame=frames[0].reformat(width=960,height=540,format='yuv420p');frame.pict_type=self.av.video.frame.PictureType.NONE;frame.pts=self.index;frame.time_base=Fraction(1,FPS);self.index+=1
+  from .video_labels import label_frame
+  frame=label_frame(frames[0].reformat(width=960,height=540,format='yuv420p'),label);frame.pict_type=self.av.video.frame.PictureType.NONE;frame.pts=self.index;frame.time_base=Fraction(1,FPS);self.index+=1
   for packet in self.stream.encode(frame):self.container.mux(packet)
  def close(self):
   for packet in self.stream.encode():self.container.mux(packet)

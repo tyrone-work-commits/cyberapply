@@ -1,10 +1,11 @@
+import {applicationLiveState} from './application-live-state';
 import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,manualCommand} from './manual-submission';
 import {claimLocationCapture,completeLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
 import {recordingPrefix,recordingKey,recordingStatusKey,recordingRange,recordingClaimValid,MAX_RECORDING_SIZE} from './application-recordings';
 import {applicationEmployerLink} from './application-employer-link';
-import {currentHandoff,handoffCommand,isHumanAgentQuestion,RECAPTCHA_HOSTS,RECAPTCHA_QUESTION} from './verification-handoff';
+import {currentHandoff,handoffCommand,isHumanAgentQuestion,inputHandoffQuestions,RECAPTCHA_HOSTS,RECAPTCHA_QUESTION} from './verification-handoff';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
@@ -146,7 +147,7 @@ export async function verificationOwner(request:Request){try{
 }catch(error){return failure(error);}}
 export async function verificationWorker(request:Request){try{
  const user=await worker(request),url=new URL(request.url);
- const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['begin','opened','resumed','cancelled','expired','failed']),persistent:z.literal(true).optional(),kind:z.enum(['question','recaptcha','challenge']).optional(),phase:z.enum(['before_submit','after_submit']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['begin','opened','resumed','cancelled','expired','failed']),persistent:z.literal(true).optional(),kind:z.enum(['question','input','recaptcha','challenge']).optional(),phase:z.enum(['before_submit','after_submit']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
  const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,ids.requestId,ids.claimId);
@@ -154,13 +155,13 @@ export async function verificationWorker(request:Request){try{
   if(!['failed','cancelled','expired'].includes(body.event)){assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);}
   if(body.event==='begin'){
    const kind=body.kind||'question',hosts=[...new Set(body.challengeHosts||[])].sort(),phase=body.phase||'before_submit';
-   const valid=kind==='question'?phase==='before_submit'&&!hosts.length&&!!body.questions?.length&&body.questions.every(isHumanAgentQuestion):kind==='recaptcha'&&body.questions?.length===1&&body.questions[0]===RECAPTCHA_QUESTION&&hosts.every(host=>RECAPTCHA_HOSTS.includes(host));
-   if(!valid||body.persistent&&kind!=='question')throw new DomainError('Unsupported handoff scope. Only the human/AI dropdown and a separately approved manual reCAPTCHA session are supported.',409);
+   const valid=kind==='input'?phase==='before_submit'&&!hosts.length&&inputHandoffQuestions(body.questions||[]):kind==='question'?phase==='before_submit'&&!hosts.length&&!!body.questions?.length&&body.questions.every(isHumanAgentQuestion):kind==='recaptcha'&&body.questions?.length===1&&body.questions[0]===RECAPTCHA_QUESTION&&hosts.every(host=>RECAPTCHA_HOSTS.includes(host));
+   if(!valid||body.persistent&&!['question','input'].includes(kind))throw new DomainError('Unsupported handoff scope. Use a same-browser form-input handoff or a separately approved manual reCAPTCHA session.',409);
    if(item.verificationHandoff?.id===body.id)return response({handoff:item.verificationHandoff});
    if(currentHandoff(item)&&['waiting','opening','opened','resuming'].includes(item.verificationHandoff!.state))throw new DomainError('Another handoff is active for this exact browser.',409);
-   const turn=item.verificationHandoff?.claimId===ids.claimId?item.verificationHandoff.turn+1:1;if(turn>2)throw new DomainError('This application reached its bounded verification handoff limit.',409);
+   const turn=item.verificationHandoff?.claimId===ids.claimId?item.verificationHandoff.turn+1:1;if(turn>8)throw new DomainError('This application reached its bounded verification handoff limit.',409);
    const now=Date.now(),expiresAt=body.persistent?Date.parse(item.claim!.expiresAt):Math.min(Date.parse(item.claim!.expiresAt)-90000,now+240000);if(expiresAt<=now)throw new DomainError('Not enough time remains in this exact claim. No new browser was started.',409);
-   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',...(body.persistent?{persistent:true as const}:{}),kind:kind as 'question'|'recaptcha',phase,questions:body.questions!,challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
+   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',...(body.persistent?{persistent:true as const}:{}),kind:kind as 'question'|'input'|'recaptcha',phase,questions:body.questions!,challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
   }else{
    const h=item.verificationHandoff;if(!h||h.id!==body.id||h.claimId!==ids.claimId)throw new DomainError('This handoff does not belong to the current browser claim.',409);
    if(['resumed','cancelled','expired','failed'].includes(h.state))return response({handoff:h});
@@ -279,16 +280,16 @@ export async function watchViewer(request:Request){try{
  if(request.method==='POST')z.object({}).strict().parse(await json(request));
  const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId'));
  const {current,item}=await watchItem(user,id),keys=watchStorageKeys(user.userId,id);
- const active=item.status==='queued'||item.status==='processing'&&!!item.claim&&Date.parse(item.claim.expiresAt)>Date.now();
+ const live=applicationLiveState(item),active=live.active;
  if(request.method==='POST'){
   sameOrigin(request);
   if(active)await files().put(keys.lease,JSON.stringify({expiresAt:Date.now()+20000,claimId:item.status==='processing'?item.claim?.id:null,protocol:2}));
   else await files().delete(keys.all);
   const job=current.state.jobs.find(job=>job.id===item.jobId);
-  return response({active,status:item.status,title:job?.title||'Application',company:job?.company||'',message:active?(item.status==='queued'?'Waiting for the background agent to pick up this request.':'Connecting to the agent’s live video…'):'The agent is no longer working on this request. Viewing does not restart it.'});
+  return response({...live,status:item.status,title:job?.title||'Application',company:job?.company||''});
  }
  const empty=()=>new Response(null,{status:204,headers:{'Cache-Control':'private, no-store'}});
- if(!active||item.status!=='processing')return empty();
+ if(!active||item.status!=='processing'||live.privateCheck)return empty();
  const lease=await watchLease(user.userId,id);
  if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==item.claim?.id||lease.protocol!==2)return empty();
  const stored=await files().get(keys.manifest),manifest=stored?await stored.json<VideoManifest>():null;
@@ -301,7 +302,7 @@ export async function watchViewer(request:Request){try{
  const object=await files().get(part==='init'?keys.init:keys.segment(sequence)),meta=object?.customMetadata;
  if(!object||meta?.claimId!==item.claim?.id||meta.streamId!==manifest.streamId||part==='segment'&&meta.sequence!==String(sequence))return empty();
  const latest=await watchItem(user,id),leaseNow=await watchLease(user.userId,id);
- if(latest.item.status!=='processing'||latest.item.claim?.id!==manifest.claimId||Date.parse(latest.item.claim.expiresAt)<=Date.now()||!leaseNow||leaseNow.expiresAt<=Date.now()||leaseNow.claimId!==manifest.claimId)return empty();
+ if(latest.item.status!=='processing'||latest.item.claim?.id!==manifest.claimId||!applicationLiveState(latest.item).active||applicationLiveState(latest.item).privateCheck||!leaseNow||leaseNow.expiresAt<=Date.now()||leaseNow.claimId!==manifest.claimId)return empty();
  return new Response(object.body,{headers:{'Content-Type':'video/mp4','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'}});
 }catch(error){return failure(error);}}
 export async function watchWorker(request:Request){try{
@@ -317,6 +318,7 @@ export async function watchWorker(request:Request){try{
  const lease=await watchLease(user.userId,body.requestId);
  if(!lease||lease.expiresAt<=Date.now()||lease.claimId!==body.claimId||lease.protocol!==2){await files().delete(keys.all.filter(key=>key!==keys.lease));return response({watching:false});}
  if(body.video){
+  if(applicationLiveState(current.state.applications!.find(item=>item.id===body.requestId)!).privateCheck)return response({watching:false});
   const video=body.video;let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(video.data),c=>c.charCodeAt(0));}catch{throw new DomainError('Invalid video segment.');}
   const box=new TextDecoder().decode(bytes.slice(4,8));if(bytes.length<16||bytes.length>500000||(video.kind==='init'?box!=='ftyp':box!=='moof'))throw new DomainError('Invalid fragmented MP4 segment.');
   const latest=await watchItem(user,body.requestId);stillConnected(latest.current.state,user);activeClaim(latest.current.state,body.requestId,body.claimId);

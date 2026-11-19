@@ -41,7 +41,9 @@ class RecordingTests(unittest.TestCase):
    parts=[]
    def keep(info):
     target=Path(directory)/f"part-{len(parts)}.mp4";shutil.move(info['path'],target);parts.append({**info,'path':target})
-   recording=ApplicationRecording(on_part=keep);recording.set_active(True);recording.offer(base64.b64encode(jpeg()).decode());time.sleep(.8)
+   recording=ApplicationRecording(on_part=keep);recording.set_active(True);recording.offer(base64.b64encode(jpeg()).decode())
+   deadline=time.monotonic()+4
+   while len(parts)<2 and time.monotonic()<deadline:time.sleep(.05)
    try:
     self.assertGreaterEqual(len(parts),2);self.assertTrue(recording.thread.is_alive())
     with av.open(str(parts[0]['path'])) as movie:self.assertGreater(len(list(movie.decode(video=0))),0)

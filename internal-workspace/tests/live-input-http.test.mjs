@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';import {randomUUID} from 'node:crypto';
+const base=process.env.CYBER_TEST_BASE||'http://127.0.0.1:8796';if(!['127.0.0.1','localhost'].includes(new URL(base).hostname))throw Error('Isolated loopback Worker only.');
+const owner='handoff-'+randomUUID(),auth={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':'handoff@example.test'};let current,checks=0;
+const eq=(a,b)=>{assert.deepEqual(a,b);checks++;};
+async function call(path,{method='GET',body,headers=auth}={}){const r=await fetch(base+path,{method,headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body===undefined?undefined:JSON.stringify(body)});const data=await r.json();if(r.status>=500)console.error(path,r.status,data);return{status:r.status,data};}
+async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});eq(r.status,200);current=r.data;}
+current=(await call('/api/workspace')).data;await act({type:'complete_onboarding',fullName:'Fictional Handoff Applicant',headline:'SOC analyst',targetRole:'SOC Analyst'});
+const upload=new FormData();upload.set('revision',String(current.revision));upload.set('file',new File(['Fictional Handoff Applicant\nhandoff@example.test\nEXPERIENCE\nInvestigated security alerts and documented incidents.'],'handoff-fixture.txt',{type:'text/plain'}));const up=await call('/api/files',{method:'POST',body:upload});eq(up.status,200);current=up.data;
+const pair=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(pair.status,200);const worker={Authorization:'Bearer '+JSON.parse(pair.data.token).token};current=(await call('/api/workspace')).data;
+await act({type:'add_job',title:'Fictional SOC Analyst',company:'Handoff fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Isolated fixture; no employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
+
+const workerPath='/api/application-agent/handoff',ownerPath='/api/applications/handoff',query='?requestId='+task.requestId;
+const begin={...ids,id,event:'begin',persistent:true,kind:'input',questions:['What motivates you?'],challengeHosts:[]};
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...begin,kind:'recaptcha',questions:['Complete the employer reCAPTCHA in this browser.']}})).status,409);
+let r=await call(workerPath,{method:'POST',headers:worker,body:begin});eq(r.status,200);eq(r.data.handoff.persistent,true);eq((await call(workerPath,{method:'POST',headers:worker,body:begin})).data.handoff.id,id);
+eq((await call(ownerPath+query,{headers:{}})).status,401);eq((await call(ownerPath+query,{headers:{'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'}})).status,404);
+async function command(command,extra={}){return call(ownerPath,{method:'POST',body:{requestId:task.requestId,id,command,...extra}});}
+const live=()=>call('/api/applications/watch?requestId='+encodeURIComponent(task.requestId),{method:'POST',body:{}});
+eq((await live()).data.control,'needs_input');
+eq((await command('resume')).status,409);eq((await command('open',{approvedHosts:['www.google.com']})).status,409);eq((await command('open')).data.handoff.state,'opening');eq((await live()).data.control,'needs_input');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'opened'}})).data.handoff.state,'opened');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'opened'}})).data.handoff.state,'opened');
+eq((await live()).data.control,'manual');eq((await command('resume')).data.handoff.state,'resuming');eq((await live()).data.control,'resuming');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'opened',code:'incomplete'}})).data.handoff.code,'incomplete');
+eq((await live()).data.control,'manual');eq((await command('resume')).data.handoff.state,'resuming');eq((await live()).data.control,'resuming');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'resumed'}})).data.handoff.state,'resumed');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'resumed'}})).data.handoff.state,'resumed');
+eq((await live()).data.control,'agent');
+current=(await call('/api/workspace')).data;eq(current.state.applications[0].claim.id,task.claimId);eq(current.state.applications[0].cv.fileId,task.cv.id);eq(current.state.applications[0].status,'processing');assert.ok(Date.parse(current.state.applications[0].claim.expiresAt)>Date.now()+14*60000);checks++;
+eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4}})).status,409);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...ids,status:'needs_attention',message:'Isolated fixture completed. No employer visited or application submitted.'}})).status,200);
+eq((await live()).data.active,false);
+console.log(`PASS ${checks} live manual-input handoff HTTP checks: exact owner/claim/CV, no external access, idempotent status messages, incomplete input, lease renewal and old-runner rejection.`);

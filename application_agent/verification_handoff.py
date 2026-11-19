@@ -39,15 +39,17 @@ class BrowserHandoff:
                 page.bring_to_front()
         finally:session.detach()
     def __call__(self,context,page,questions,authorize,completed,watch=None,kind='question',phase='before_submit'):
-        if kind not in {'question','recaptcha'} or not questions or (kind=='question' and not all(identity_question(q) for q in questions)) or self.turns>=2:return False
+        if kind not in {'question','input','recaptcha'} or not questions or (kind=='question' and not all(identity_question(q) for q in questions)) or self.turns>=8:return False
         if kind=='recaptcha' and (not self.recaptcha or questions!=['Complete the employer reCAPTCHA in this browser.']):return False
-        if kind=='question':return self.question(context,page,questions,authorize,completed,watch)
+        if kind=='input' and (len(questions)>10 or any(re.search(r'captcha|password|verification code|security code|one.time.code',q,re.I) for q in questions)):return False
+        if kind in {'question','input'}:return self.question(context,page,questions,authorize,completed,watch,kind)
         self.turns+=1;pause_id=str(uuid4());self.active=True;self.blocked_navigation=False
         self.kind=kind;self.phase=phase
         endpoint='/api/application-agent/handoff'
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
         started=self.clock();opened=False;ended=False;resume_capture=False
-        if watch:watch.detach()
+        if watch:
+            watch.set_control('private' if kind=='recaptcha' else 'waiting');watch.detach()
         try:
             h=event('begin',kind=kind,phase=phase,questions=[str(q)[:300] for q in questions[:10]],challengeHosts=sorted(self.recaptcha.pending) if kind=='recaptcha' else [])
             # Human control is limited to the existing employer dropdown.
@@ -92,15 +94,16 @@ class BrowserHandoff:
             if opened:
                 try:self.window(context,page,'minimized')
                 except Exception:pass
-            if resume_capture and watch and not page.is_closed():watch.attach(context,page)
+            if resume_capture and watch and not page.is_closed():
+                watch.attach(context,page);watch.set_control('agent');watch.capture(force=True)
 
-    def question(self,context,page,questions,authorize,completed,watch=None):
+    def question(self,context,page,questions,authorize,completed,watch=None,kind='question'):
         """Keep the original browser alive until the person returns control or cancels.
 
         Only status messages are retried after network failures. No page, form,
         answer selection, Continue or Submit is ever replayed by this loop.
         """
-        self.turns+=1;pause_id=str(uuid4());self.active=True;self.kind='question';self.phase='before_submit';self.blocked_navigation=False
+        self.turns+=1;pause_id=str(uuid4());self.active=True;self.kind=kind;self.phase='before_submit';self.blocked_navigation=False
         self.failure_reason='';self.protected_frames={page.main_frame}
         endpoint='/api/application-agent/handoff';opened=False;success=False
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
@@ -115,7 +118,8 @@ class BrowserHandoff:
                     if isinstance(error,HTTPError) and error.code not in {408,429} and error.code<500:raise
                     if not isinstance(error,(OSError,URLError)):raise
                     wait()  # Preserve this exact page/context during an outage.
-        if watch:watch.detach()
+        if watch:
+            watch.set_control('waiting');watch.detach()
         try:
             for frame in page.frames:
                 if recaptcha_resource(frame.url):continue
@@ -124,7 +128,7 @@ class BrowserHandoff:
                 except Exception:pass
                 try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
                 except Exception:pass
-            send('begin',persistent=True,kind='question',phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[])
+            send('begin',persistent=True,kind=kind,phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[])
             while True:
                 if page.is_closed() or self.blocked_navigation:
                     self.failure_reason='The employer browser was closed. No employer action was replayed.' if page.is_closed() else 'The employer tried to navigate the actual application form during verification. The request paused without replaying any action.'
@@ -145,6 +149,7 @@ class BrowserHandoff:
                     try:self.window(context,page,'normal')
                     except Exception:send('failed',code='window_unavailable');return False
                     send('opened');opened=True
+                    if watch:watch.set_control('manual')
                 if h['state']=='resuming' and opened:
                     try:authorized=authorize() is True
                     except Exception:wait();continue
@@ -154,6 +159,7 @@ class BrowserHandoff:
                     except Exception:ready=False
                     if not ready:send('opened',code='incomplete')
                     else:
+                        if watch:watch.set_control('resuming')
                         success=send('resumed')['state']=='resumed';return success
                 wait()
         finally:
@@ -164,7 +170,8 @@ class BrowserHandoff:
                 except Exception:pass
             # Keep the same visible window. The caller verifies all prepared
             # fields and original CV bytes before continuing the same form.
-            if success and watch and not page.is_closed():watch.attach(context,page)
+            if success and watch and not page.is_closed():
+                watch.attach(context,page);watch.set_control('agent');watch.capture(force=True)
 
 def manual_value(field,control):
     """Observe human input only. Never choose an answer or inspect CAPTCHA tokens."""
@@ -178,3 +185,14 @@ def manual_value(field,control):
         values=[option for option in field.get('options',[]) if selected_display(control,option)]
         return ('combobox',values[0]) if len(values)==1 else None
     return None
+
+
+def manual_input_value(field,control):
+    """Read a person's form entry; never invent, choose or solve a verification."""
+    kind=field['type']
+    if kind in {'select','combobox'}:return manual_value(field,control)
+    if kind=='checkbox':return ('checked',True) if control.is_checked() else None
+    if kind not in {'text','textarea','email','tel','url','number','search','date'}:return None
+    if not control.evaluate('e=>!e.willValidate||e.checkValidity()'):return None
+    value=control.input_value().strip()
+    return (kind,value) if value and len(value)<=2000 else None

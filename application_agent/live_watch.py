@@ -10,7 +10,7 @@ class LiveWatch:
   self.call=call;self.ids={'requestId':request_id,'claimId':claim_id};self.interval=interval
   self.stop_event=threading.Event();self.watching=threading.Event();self.reset=threading.Event();self.active=threading.Event()
   self.lock=threading.Lock();self.latest=None;self.session=None;self.last_capture=0;self.queue=deque();self.generation=0
-  self.recording=None;self.recording_info=None
+  self.recording=None;self.recording_info=None;self.label='agent';self.control_frame=None
   if record:
    try:
     from .recording import ApplicationRecording
@@ -19,6 +19,13 @@ class LiveWatch:
   self.thread=threading.Thread(target=self._upload,name='CyberApply video upload',daemon=True)
   self.encoder_thread=threading.Thread(target=self._encode,name='CyberApply video encoder',daemon=True)
   self.thread.start();self.encoder_thread.start()
+ def set_control(self,label):
+  from .video_labels import LABELS
+  if label not in LABELS:return
+  with self.lock:
+   self.label=label;frame=self.latest or self.control_frame
+   if frame:self.control_frame=frame
+  if self.recording:self.recording.set_label(label,frame)
  def attach(self,context,page):
   self.detach()
   try:
@@ -77,7 +84,7 @@ class LiveWatch:
     delay=next_frame-time.monotonic()
     if delay>0:self.stop_event.wait(min(delay,.125));continue
     # Repeat the current browser frame between paints to maintain video timing.
-    events=encoder.add(base64.b64decode(jpeg,validate=True));next_frame=max(next_frame+1/FPS,time.monotonic()-.25)
+    events=encoder.add(base64.b64decode(jpeg,validate=True),self.label);next_frame=max(next_frame+1/FPS,time.monotonic()-.25)
     with self.lock:
      if len(self.queue)+len(events)>4:self.reset.set()
      else:

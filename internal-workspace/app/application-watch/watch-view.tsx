@@ -1,9 +1,12 @@
 "use client";
 import {useEffect,useRef,useState} from 'react';
 import '../workspace-header.css';
+import './live-video.css';
+import {ApplicationVerificationHandoff} from '../application-verification-handoff';
+import {ApplicationManualSubmit} from '../application-manual-submit';
 import {createPortal} from 'react-dom';
 import {ArrowLeft,Video,LockKeyhole,X} from 'lucide-react';
-type Info={active:boolean;status:string;title:string;company:string;message:string};
+type Info={active:boolean;status:string;title:string;company:string;message:string;control?:string;privateCheck?:boolean};
 type Manifest={streamId:string;mimeCodec:string;oldest:number;latest:number;at:number};
 export default function AgentWatch({requestId,embedded=false,onClose}:{requestId:string;embedded?:boolean;onClose?:()=>void}){
  const pausedByUser=useRef(false),video=useRef<HTMLVideoElement>(null),panel=useRef<HTMLElement>(null),close=useRef<HTMLButtonElement>(null);
@@ -15,7 +18,7 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
   return()=>{document.body.style.overflow=bodyOverflow;if(shell)shell.inert=!!wasInert;(document.getElementById('watch-live-'+requestId)||previous)?.focus();};
  },[mobile]);
  useEffect(()=>{
-  let disposed=false,timer:ReturnType<typeof setTimeout>|undefined,renewed=0,active=true,status='',stream='',cursor=-1,objectUrl='',source:MediaSource|undefined,buffer:SourceBuffer|undefined,controller:AbortController|undefined;
+  let disposed=false,timer:ReturnType<typeof setTimeout>|undefined,renewed=0,active=true,status='',privateCheck=false,stream='',cursor=-1,objectUrl='',source:MediaSource|undefined,buffer:SourceBuffer|undefined,controller:AbortController|undefined;
   const node=video.current;if(!node)return;const element:HTMLVideoElement=node;
   const base='/api/applications/watch?requestId='+encodeURIComponent(requestId);
   function reset(){pausedByUser.current=false;element!.pause();element!.removeAttribute('src');element!.load();if(objectUrl)URL.revokeObjectURL(objectUrl);objectUrl='';source=undefined;buffer=undefined;stream='';cursor=-1;if(!disposed)setPhase('waiting');}
@@ -44,17 +47,17 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
   async function poll(){
    if(disposed)return;
    if(document.visibilityState==='hidden'){reset();renewed=0;timer=setTimeout(poll,1000);return;}
-   if(pausedByUser.current){setMessage('Video paused; your application continues.');timer=setTimeout(poll,500);return;}
    controller=new AbortController();const signal=controller.signal,deadline=setTimeout(()=>controller?.abort(),12000);
    try{
     if(Date.now()-renewed>6000){
      const r=await fetch(base,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',cache:'no-store',signal}),p=await r.json() as Info&{error?:string};if(!r.ok)throw Error(p.error||'The private live view is unavailable.');
-     if(disposed)return;setInfo(p);active=p.active;status=p.status;renewed=Date.now();if(!stream)setMessage(p.message);
+     if(disposed)return;setInfo(p);active=p.active;status=p.status;privateCheck=!!p.privateCheck;renewed=Date.now();if(!stream)setMessage(p.message);if(p.privateCheck){reset();setMessage('Private verification — video is paused while you complete the check.');}
     }
     if(!active){reset();setPhase('ended');return;}
-    if(status==='processing'){
+    if(pausedByUser.current){setMessage('Video paused; application status remains connected.');timer=setTimeout(poll,1000);return;}
+    if(status==='processing'&&!privateCheck){
      const r=await fetch(base,{cache:'no-store',signal});
-     if(r.status===204){reset();setMessage('Waiting for live video. Keep the updated background agent running on your computer.');}
+     if(r.status===204){reset();setMessage('Video is waiting for browser frames. If the agent is paused for you, use the handoff controls below.');}
      else{
       if(!r.ok)throw Error('The live video connection is unavailable.');const manifest=await r.json() as Manifest;if(disposed)return;
       if(manifest.latest>=0){
@@ -79,9 +82,14 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
  }
  const content=<section ref={panel} className={embedded?'application-live-view'+(mobile?' mobile-live-video':''):'agent-watch-page'} role={mobile?'dialog':'region'} aria-modal={mobile||undefined} aria-label="Live application agent video" onKeyDown={keyboard}>
   <header className="agent-watch-header signed-in-page-header">{!embedded&&<a className="brand" href="/workspace">CyberApply</a>}<strong><Video size={19}/>Live agent video</strong>{onClose?<button ref={close} type="button" className="button quiet" onClick={onClose}><X size={17}/>{mobile?'Close':'Hide'}</button>:<a className="button quiet" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a>}</header>
-  <div className="agent-watch-intro"><h2>{info?.title||'Your application'}{info?.company?' · '+info.company:''}</h2><p role="status">{phase==='live'?'Live video from the browser filling your application.':message}</p><p className="subtle"><LockKeyhole size={15}/>Private and read-only. Watching never queues, retries or submits an application.</p></div>
-  <div className="agent-watch-screen" aria-label="Live browser video"><video ref={video} autoPlay muted playsInline controls controlsList="nodownload noplaybackrate" disableRemotePlayback onPlay={()=>{pausedByUser.current=false;}} onPause={()=>{if(video.current?.getAttribute('src')){pausedByUser.current=true;setPhase('paused');setMessage('Video paused; your application continues.');}}} onPlaying={()=>setPhase('live')} onWaiting={()=>setMessage('Buffering live video…')}/>{phase!=='live'&&phase!=='paused'&&<div className="agent-watch-wait"><Video size={32}/><h3>{phase==='ended'?'Agent session ended':info?.status==='queued'?'Waiting for the agent':'Connecting to live video'}</h3><p>{phase==='ended'?'This application is paused or finished. Watching does not restart it.':'An H.264 video stream will appear while the agent works.'}</p></div>}</div>
-  <p className="subtle">Screen video only — no microphone, audio or remote control. A short connection delay is normal. Hide or close to stop watching. Live playback uses a short private buffer. New agent runs also save a private recording for replay.</p>
+  <div className="agent-watch-intro"><h2>{info?.title||'Your application'}{info?.company?' · '+info.company:''}</h2><p role="status">{phase==='live'?'Live video from the browser filling your application.':message}</p><p className="subtle"><LockKeyhole size={15}/>Private video of the agent browser. Watching never queues, retries or submits an application.</p></div>
+  <div className="agent-watch-screen" aria-label="Live browser video"><div className="live-control-badge" data-control={info?.control||'queued'} role="status">{info?.control==='manual'?'You have control · agent paused':info?.control==='needs_input'?'Your input needed · agent paused':info?.control==='resuming'?'Returning control to agent':info?.control==='submit'?'Ready · submit it yourself':info?.control==='ended'?'Live session ended':'Agent filling the form'}</div><video ref={video} autoPlay muted playsInline controls controlsList="nodownload noplaybackrate" disableRemotePlayback onPlay={()=>{pausedByUser.current=false;}} onPause={()=>{if(video.current?.getAttribute('src')){pausedByUser.current=true;setPhase('paused');setMessage('Video paused; your application continues.');}}} onPlaying={()=>setPhase('live')} onWaiting={()=>setMessage('Buffering live video…')}/>{phase!=='live'&&phase!=='paused'&&<div className="agent-watch-wait"><Video size={32}/><h3>{phase==='ended'?'Agent session ended':info?.status==='queued'?'Waiting for the agent':['needs_input','manual','submit'].includes(info?.control||'')?'Agent paused for you':'Connecting to live video'}</h3><p>{phase==='ended'?'Replay and download the saved video below. Watching does not restart this application.':info?.privateCheck?'Private verification is not shown or recorded. Complete it in the exact agent browser.':'An H.264 video stream will appear while the agent works.'}</p></div>}</div>
+  {info&&['needs_input','manual','resuming','submit'].includes(info.control||'')&&<p className="live-handoff-message" role="status">{info.message}</p>}
+  {info?.status==='processing'&&<ApplicationVerificationHandoff requestId={requestId}/>}
+  {info?.control==='submit'&&<ApplicationManualSubmit requestId={requestId}/>}
+  <div className="application-overview-actions"><a className="button quiet" href={'/application-watch?request='+encodeURIComponent(requestId)+'&mode=recording'}>Replay &amp; download video</a></div>
+  <p className="subtle">Take manual control on the computer running the agent: open its exact browser, fill the requested fields, then return control here. On a phone you can watch, but the filled browser opens on the runner computer. Keep the browser open. Final Submit on Greenhouse/reCAPTCHA forms remains yours.</p>
+  <p className="subtle">Screen video only — no microphone or audio. Form capture pauses during manual control. Status captions mark the handoff in the saved video. Password, sign-in and verification-check screens are excluded. A short connection delay is normal. Hide or close to stop watching. Live playback uses a short private buffer. New agent runs also save a private recording for replay.</p>
  </section>;
  return mobile?createPortal(content,document.body):content;
 }

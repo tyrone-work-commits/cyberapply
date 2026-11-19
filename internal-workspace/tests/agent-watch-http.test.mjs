@@ -11,7 +11,7 @@ const paired=await call('/api/application-agent/pair',{method:'POST',body:{enabl
 await act({type:'add_job',title:'SOC Analyst',company:'Watch fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Fictional live viewer fixture. No employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
 const id=current.state.applications[0].id,path='/api/applications/watch?requestId='+encodeURIComponent(id);
 let result=await call(path,{method:'POST',body:{}});eq(result.status,200);eq(result.data.status,'queued');eq((await call(path)).status,204);
-const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;const ids={requestId:task.requestId,claimId:task.claimId,protocol:2};
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2,coverLetterVersion:1}})).data.task;const ids={requestId:task.requestId,claimId:task.claimId,protocol:2};
 eq((await call('/api/application-agent/watch',{method:'POST',headers:worker,body:ids})).data.watching,false);
 result=await call(path,{method:'POST',body:{}});eq(result.data.status,'processing');eq(result.data.active,true);
 eq((await call('/api/application-agent/watch',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId}})).data.upgradeRequired,true);

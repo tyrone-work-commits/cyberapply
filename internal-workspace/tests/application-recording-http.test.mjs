@@ -14,7 +14,7 @@ const upload=new FormData();upload.set('revision',String(current.revision));uplo
 const paired=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(paired.status,200);const worker={Authorization:'Bearer '+JSON.parse(paired.data.token).token};current=(await call('/api/workspace')).data;
 await act({type:'add_job',title:'SOC Analyst',company:'Watch fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Fictional live viewer fixture. No employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
 
-const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2,coverLetterVersion:1}})).data.task;
 const ids={requestId:task.requestId,claimId:task.claimId},query=new URLSearchParams(ids),uploadPath='/api/application-agent/recording?'+query,view='/api/applications/recordings?requestId='+task.requestId;
 const bytes=await readFile('tests/fixtures/recording-parts/part-0.mp4'),sha=createHash('sha256').update(bytes).digest('hex');
 async function send(headers={}){const r=await fetch(base+uploadPath,{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(bytes.length),'X-Recording-Duration':'2','X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':sha,...headers},body:bytes});return {status:r.status,data:await r.json()};}
@@ -49,7 +49,7 @@ current=(await call('/api/workspace')).data;eq(current.state.applications[0].sta
 // Continue only this fictional known-unsent request; later work extends its single video.
 await act({type:'answer_application_questions',applicationId:task.requestId,answers:[{question:'Preferred shift?',value:'Day'}],confirmation:'CONFIRMED',continueAgent:true});
 r=await call(view);eq(r.data.applicationStatus,'queued');eq(r.data.currentAttempt,null);eq(r.data.items[0].attempt,task.claimId);
-const resumed=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:4}})).data.task;
+const resumed=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2,coverLetterVersion:1}})).data.task;
 eq(resumed.requestId,task.requestId);assert.notEqual(resumed.claimId,task.claimId);checks++;
 eq(resumed.confirmedAnswers.find(answer=>answer.question==='Preferred shift?').value,'Day');
 r=await call(view);eq(r.data.currentAttempt,resumed.claimId);eq(r.data.items.some(item=>item.attempt===resumed.claimId),false);

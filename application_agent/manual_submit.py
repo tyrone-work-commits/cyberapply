@@ -72,6 +72,8 @@ class ManualSubmit:
             if (urlsplit(frame.url).hostname or '').lower() in hosts:
                 try:frame.evaluate(HUMAN_EVENTS)
                 except Exception:pass
+        if watch:
+            watch.set_control('submit');watch.detach()
         # Readiness is a notification, never permission to take foreground.
         try:self.minimize(context,page);window='hidden' if getattr(context,'_cyberapply_visibility',None) else 'minimized'
         except Exception:window='background_unavailable'
@@ -113,7 +115,9 @@ class ManualSubmit:
                     result=self.call(endpoint,{**self.ids,'id':self.id,'event':event,'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],'report':snapshot,**({'evidence':pending_evidence} if pending_evidence else {})})
                     session=result['session'];last_event=event
                     report['manual_submission'].pop('connection',None)
-                    if pending_evidence and session['state']=='confirmed':return {'status':'applied','message':'The employer displayed confirmation after you submitted.','receipt':pending_evidence['text'],'evidence':pending_evidence}
+                    if pending_evidence and session['state']=='confirmed':
+                        if watch:watch.attach(context,page);watch.set_control('confirmed');watch.capture(force=True)
+                        return {'status':'applied','message':'The employer displayed confirmation after you submitted.','receipt':pending_evidence['text'],'evidence':pending_evidence}
                     if closed and session['state']=='closed_before_submit':
                         report['manual_submission']['state']='closed_before_submit'
                         return {'status':'needs_attention','message':'Ready – submit it yourself. The browser closed before Submit. Use the application card to confirm this and reopen with the original CV and saved answers.'}
@@ -125,7 +129,9 @@ class ManualSubmit:
                         recaptcha.approved.update(session.get('approvedHosts',[]));recaptcha.pending.difference_update(recaptcha.approved)
                         if newly:recaptcha.restore(page)
                     if session.get('openRequested'):
-                        try:self.window(context,page);report['manual_submission']['window']='visible'
+                        try:
+                            self.window(context,page);report['manual_submission']['window']='visible'
+                            if watch:watch.set_control('manual')
                         except Exception:report['manual_submission']['window']='foreground_unavailable'
                 except Exception:
                     # Temporary HTTP, token, or desktop connectivity failures do not
