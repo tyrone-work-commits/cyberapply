@@ -1,0 +1,20 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {Layers,LoaderCircle,X} from 'lucide-react';
+import {bulkApplyCandidates,selectedCv,type Job,type State} from '@/lib/cyber-domain';
+import './explore-batch-apply.css';
+
+type Batch={jobs:Job[];cvId:string;cvName:string;operationId:string};
+export default function ExploreBatchApply({state,jobs,busy,onChooseCv,onApply}:{state:State;jobs:Job[];busy:boolean;onChooseCv:()=>void;onApply:(ids:string[],cvId:string,operationId:string)=>Promise<boolean>}){
+ const [batch,setBatch]=useState<Batch|null>(null),[saving,setSaving]=useState(false),[failure,setFailure]=useState('');
+ const available=bulkApplyCandidates(state,jobs),cv=selectedCv(state),readable=!!cv&&state.profile.resumeText.trim().length>=20;
+ function preview(count:5|10){if(!cv||!readable||busy||available.length<count)return;setFailure('');setBatch({jobs:available.slice(0,count),cvId:cv.id,cvName:cv.name,operationId:crypto.randomUUID()});}
+ async function apply(){if(!batch||saving||busy)return;setSaving(true);setFailure('');try{if(await onApply(batch.jobs.map(job=>job.id),batch.cvId,batch.operationId))setBatch(null);else setFailure('The batch could not be confirmed. Close this preview and reload your saved data before trying again.');}catch{setFailure('The batch could not be confirmed. Close this preview and reload your saved data before trying again.');}finally{setSaving(false);}}
+ return <><section className="explore-batch-apply" aria-label="Apply to multiple jobs"><div><strong><Layers size={17}/>Apply to multiple jobs</strong><small>Choose the next 5 or 10 available roles.</small></div><div className="explore-batch-buttons">{([5,10] as const).map(count=><button key={count} type="button" className="button quiet" disabled={busy||!readable||available.length<count} onClick={()=>preview(count)} aria-haspopup="dialog">Apply to {count}</button>)}</div>{!readable?<p><button className="text-button" type="button" disabled={busy} onClick={onChooseCv}>Choose a readable CV</button> to use for these applications.</p>:available.length<10?<p>{available.length} available {available.length===1?'role':'roles'} remaining. A batch needs 5 or 10.</p>:null}</section>
+ {batch&&<BatchPreview batch={batch} saving={saving} busy={busy} failure={failure} onClose={()=>{if(!saving)setBatch(null);}} onApply={()=>void apply()}/>}</>;
+}
+function BatchPreview({batch,saving,busy,failure,onClose,onApply}:{batch:Batch;saving:boolean;busy:boolean;failure:string;onClose:()=>void;onApply:()=>void}){
+ const ref=useRef<HTMLDialogElement>(null);
+ useEffect(()=>{const previous=document.activeElement as HTMLElement;ref.current?.showModal();return()=>previous?.focus?.();},[]);
+ return <dialog ref={ref} className="modal explore-batch-preview" aria-labelledby="bulk-apply-title" onCancel={event=>{event.preventDefault();if(!saving)onClose();}}><div className="modal-head"><h2 id="bulk-apply-title">Apply to {batch.jobs.length} jobs</h2><button type="button" className="button icon-button quiet" aria-label="Close batch preview" disabled={saving} onClick={onClose}><X size={19}/></button></div><p>Use <strong>{batch.cvName}</strong>, your Account Profile and saved Answers library for these roles.</p><ol>{batch.jobs.map(job=><li key={job.id}><strong>{job.title}</strong><span>{job.company} · {job.location||'Location not supplied'}</span></li>)}</ol><p className="subtle">Each job gets its own Apply request in Applications. Your agent processes queued requests in turn and pauses for missing information or verification. Greenhouse and reCAPTCHA forms still need you to press the final Submit button.</p>{failure&&<p className="inline-error" role="alert">{failure}</p>}<div className="form-foot"><button type="button" className="button quiet" disabled={saving} onClick={onClose}>Cancel</button><button type="button" className="button" disabled={saving||busy||!!failure} onClick={onApply}>{saving?<><LoaderCircle className="spin" size={16}/>Saving requests…</>:`Apply to these ${batch.jobs.length} jobs`}</button></div></dialog>;
+}

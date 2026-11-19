@@ -81,6 +81,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('add_job'), title: short.min(1), company: short.min(1), location: short, workMode: z.enum(['Remote', 'Hybrid', 'On-site', 'Unspecified']), url: z.string().max(2000), description: z.string().trim().min(20).max(20000), skills }).strict(),
   z.object({ type: z.literal('save_job'), jobId: id, saved: z.boolean(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('decide_job'), jobId: id, decision: z.enum(['pass', 'apply']), employerConsent:z.boolean().optional(), operationId:z.string().uuid().optional() }).strict(),
+  z.object({type:z.literal('apply_jobs'),jobIds:z.array(id).min(5).max(10).refine(ids=>ids.length===5||ids.length===10,'Choose five or ten jobs.').refine(ids=>new Set(ids).size===ids.length,'Choose distinct jobs.'),cvId:id,operationId:z.string().uuid()}).strict(),
   z.object({ type: z.literal('undo_decision'), jobId: id, decisionId:z.string().uuid().optional(), operationId:z.string().uuid().optional() }).strict(),
   z.object({ type: z.literal('edit_draft'), draftId: id, text: z.string().max(20000), expectedVersion: z.number().int().positive() }).strict(),
   z.object({ type: z.literal('mark_ready'), draftId: id, expectedVersion: z.number().int().positive(), confirmation: z.literal('REVIEWED') }).strict(),
@@ -90,7 +91,7 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('review_resume') }).strict(),
 ]);
 export type Action = z.infer<typeof actionSchema>;
-export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'}>){return JSON.stringify([action.type,action.jobId,action.type==='save_job'?action.saved:action.type==='decide_job'?[action.decision,action.employerConsent===true]:action.decisionId||null]);}
+export function decisionSignature(action:Extract<Action,{type:'decide_job'|'undo_decision'|'save_job'|'apply_jobs'}>){if(action.type==='apply_jobs')return JSON.stringify([action.type,action.jobIds,action.cvId]);return JSON.stringify([action.type,action.jobId,action.type==='save_job'?action.saved:action.type==='decide_job'?[action.decision,action.employerConsent===true]:action.decisionId||null]);}
 
 export function emptyState(email = ''): State {
   return { profile: { fullName: '', email, skills: [], preferredRoles: [], resumeText: '', reviewed: false, githubRepositoryUrl: '', linkedInUrl: '', portfolioWebsiteUrl: '', location: '' }, jobs: [], drafts: [], attachments: [], theme: 'paper', activity: [] };
@@ -117,6 +118,12 @@ export function record(state: State, action: string, message: string, source: Ac
   state.activity = state.activity.slice(0, 200);
 }
 export function selectedCv(state:State):Attachment|undefined{return state.attachments.find(file=>file.id===state.selectedCvId);}
+/** Keep Explore order while excluding vacancies already handled or protected against duplicates. */
+export function bulkApplyCandidates(state:State,jobs:Job[]):Job[]{
+  const blocked=new Set([...(state.applications||[]).flatMap(item=>[item.jobId,item.sourceUrl]),...(state.applicationArchive?.applications||[]).filter(item=>['applied','uncertain','processing'].includes(item.status)).flatMap(item=>[item.jobId,item.sourceUrl]),...(state.applicationSafetyJobIds||[]).flatMap(id=>[id,state.jobs.find(job=>job.id===id)?.url])]);
+  const seen=new Set<string>();
+  return jobs.filter(job=>{if(job.sample||job.saved||job.disposition!=='open'||job.source?.availability==='closed'||blocked.has(job.id)||blocked.has(job.url)||seen.has(job.url))return false;seen.add(job.url);return true;});
+}
 export function cvSnapshot(file:Attachment):SelectedCv{return {fileId:file.id,name:file.name,type:file.type,size:file.size};}
 function invalidateUnsent(state:State){state.applications?.forEach(item=>{if(['queued','needs_action','needs_attention','failed'].includes(item.status)){item.status='needs_action';item.reason='materials_changed';delete item.agentAuthorizedAt;delete item.confirmedAnswers;delete item.answerSave;}});}
 export function activateCv(state:State,file:Attachment,extracted:{text:string;format:'PDF'|'DOCX'|'TXT';pages?:number;warnings:string[]},at=new Date().toISOString()){
@@ -136,10 +143,23 @@ function getDraft(state: State, draftId: string) { const draft = state.drafts.fi
 export function reduceAction(before: State, action: Action, source: Activity['source'], at = new Date().toISOString()): { state: State; message: string } {
   const state = liveState(before);
   const operationId='operationId' in action?action.operationId:undefined;
-  const signature=action.type==='decide_job'||action.type==='undo_decision'||action.type==='save_job'?decisionSignature(action):'';
+  const signature=action.type==='decide_job'||action.type==='undo_decision'||action.type==='save_job'||action.type==='apply_jobs'?decisionSignature(action):'';
   if(operationId){const previous=state.decisionOperations?.find(item=>item.id===operationId);if(previous){if(previous.signature!==signature)throw new DomainError('This choice identifier was already used for another action.',409);return {state,message:'This choice was already saved. No duplicate action was created.'};}}
   let message = '';
-  if (action.type === 'complete_onboarding') {
+  if(action.type==='apply_jobs'){
+    if(![5,10].includes(action.jobIds.length)||new Set(action.jobIds).size!==action.jobIds.length)throw new DomainError('Choose five or ten distinct jobs.');
+    const cv=selectedCv(state);
+    if(!cv||cv.id!==action.cvId||state.profile.resumeText.trim().length<20)throw new DomainError('Choose a readable uploaded CV in CV review before applying to these jobs.',409);
+    const jobs=action.jobIds.map(id=>getJob(state,id));
+    if(bulkApplyCandidates(state,jobs).length!==jobs.length)throw new DomainError('One of these vacancies changed or already has an application. Reload Explore before applying; no new requests were saved.',409);
+    // Build the entire batch in memory; the existing owner-scoped revision write saves it once.
+    // Individual Apply rules still enforce destination, authorization and duplicate safeguards.
+    let batch=state;
+    for(const job of [...jobs].reverse())batch=reduceAction(batch,{type:'decide_job',jobId:job.id,decision:'apply'},source,at).state;
+    Object.assign(state,batch);delete state.lastDecision;
+    const ids=new Set(jobs.map(job=>job.id)),queued=state.applications!.filter(item=>ids.has(item.jobId)&&item.status==='queued').length;
+    message=`${jobs.length} Apply requests saved with ${cv.name}. ${queued} queued for your agent${queued<jobs.length?`; ${jobs.length-queued} need attention in Applications`:''}. Employer submission is not yet confirmed.`;
+  } else if (action.type === 'complete_onboarding') {
     const {type:_,...details}=action;
     state.accountProfile = {...state.accountProfile,...details,completedAt:at};
     message = 'Your account profile is saved. Open your workspace to review your CV and explore jobs.';

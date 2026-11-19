@@ -1,0 +1,14 @@
+.explore-batch-apply{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;max-width:760px;margin:0 auto 14px;padding:12px 15px;border:1px solid #e5e6e9;border-radius:18px;background:#fff;color:#202123}
+.explore-batch-apply strong{display:flex;align-items:center;gap:7px;font-size:14px}
+.explore-batch-apply small{display:block;margin-top:4px;color:#666d79;font-size:12px}
+.explore-batch-buttons{display:flex;gap:8px}
+.explore-batch-buttons .button{min-height:44px;padding:10px 14px;white-space:nowrap}
+.explore-batch-apply p{flex-basis:100%;font-size:12px;color:#666d79;margin:0;line-height:1.6}
+.explore-batch-preview{max-width:600px;max-height:85svh;overflow-y:auto;overflow-wrap:anywhere}
+.explore-batch-preview ol{padding-left:23px;margin:18px 0}
+.explore-batch-preview li{padding:10px 0 10px 5px;border-bottom:1px solid #e5e6e9}
+.explore-batch-preview li strong,.explore-batch-preview li span{display:block}
+.explore-batch-preview li span{margin-top:5px;font-size:13px;color:#666d79}
+.explore-batch-preview .form-foot{gap:10px;flex-wrap:wrap}
+.explore-batch-preview button{min-height:44px}
+@media(max-width:600px){.explore-batch-apply{padding:11px 12px;gap:9px}.explore-batch-buttons{width:100%}.explore-batch-buttons .button{flex:1}.explore-batch-preview .form-foot .button{flex:1}.explore-batch-preview .modal-head h2{font-size:20px}}
