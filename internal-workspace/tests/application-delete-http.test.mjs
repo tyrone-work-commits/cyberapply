@@ -19,7 +19,7 @@ assert.equal((await call('/api/applications/delete',{method:'POST',headers:{...a
 assert.equal((await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'application',applicationId:a.id,confirmation:'PERMANENTLY DELETE'},headers:{}})).status,401);
 const otherHeaders={'oai-authenticated-user-id':'other-'+owner,'oai-authenticated-user-email':'other@example.test'};const other=(await call('/api/workspace',{headers:otherHeaders})).data;
 assert.equal((await call('/api/applications/delete',{method:'POST',headers:otherHeaders,body:{revision:other.revision,scope:'application',applicationId:a.id,confirmation:'PERMANENTLY DELETE'}})).status,404);
-const task=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:4},headers:worker})).data.task;assert.ok(task);current=(await call('/api/workspace')).data;
+const task=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2},headers:worker})).data.task;assert.ok(task);current=(await call('/api/workspace')).data;
 assert.equal((await remove('application',{applicationId:task.requestId})).status,409);
 assert.equal((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional fixture paused without contacting an employer.'}})).status,200);
 current=(await call('/api/workspace')).data;
@@ -37,3 +37,32 @@ assert.equal((await call('/api/workspace',{method:'POST',body:{revision:current.
 assert.equal((await call('/api/workspace',{method:'POST',body:{revision:current.revision,action:{type:'save_profile',profile:current.state.profile}}})).status,410);
 const otherAfter=(await call('/api/workspace',{headers:otherHeaders})).data;assert.deepEqual(otherAfter,other);
 console.log(`PASS permanent deletion HTTP: individual and cleared records removed across ${history.length} saved versions; legacy facts retired; profile/CV/connection preserved; active claim, confirmation, ownership, origin and stale-write guards verified.`);
+
+
+// A single owner-scoped bulk write is all-or-nothing, including mixed invalid/active IDs.
+for(const suffix of ['bulk-one','bulk-two','bulk-three','bulk-four']){await act({type:'add_job',title:'Fictional '+suffix,company:'QA',location:'Remote',workMode:'Remote',url:`https://fixture.example/${owner}/${suffix}`,description:'Fictional local bulk deletion test only.',skills:['Python']});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});}
+const bulk=current.state.applications.map(item=>item.id),snapshot=structuredClone(current.state),revisionBefore=current.revision;
+for(const [extra,status] of [
+ [{applicationIds:[]},400],
+ [{applicationIds:[bulk[0],bulk[0]]},400],
+ [{applicationIds:Array.from({length:101},(_,i)=>'fake-'+i)},400],
+ [{applicationIds:[bulk[0],'not-this-owner']},404],
+ [{applicationIds:[bulk[0]],deleteCandidateFacts:true},400],
+ [{applicationIds:[bulk[0]],applicationId:bulk[1]},400],
+ [{applicationIds:[bulk[0]],revision:0},409],
+ [{applicationIds:[bulk[0]],confirmation:'wrong'},400]
+])assert.equal((await remove('selected',extra)).status,status,JSON.stringify(extra));
+assert.deepEqual((await call('/api/workspace')).data.state,snapshot);
+const bulkTask=(await call('/api/application-agent/claim',{method:'POST',body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2},headers:worker})).data.task;assert.ok(bulkTask);current=(await call('/api/workspace')).data;
+assert.equal((await remove('selected',{applicationIds:bulk})).status,409);
+assert.equal((await call('/api/workspace')).data.state.applications.length,4);
+assert.equal((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:bulkTask.requestId,claimId:bulkTask.claimId,status:'needs_attention',message:'Fictional paused bulk test. No employer contacted.'}})).status,200);current=(await call('/api/workspace')).data;
+const toDelete=bulk.slice(0,3),retained=bulk[3],preserved=structuredClone(current.state);
+const bulkDeleted=await remove('selected',{applicationIds:toDelete});assert.equal(bulkDeleted.status,200,JSON.stringify(bulkDeleted.data));current=bulkDeleted.data;
+assert.deepEqual(current.state.applications.map(item=>item.id),[retained]);
+assert.ok(current.revision>revisionBefore);
+for(const key of ['accountProfile','attachments','selectedCvId','newApplicationAgent','resumeReview'])assert.deepEqual(current.state[key],preserved[key]);
+assert.equal((await call('/api/files/'+file.id,{binary:true})).status,200);
+for(const row of (await call('/api/history')).data.items){const version=(await call('/api/history?revision='+row.revision)).data;for(const id of toDelete)assert.ok(!JSON.stringify(version.state).includes(id));}
+assert.deepEqual((await call('/api/workspace',{headers:otherHeaders})).data,other);
+console.log('PASS bulk deletion HTTP: bounded unique IDs, strict payload, confirmation, revision, ownership, processing guard, atomic exact selection, saved-history redaction and original CV/Profile/connection preservation.');

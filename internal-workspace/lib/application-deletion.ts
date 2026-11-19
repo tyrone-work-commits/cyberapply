@@ -1,10 +1,13 @@
 import { DomainError, emptyState, liveState, type State, type Profile } from './cyber-domain';
 
-export type DeletionScope='application'|'cleared'|'candidate_facts';
-export function deletionPlan(before:State,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false,replacement?:Profile){
+export const MAX_APPLICATION_DELETE_SELECTION=100;
+export type DeletionScope='application'|'selected'|'cleared'|'candidate_facts';
+export function deletionPlan(before:State,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false,replacement?:Profile,applicationIds?:string[]){
  const state=liveState(before),legacy=scope==='candidate_facts'||deleteCandidateFacts;
+ if(scope==='selected'&&(!Array.isArray(applicationIds)||!applicationIds.length||applicationIds.length>MAX_APPLICATION_DELETE_SELECTION||applicationIds.some(id=>typeof id!=='string'||!id||id.length>300)||new Set(applicationIds).size!==applicationIds.length||applicationId||deleteCandidateFacts))throw new DomainError('Choose between 1 and 100 different applications.');
  const all=[...(state.applications||[]),...(state.applicationArchive?.applications||[])];
- const targets=scope==='application'?all.filter(item=>item.id===applicationId):scope==='cleared'?(state.applicationArchive?.applications||[]):[];
+ const targets=scope==='application'?all.filter(item=>item.id===applicationId):scope==='selected'?(state.applications||[]).filter(item=>applicationIds!.includes(item.id)):scope==='cleared'?(state.applicationArchive?.applications||[]):[];
+ if(scope==='selected'&&targets.length!==applicationIds!.length)throw new DomainError('One or more selected applications are no longer in your account. Reload before deleting.',404);
  if(scope==='application'&&!targets.length)throw new DomainError('That application is no longer in your account.',404);
  if(targets.some(item=>item.status==='processing')||(legacy&&state.applications?.some(item=>item.status==='processing')))throw new DomainError('Wait for the application in progress to finish or pause before deleting these records.',409);
  const ids=targets.map(item=>item.id),draftIds=[...new Set([...targets.map(item=>item.draftId),...(scope==='cleared'?state.applicationArchive?.drafts.map(item=>item.id)||[]:[])])];

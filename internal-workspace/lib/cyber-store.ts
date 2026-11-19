@@ -82,7 +82,7 @@ export async function refreshApplicationQuestionChoices(user:Identity,expected:n
  return {...await save(user,expected,current.state,'refresh_application_question_choices'),message};
 }
 
-export async function permanentlyDeleteApplications(user:Identity,expected:number,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false){
+export async function permanentlyDeleteApplications(user:Identity,expected:number,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false,applicationIds?:string[]){
  const current=await load(user);
  if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
  const legacy=scope==='candidate_facts'||deleteCandidateFacts;
@@ -94,9 +94,7 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
    replacement={...replacement,...extractCandidateFacts(extracted.text),resumeText:extracted.text,reviewed:false};
   }
  }
- const plan=deletionPlan(current.state,scope,applicationId,deleteCandidateFacts,replacement);
- if(plan.ids.length)await files().delete(plan.ids.flatMap(id=>watchStorageKeys(user.userId,id).all));
- for(const id of plan.ids){while(true){const page=await files().list({prefix:recordingPrefix(user.userId,id),limit:1000});const keys=page.objects.map(object=>object.key);if(!keys.length)break;await files().delete(keys);}}
+ const plan=deletionPlan(current.state,scope,applicationId,deleteCandidateFacts,replacement,applicationIds);
  const at=new Date().toISOString(),revision=expected+1,token=crypto.randomUUID();
  record(plan.state,'permanently_delete_application_records',`Permanently deleted ${plan.ids.length} application records and ${plan.draftIds.length} drafts${plan.legacy?' and retired legacy Candidate Facts reviews':''}.`,'interface',at);
  const payload=workspacePayload(plan.state);
@@ -108,6 +106,10 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
   db().prepare(`INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE ${guard}`).bind(user.userId,revision,payload,'permanently_delete_application_records',at,user.userId,token),
  ]);
  if(results[0].meta.changes!==1)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
+ // Commit the owner/revision-guarded deletion before touching private media. A
+ // concurrent worker claim must reject this deletion without losing its video.
+ if(plan.ids.length)await files().delete(plan.ids.flatMap(id=>watchStorageKeys(user.userId,id).all));
+ for(const id of plan.ids){while(true){const page=await files().list({prefix:recordingPrefix(user.userId,id),limit:1000});const keys=page.objects.map(object=>object.key);if(!keys.length)break;await files().delete(keys);}}
  if(plan.ids.length)await db().prepare('DELETE FROM cyber_application_browser_windows WHERE owner_id=? AND request_id IN (SELECT value FROM json_each(?))').bind(user.userId,JSON.stringify(plan.ids)).run();
  const coverKeys=[...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].filter(item=>plan.ids.includes(item.id)).map(item=>item.coverLetter?.key).filter((key):key is string=>!!key&&key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`));if(coverKeys.length)try{await files().delete(coverKeys);}catch{console.error('Deleted application cover-file cleanup pending under owner prefix.');}
  return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),message:'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};

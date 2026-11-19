@@ -19,3 +19,32 @@ test('deleted uncertain applications retain only a vacancy safety marker',()=>{c
 test('legacy cleanup replaces manual facts from the chosen CV and preserves CV review and account details',()=>{const before=fixture(),cv={...emptyState().profile,fullName:'CV name',resumeText:'Actual original CV text',skills:['Python']};const p=deletionPlan(before,'candidate_facts',undefined,false,cv);assert.equal(p.state.legacyCandidateFactsDeleted,true);assert.deepEqual(p.state.profile,cv);assert.equal(p.state.applications[0].candidate.reviewed,false);assert.equal(p.state.applications[0].candidate.currentSalary,undefined);for(const k of ['attachments','selectedCvId','accountProfile','resumeReview','newApplicationAgent'])assert.deepEqual(p.state[k],before[k]);});
 test('unknown or empty deletion scopes cannot silently succeed',()=>{assert.throws(()=>deletionPlan(fixture(),'application','other'),/no longer/);assert.throws(()=>deletionPlan(fixture(),'cleared'),/no cleared/);});
 test('history cleanup binds request IDs and removes old manual facts',()=>{const id="request-'; DROP TABLE cyber_revisions;--";const q=deletionHistoryExpression([id],['draft-one'],true);assert.ok(!q.expression.includes(id));assert.equal(JSON.parse(q.params[0])[0],id);assert.ok(q.expression.includes('legacyCandidateFactsDeleted'));assert.equal(JSON.parse(q.params.at(-2)).resumeText,'');});
+
+
+test('selected deletion removes exactly the chosen active records and keeps original files, profile and duplicate protection',()=>{
+ const before=fixture();before.applications[0].status='applied';before.applications[1].status='uncertain';
+ const p=deletionPlan(before,'selected',undefined,false,undefined,['request-two','request-one']);
+ assert.deepEqual(new Set(p.ids),new Set(['request-one','request-two']));assert.equal(p.state.applications.length,0);assert.equal(p.state.drafts.length,0);
+ assert.deepEqual(new Set(p.state.applicationSafetyJobIds),new Set(['one','two']));
+ for(const key of ['profile','accountProfile','attachments','selectedCvId','newApplicationAgent','resumeReview'])assert.deepEqual(p.state[key],before[key]);
+ assert.equal(before.applications.length,2);
+});
+test('selected deletion validates the complete set before deleting anything',()=>{
+ const before=fixture(),snapshot=structuredClone(before);
+ for(const ids of [[],['request-one','request-one'],['request-one','not-owned'],Array.from({length:101},(_,i)=>'request-'+i)])assert.throws(()=>deletionPlan(before,'selected',undefined,false,undefined,ids));
+ assert.throws(()=>deletionPlan(before,'selected','request-one',false,undefined,['request-one']));
+ assert.throws(()=>deletionPlan(before,'selected',undefined,true,undefined,['request-one']));
+ assert.deepEqual(before,snapshot);
+});
+test('a processing application blocks the entire selected deletion and an archived ID is not a current selection',()=>{
+ const before=fixture();before.applications[1].status='processing';const snapshot=structuredClone(before);
+ assert.throws(()=>deletionPlan(before,'selected',undefined,false,undefined,['request-one','request-two']),/in progress/);assert.deepEqual(before,snapshot);
+ before.applications[1].status='needs_action';before.applicationArchive={applications:[before.applications.pop()],drafts:[],at};
+ assert.throws(()=>deletionPlan(before,'selected',undefined,false,undefined,['request-one','request-two']),/no longer/);
+ assert.equal(before.applications.length,1);
+});
+test('selected deletion retains unrelated applications, reusable answers and drafts',()=>{
+ const before=fixture();before.accountProfile.employerQuestions=[{id:'one-answer',originRequestId:'request-one'},{id:'two-answer',originRequestId:'request-two'}];
+ const p=deletionPlan(before,'selected',undefined,false,undefined,['request-one']);
+ assert.deepEqual(p.state.applications.map(x=>x.id),['request-two']);assert.deepEqual(p.state.drafts.map(x=>x.id),['draft-two']);assert.deepEqual(p.state.accountProfile.employerQuestions,[before.accountProfile.employerQuestions[1]]);
+});
