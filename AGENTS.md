@@ -14,6 +14,10 @@ Automatic diagnosis and recovery of routine employer-form problems is a core fea
 
 Recovery must preserve authorization and duplicate-prevention boundaries: never invent personal facts, bypass a verification challenge, silently grant a new destination access, replay Continue/Submit or automatically restart a possibly delivered application. Applied requires new employer-confirmation evidence. Exhausted repairs or genuinely missing facts/consent/verification must remain an honest pause, not an infinite retry loop or false success.
 
+# Standing employer-answer format — 19 November 2026
+
+For every application, keep ordinary employer questions in the existing **Answer this employer’s questions** section on the Applications page. Preserve the employer’s captured dropdown options, checkboxes and text fields, existing answer prefills, Answers library saving and approved automatic continuation. Do not replace ordinary answer entry with a manual-browser handoff or redesign this format unless the user explicitly requests that change. Actual human/AI verification, CAPTCHA, private verification and protected final Submit retain their separate manual boundaries. Never invent options or applicant facts, replay a possibly delivered application, or mark Applied without employer confirmation.
+
 # Upgrade-plan rules — 4 November 2026
 
 Apply the Sorce + Jobscan PDF to the current internal `internal-workspace/` implementation, not the retired `frontend/` and `backend/` prototype. Preserve the reporting and application-agent boundaries above. Never restore public/demo accounts, Supabase or theme switching as a side effect of an outdated path in that plan.
