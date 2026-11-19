@@ -281,6 +281,10 @@ export async function watchViewer(request:Request){try{
  const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId'));
  const {current,item}=await watchItem(user,id),keys=watchStorageKeys(user.userId,id);
  const live=applicationLiveState(item),active=live.active;
+ if(request.method==='GET'&&url.searchParams.get('part')==='status'){
+  const job=current.state.jobs.find(job=>job.id===item.jobId);
+  return response({...live,status:item.status,title:job?.title||'Application',company:job?.company||''});
+ }
  if(request.method==='POST'){
   sameOrigin(request);
   if(active)await files().put(keys.lease,JSON.stringify({expiresAt:Date.now()+20000,claimId:item.status==='processing'?item.claim?.id:null,protocol:2}));

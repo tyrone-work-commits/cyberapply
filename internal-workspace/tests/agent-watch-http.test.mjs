@@ -10,8 +10,10 @@ const upload=new FormData();upload.set('revision',String(current.revision));uplo
 const paired=await call('/api/application-agent/pair',{method:'POST',body:{enabled:true,confirmation:'AUTHORIZE_CV_APPLICATIONS'}});eq(paired.status,200);const worker={Authorization:'Bearer '+JSON.parse(paired.data.token).token};current=(await call('/api/workspace')).data;
 await act({type:'add_job',title:'SOC Analyst',company:'Watch fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/'+owner,description:'Fictional live viewer fixture. No employer contact.',skills:[]});await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
 const id=current.state.applications[0].id,path='/api/applications/watch?requestId='+encodeURIComponent(id);
+const statusBefore=(await call('/api/workspace')).data.revision;const queuedStatus=await call(path+'&part=status');eq(queuedStatus.status,200);eq(queuedStatus.data.status,'queued');eq(queuedStatus.data.active,true);eq((await call('/api/workspace')).data.revision,statusBefore);
 let result=await call(path,{method:'POST',body:{}});eq(result.status,200);eq(result.data.status,'queued');eq((await call(path)).status,204);
 const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2,coverLetterVersion:1}})).data.task;const ids={requestId:task.requestId,claimId:task.claimId,protocol:2};
+const processingStatus=await call(path+'&part=status');eq(processingStatus.status,200);eq(processingStatus.data.status,'processing');
 eq((await call('/api/application-agent/watch',{method:'POST',headers:worker,body:ids})).data.watching,false);
 result=await call(path,{method:'POST',body:{}});eq(result.data.status,'processing');eq(result.data.active,true);
 eq((await call('/api/application-agent/watch',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId}})).data.upgradeRequired,true);
@@ -29,6 +31,7 @@ eq((await call(media('init',0,randomUUID()))).status,204);eq((await send('segmen
 for(let sequence=1;sequence<=8;sequence++)eq((await send('segment',sequence)).status,200);
 result=await call(path);eq(result.data.oldest,1);eq(result.data.latest,8);eq((await call(media('segment',0))).status,204);eq((await call(media('segment',8))).status,200);
 const other={'oai-authenticated-user-id':owner+'-other','oai-authenticated-user-email':'other@example.test'};
+eq((await call(path+'&part=status',{headers:other})).status,404);eq((await call(path+'&part=status',{headers:{}})).status,401);
 eq((await call(path,{headers:other})).status,404);eq((await call(media('init'),{headers:other})).status,404);eq((await call(path,{headers:{}})).status,401);eq((await call(path,{method:'POST',body:{},headers:{...auth,Origin:'https://other.example'}})).status,403);
 eq((await call('/api/application-agent/watch',{method:'POST',headers:worker,body:{...ids,claimId:randomUUID()}})).status,409);
 eq((await send('segment',9,Buffer.from('not an MP4 video segment'))).status,400);
