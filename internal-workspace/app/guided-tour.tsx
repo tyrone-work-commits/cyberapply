@@ -1,4 +1,5 @@
 "use client";
+import {IconTip} from "./icon-tip";
 import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, X } from 'lucide-react';
 
@@ -88,7 +89,7 @@ export function GuidedTour({step,busy,error,onBack,onNext,onExit}:{step:number;b
   <div className="tour-shield" aria-hidden="true"/>
   {box&&<><div className="tour-spotlight" style={box} aria-hidden="true"/><span className="tour-pointer" style={{top:box.top+Math.min(box.height/2,28),left:box.left+Math.min(box.width/2,28)}} aria-hidden="true"/></>}
   <section ref={panel} className={'guided-tour'+(popup?.above?' tour-above':'')} style={popup?{top:popup.top,left:popup.left,width:popup.width}:undefined}>
-   <div className="tour-top"><span className="tour-counter">{areaLabel[current.area].toUpperCase()} · GUIDE {step+1} OF {tourSteps.length}</span><button type="button" className="tour-close" aria-label="Skip tutorial" title="Skip tutorial" disabled={busy} onClick={onExit}><X size={18}/></button></div>
+   <div className="tour-top"><span className="tour-counter">{areaLabel[current.area].toUpperCase()} · GUIDE {step+1} OF {tourSteps.length}</span><IconTip text="Skip the app tutorial"><button type="button" className="tour-close" aria-label="Skip tutorial" title="Skip tutorial" disabled={busy} onClick={onExit}><X size={18}/></button></IconTip></div>
    <div className="tour-progress" role="progressbar" aria-valuemin={1} aria-valuemax={tourSteps.length} aria-valuenow={step+1}><span style={{width:((step+1)/tourSteps.length*100)+'%'}}/></div>
    <h2 id="tour-title" ref={heading} tabIndex={-1}>{current.title}</h2><p id="tour-description" className="tour-description">{current.description}</p>
    {error&&<p className="tour-error" role="alert">{error}</p>}

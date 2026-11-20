@@ -1,4 +1,5 @@
 'use client';
+import {IconTip} from "./icon-tip";
 import {useEffect,useRef,useState} from 'react';
 import {ChevronDown,ExternalLink,Layers,LoaderCircle,X} from 'lucide-react';
 import {bulkApplyCandidates,selectedCv,type Job,type State} from '@/lib/cyber-domain';
@@ -23,7 +24,7 @@ function BatchPicker({batch,saving,busy,failure,onClose,onApply}:{batch:Batch;sa
  useEffect(()=>{const previous=document.activeElement as HTMLElement;ref.current?.showModal();return()=>previous?.focus?.();},[]);
  function toggle(id:string){if(disabled)return;setSelected(current=>current.includes(id)?current.filter(value=>value!==id):current.length<batch.count?[...current,id]:current);}
  return <dialog ref={ref} className="modal explore-batch-preview" aria-labelledby="bulk-apply-title" onCancel={event=>{event.preventDefault();if(!saving)onClose();}}>
- <div className="modal-head"><h2 id="bulk-apply-title">Choose {batch.count} jobs to apply for</h2><button type="button" className="button icon-button quiet" aria-label="Close batch picker" disabled={saving} onClick={onClose}><X size={19}/></button></div>
+ <div className="modal-head"><h2 id="bulk-apply-title">Choose {batch.count} jobs to apply for</h2><IconTip text="Close the job picker"><button type="button" className="button icon-button quiet" aria-label="Close batch picker" disabled={saving} onClick={onClose}><X size={19}/></button></IconTip></div>
  <p>Using <strong>{batch.cvName}</strong>. Open each job’s details, compare its CV skill match, then select the jobs you want.</p>
  <p className="subtle batch-match-explanation">Closer matches have at least {CLOSER_CV_MATCH}% of their listed skill keywords found in this CV. This comparison does not verify eligibility or predict hiring success.</p>
  <div className="batch-match-filters" role="group" aria-label="Filter jobs by CV match">{([['closer',`Closer CV matches (${closer.length})`],['all',`All available (${batch.jobs.length})`],['selected',`Selected (${selected.length})`]] as const).map(([value,label])=><button key={value} type="button" className="button quiet" aria-pressed={filter===value} disabled={saving} onClick={()=>setFilter(value)}>{label}</button>)}</div>
