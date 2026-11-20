@@ -26,6 +26,8 @@ test('late or failed footage remains separate from submission and old status is 
  assert.match(recordingViewMessage(snapshot({currentAttempt:'new',applicationStatus:'uncertain'})),/Showing work recorded so far/);
  assert.match(recordingViewMessage(snapshot({status:{state:'upload_pending',attempt:'old'}})),/uploading.*never apply again/);
  assert.match(recordingViewMessage(snapshot({status:{state:'failed',attempt:'old',code:'no_frames'}})),/No new frames/);
+ const emptyFailure=recordingViewMessage(snapshot({items:[],status:{state:'failed',attempt:'old',code:'no_frames'}}));
+ assert.match(emptyFailure,/No video footage was captured/);assert.doesNotMatch(emptyFailure,/still shows earlier work|continuation/);
  assert.match(recordingViewMessage(snapshot({items:[{...old,partial:true}],status:{state:'saved',attempt:'old'}})),/partial/);
  assert.match(recordingViewMessage(snapshot({status:{state:'capturing',attempt:'old',at}}),Date.parse(at)+60000),/stopped reporting/);
  assert.equal(applicationRecordingTimeline(snapshot({items:[]})),null);

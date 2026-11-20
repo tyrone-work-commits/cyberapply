@@ -30,18 +30,24 @@ class LiveWatch:
   if self.privacy_latched or self.checking_privacy:return False
   self.checking_privacy=True
   try:
-   from .media_privacy import private_media_page
-   private=private_media_page(page)
+   from .media_privacy import media_page_state
+   state=media_page_state(page)
   finally:self.checking_privacy=False
-  if private:
-   self.privacy_latched=True;self.active.clear();self.reset.set()
+  if state!='safe':
+   self.privacy_latched=state=='private';self.active.clear();self.reset.set()
    with self.lock:frame=self.latest or self.control_frame;self.latest=None
-   if self.recording:self.recording.set_label('private',frame);self.recording.set_active(False)
+   if self.recording:
+    if self.privacy_latched:self.recording.set_label('private',frame)
+    self.recording.set_active(False)
    return False
+  if self.session:
+   self.active.set()
+   if self.recording:self.recording.set_active(True)
   return True
  def attach(self,context,page):
   self.detach();self.page=page;self.privacy_latched=False
-  if not self.media_allowed(page):return
+  self.media_allowed(page)
+  if self.privacy_latched:return
   try:
    session=context.new_cdp_session(page);self.session=session
    def frame(event):
@@ -53,8 +59,7 @@ class LiveWatch:
      if self.recording:self.recording.offer(data)
    session.on('Page.screencastFrame',frame)
    session.send('Page.startScreencast',{'format':'jpeg','quality':65,'maxWidth':1280,'maxHeight':720,'everyNthFrame':1})
-   self.active.set()
-   if self.recording:self.recording.set_active(True)
+   self.media_allowed(page)
   except Exception:self.detach()
  def detach(self):
   self.active.clear();self.reset.set()

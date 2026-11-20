@@ -40,7 +40,10 @@ export function recordingViewMessage(snapshot:RecordingSnapshot,now=Date.now()){
   if(now-Date.parse(status.at)>45000&&!['queued','processing'].includes(snapshot.applicationStatus))return 'Capture stopped reporting. Available footage remains playable while the final recording is checked.';
   return 'Recording in progress. New footage extends this same continuous application video automatically.';
  }
- if(status?.state==='failed')return status.code==='no_frames'?'No new frames were captured during the continuation. The video still shows earlier work; missing footage cannot be recreated.':'Capture stopped. The video still shows all available work so far.';
+ if(status?.state==='failed'){
+  if(!snapshot.items.length)return 'No video footage was captured for this application run. There is no recording to replay. See Applications for its status and questions; missing footage cannot be recreated.';
+  return status.code==='no_frames'?'No new frames were captured during the continuation. The video still shows earlier work; missing footage cannot be recreated.':'Capture stopped. The video still shows all available work so far.';
+ }
  if(status?.state==='interrupted')return 'Capture was interrupted. The video shows available work so far; the employer outcome is separate.';
  if(status?.state==='saved'&&current)return current.partial||status.partial?'The updated application video is saved but partial.':'Your updated application video is saved and ready to replay.';
  if(!current)return snapshot.items.length?'Showing work recorded so far. Waiting for new footage to extend this same video.':'Waiting for recorded footage. It will appear here automatically; missing footage cannot be recreated.';
