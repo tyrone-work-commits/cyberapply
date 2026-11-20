@@ -1,0 +1,25 @@
+import type {State} from './cyber-domain';
+import {manualDisplaySession} from './manual-submission';
+import {currentHandoff} from './verification-handoff';
+
+export type DesktopNotice={key:string;kind:'input'|'submit';company:string;role:string};
+/** Owner-authenticated heartbeat metadata only; never changes a form or request. */
+export function desktopNotices(state:State,now=Date.now()):DesktopNotice[]{
+ const notices:DesktopNotice[]=[];
+ for(const item of state.applications||[]){
+  const manual=manualDisplaySession(item),handoff=currentHandoff(item,now);
+  let kind:DesktopNotice['kind']|undefined,version='';
+  if(manual&&['ready','needs_submit','closed_before_submit'].includes(manual.state)){
+   kind='submit';version=`manual:${manual.id}:${manual.state}`;
+  }else if(handoff&&['waiting','opening','opened'].includes(handoff.state)){
+   kind='input';version=`handoff:${handoff.id}`;
+  }else if(item.status==='needs_attention'){
+   kind='input';version=`answers:${item.claim?.id||item.result?.at||item.at}`;
+  }
+  if(!kind)continue;
+  const job=state.jobs.find(job=>job.id===item.jobId);
+  notices.push({key:`${item.id}|${version}`,kind,company:(job?.company||'Employer').slice(0,120),role:(job?.title||'Job application').slice(0,180)});
+  if(notices.length===100)break;
+ }
+ return notices;
+}

@@ -1,0 +1,22 @@
+import {z} from 'zod';
+import {identity,load,save,response,failure,ownedFile,files} from '@/lib/cyber-store';
+import {DomainError,reduceAction,record} from '@/lib/cyber-domain';
+import {privateJson} from '@/lib/career-store';
+import {openApplicationQuestions} from '@/lib/application-actions';
+import {draftEmployerProse} from '@/lib/employer-questions';
+import {extractResume} from '@/lib/resume-extraction';
+import {writeText} from '@/lib/ai-server';
+import {AiError} from '@/lib/ai-service';
+import {unsupportedRewrite} from '@/lib/optimize';
+export const dynamic='force-dynamic';
+export async function GET(request:Request){try{const user=await identity(request),current=await load(user),questions=openApplicationQuestions(current.state);return response({questions,holding:new Set(questions.map(q=>q.applicationId)).size,answers:current.state.accountProfile?.employerQuestions||[],revision:current.revision});}catch(e){return failure(e);}}
+const input=z.discriminatedUnion('action',[
+ z.object({action:z.literal('draft'),applicationId:z.string().min(1).max(100),question:z.string().min(1).max(4000)}).strict(),
+ z.object({action:z.literal('answer'),revision:z.number().int().nonnegative(),applicationId:z.string().min(1).max(100),question:z.string().min(1).max(4000),answer:z.string().trim().min(1).max(20000),continueAgent:z.boolean().default(true)}).strict(),
+]);
+export async function POST(request:Request){try{const user=await identity(request),body=input.parse(await privateJson(request)),current=await load(user),item=openApplicationQuestions(current.state,body.applicationId).find(q=>q.question===body.question),application=current.state.applications?.find(a=>a.id===body.applicationId);if(!item||!application)throw new DomainError('This question changed or is no longer open. Reload Actions.',409);if(item.manual)throw new DomainError('Complete verification or authorship declarations directly on the employer website. A saved answer cannot bypass them.',409);if(item.profile)throw new DomainError('Update the matching saved Account Profile field. Technical widget failures do not justify replacing your saved facts.',409);
+ if(body.action==='draft'){const job=current.state.jobs.find(j=>j.id===item.jobId);if(!job||!application.cv)throw new DomainError('The original vacancy or chosen CV is unavailable.',409);const file=ownedFile(current.state,application.cv.fileId),object=await files().get(file.key);if(!object)throw new DomainError('The chosen original CV file is unavailable.',404);const cv=(await extractResume(new Uint8Array(await object.arrayBuffer()),file.name)).text,grounded=draftEmployerProse(item.question,item.fieldType,cv,job);if(!grounded.answer)throw new DomainError(grounded.reason||'The CV does not establish an answer. Enter your own accurate details.');const generated=await writeText(user,{task:'application_answer_draft',system:'Rephrase only the supplied CV evidence and grounded draft for this role. Do not invent personal facts, skills, employers, numbers, eligibility or company problems. Return only an answer for review.',prompt:JSON.stringify({question:item.question,cv,evidence:grounded.evidence,draft:grounded.answer}).slice(0,28000),fallback:()=>grounded.answer});return response({draft:unsupportedRewrite(cv+'\n'+grounded.answer,generated)?grounded.answer:generated,evidence:grounded.evidence,reviewRequired:true});}
+ if(current.revision!==body.revision)throw new DomainError('Your workspace changed. Reload Actions before saving.',409);if(item.isDropdown&&!item.options.includes(body.answer))throw new DomainError('Choose one of the employer’s captured options.',400);const result=reduceAction(current.state,{type:'answer_application_questions',applicationId:body.applicationId,answers:[{question:body.question,value:body.answer}],confirmation:'CONFIRMED',continueAgent:body.continueAgent},'interface'),state=result.state;
+ const continued=state.applications?.find(row=>row.id===body.applicationId)?.status==='queued';
+ record(state,'answer_action','Saved an exact employer answer to the application and Answers library'+(continued?' and queued its known-unsent request.':'.'),'interface');const saved=await save(user,current.revision,state,'answer_action');return response({user,...saved,message:result.message,continued});
+ }catch(e){if(e instanceof z.ZodError)return response({error:'Check the question, answer and saved revision.'},400);if(e instanceof AiError)return response({error:e.message},e.status);return failure(e);}}

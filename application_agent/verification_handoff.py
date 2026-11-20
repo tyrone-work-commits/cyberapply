@@ -1,0 +1,200 @@
+"""Owner-controlled, bounded handoff of the existing browser, never a solver."""
+import re
+import time
+from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
+from uuid import uuid4
+from .employer_verification import recaptcha_resource
+
+def identity_question(label):
+    text=re.sub(r'\s+',' ',str(label).strip()).casefold()
+    return bool(re.match(r'^which(?: of (?:the )?following)? best describes you\b',text))
+
+def identity_dropdown(field):
+    """Only the requested human-versus-AI select, never a general verification."""
+    if field.get('type') not in {'select','combobox'} or not identity_question(field.get('label','')):return False
+    choices=[re.sub(r'\s+',' ',str(x).strip()).casefold().strip(' .!*') for x in field.get('options',[])]
+    human=any(re.fullmatch(r'(?:i am )?(?:a )?human(?: being)?',x) for x in choices)
+    agent=any(re.fullmatch(r'(?:i am )?(?:an? )?(?:ai|artificial intelligence)(?:[ /-]*(?:llm|agent|bot|assistant|program))*',x) or x=='i am an ai, bot or automated program' for x in choices)
+    return human and agent
+
+class BrowserHandoff:
+    def __init__(self,call,task,clock=time.monotonic):
+        self.call=call;self.ids={k:task[k] for k in ('requestId','claimId')};self.clock=clock
+        self.active=False;self.turns=0
+        self.kind='question';self.phase='before_submit';self.recaptcha=None
+        self.blocked_navigation=False
+        self.protected_frames=set();self.failure_reason=''
+    def window(self,context,page,state):
+        visibility=getattr(context,'_cyberapply_visibility',None)
+        if visibility and state=='minimized':visibility.hide();return
+        session=context.new_cdp_session(page)
+        try:
+            info=session.send('Browser.getWindowForTarget')
+            session.send('Browser.setWindowBounds',{'windowId':info['windowId'],'bounds':{'windowState':state}})
+            if state=='normal':
+                if visibility:
+                    session.send('Browser.setWindowBounds',{'windowId':info['windowId'],'bounds':{'left':40,'top':40,'width':1280,'height':850}})
+                    visibility.show()
+                page.bring_to_front()
+        finally:session.detach()
+    def __call__(self,context,page,questions,authorize,completed,watch=None,kind='question',phase='before_submit'):
+        if kind not in {'question','input','recaptcha'} or not questions or (kind=='question' and not all(identity_question(q) for q in questions)) or self.turns>=8:return False
+        if kind=='recaptcha' and (not self.recaptcha or questions!=['Complete the employer reCAPTCHA in this browser.']):return False
+        if kind=='input' and (len(questions)>10 or any(re.search(r'captcha|password|verification code|security code|one.time.code',q,re.I) for q in questions)):return False
+        if kind in {'question','input'}:return self.question(context,page,questions,authorize,completed,watch,kind)
+        self.turns+=1;pause_id=str(uuid4());self.active=True;self.blocked_navigation=False
+        self.kind=kind;self.phase=phase
+        endpoint='/api/application-agent/handoff'
+        def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
+        started=self.clock();opened=False;ended=False;resume_capture=False
+        if watch:
+            watch.set_control('private' if kind=='recaptcha' else 'waiting');watch.detach()
+        try:
+            h=event('begin',kind=kind,phase=phase,questions=[str(q)[:300] for q in questions[:10]],challengeHosts=sorted(self.recaptcha.pending) if kind=='recaptcha' else [])
+            # Human control is limited to the existing employer dropdown.
+            for frame in page.frames:
+                if recaptcha_resource(frame.url):continue
+                try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
+                except Exception:pass
+            while self.clock()-started<240:
+                if getattr(self,'window_control',None):self.window_control.check()
+                if page.is_closed() or self.blocked_navigation:
+                    event('failed',code='session_changed');ended=True;return False
+                h=self.call(endpoint+'?'+urlencode(self.ids),None)['handoff']
+                if not h or h['id']!=pause_id:return False
+                if h['state'] in {'cancelled','expired','failed'}:ended=True;return False
+                if h['state']=='opening':
+                    if authorize() is not True:event('failed',code='session_changed');ended=True;return False
+                    try:
+                        if kind=='recaptcha':
+                            self.recaptcha.approved.update(h['approvedHosts']);self.recaptcha.pending.difference_update(self.recaptcha.approved)
+                        self.window(context,page,'normal')
+                        if kind=='recaptcha':self.recaptcha.restore(page)
+                    except Exception:event('failed',code='window_unavailable');ended=True;return False
+                    h=event('opened');opened=True
+                if h['state']=='resuming' and opened:
+                    if authorize() is not True:event('failed',code='session_changed');ended=True;return False
+                    if kind=='recaptcha' and self.recaptcha.pending-self.recaptcha.approved:event('failed',code='session_changed');ended=True;return False
+                    if page.locator('input[type="password"]:visible,input[autocomplete="one-time-code"]:visible').count() or not completed():event('opened',code='incomplete')
+                    else:
+                        confirmed=event('resumed')
+                        ended=True;resume_capture=confirmed['state']=='resumed';return resume_capture
+                page.wait_for_timeout(1000)
+            event('expired');ended=True;return False
+        finally:
+            if not ended:
+                try:event('failed',code='connection_lost')
+                except Exception:pass
+            self.active=False
+            for frame in page.frames:
+                if recaptcha_resource(frame.url):continue
+                try:frame.evaluate('()=>{window.__cyberapplyHumanPause=false;}')
+                except Exception:pass
+            if opened:
+                try:self.window(context,page,'minimized')
+                except Exception:pass
+            if resume_capture and watch and not page.is_closed():
+                watch.attach(context,page);watch.set_control('agent');watch.capture(force=True)
+
+    def question(self,context,page,questions,authorize,completed,watch=None,kind='question'):
+        """Keep the original browser alive until the person returns control or cancels.
+
+        Only status messages are retried after network failures. No page, form,
+        answer selection, Continue or Submit is ever replayed by this loop.
+        """
+        self.turns+=1;pause_id=str(uuid4());self.active=True;self.kind=kind;self.phase='before_submit';self.blocked_navigation=False
+        self.failure_reason='';self.protected_frames={page.main_frame}
+        endpoint='/api/application-agent/handoff';opened=False;success=False
+        def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
+        def wait():
+            if getattr(self,'window_control',None):self.window_control.check()
+            try:
+                if watch:watch.capture()
+                page.wait_for_timeout(1000)
+            except Exception:time.sleep(1)
+        def send(name,**extra):
+            while True:
+                try:return event(name,**extra)
+                except Exception as error:
+                    if isinstance(error,HTTPError) and error.code not in {408,429} and error.code<500:raise
+                    if not isinstance(error,(OSError,URLError)):raise
+                    wait()  # Preserve this exact page/context during an outage.
+        if watch:
+            watch.set_control('waiting');watch.attach(context,page);watch.capture(force=True)
+        try:
+            for frame in page.frames:
+                if recaptcha_resource(frame.url):continue
+                try:
+                    if frame.locator('[data-cyberapply-field]').count():self.protected_frames.add(frame)
+                except Exception:pass
+                try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
+                except Exception:pass
+            send('begin',persistent=True,kind=kind,phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[])
+            while True:
+                if page.is_closed() or self.blocked_navigation:
+                    self.failure_reason='The employer browser was closed. No employer action was replayed.' if page.is_closed() else 'The employer tried to navigate the actual application form during verification. The request paused without replaying any action.'
+                    send('failed',code='session_changed');return False
+                try:h=self.call(endpoint+'?'+urlencode(self.ids),None)['handoff']
+                except Exception as error:
+                    if isinstance(error,HTTPError) and error.code not in {408,429} and error.code<500:raise
+                    if not isinstance(error,(OSError,URLError)):raise
+                    wait();continue
+                if not h or h['id']!=pause_id:return False
+                if h['state'] in {'cancelled','expired','failed'}:
+                    self.failure_reason='The verification handoff was cancelled or is no longer active. No employer action was replayed.';return False
+                if h['state']=='opening':
+                    try:authorized=authorize() is True
+                    except Exception:wait();continue
+                    if not authorized:
+                        self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
+                    try:self.window(context,page,'normal')
+                    except Exception:send('failed',code='window_unavailable');return False
+                    send('opened');opened=True
+                    if watch:watch.set_control('manual')
+                if h['state']=='resuming' and opened:
+                    try:authorized=authorize() is True
+                    except Exception:wait();continue
+                    if not authorized:
+                        self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
+                    try:ready=not page.locator('input[type="password"]:visible,input[autocomplete="one-time-code"]:visible').count() and completed()
+                    except Exception:ready=False
+                    if not ready:send('opened',code='incomplete')
+                    else:
+                        if watch:watch.set_control('resuming')
+                        success=send('resumed')['state']=='resumed';return success
+                wait()
+        finally:
+            self.active=False
+            for frame in page.frames:
+                if recaptcha_resource(frame.url):continue
+                try:frame.evaluate('()=>{window.__cyberapplyHumanPause=false;}')
+                except Exception:pass
+            # Keep the same visible window. The caller verifies all prepared
+            # fields and original CV bytes before continuing the same form.
+            if success and watch and not page.is_closed():
+                watch.attach(context,page);watch.set_control('agent');watch.capture(force=True)
+
+def manual_value(field,control):
+    """Observe human input only. Never choose an answer or inspect CAPTCHA tokens."""
+    kind=field['type']
+    if kind=='select':
+        if not control.input_value():return None
+        value=control.evaluate("e=>e.selectedOptions[0]?.disabled?'':e.selectedOptions[0]?.text||''")
+        return ('select',value) if value and value in field.get('options',[]) else None
+    if kind=='combobox':
+        from .combobox import selected_display
+        values=[option for option in field.get('options',[]) if selected_display(control,option)]
+        return ('combobox',values[0]) if len(values)==1 else None
+    return None
+
+
+def manual_input_value(field,control):
+    """Read a person's form entry; never invent, choose or solve a verification."""
+    kind=field['type']
+    if kind in {'select','combobox'}:return manual_value(field,control)
+    if kind=='checkbox':return ('checked',True) if control.is_checked() else None
+    if kind not in {'text','textarea','email','tel','url','number','search','date'}:return None
+    if not control.evaluate('e=>!e.willValidate||e.checkValidity()'):return None
+    value=control.input_value().strip()
+    return (kind,value) if value and len(value)<=2000 else None

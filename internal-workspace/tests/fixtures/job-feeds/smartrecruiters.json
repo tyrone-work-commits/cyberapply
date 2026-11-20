@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-11-04",
+  "sourceUrl": "https://api.smartrecruiters.com/v1/companies/SmartRecruiters/postings?destination=PUBLIC&limit=1&offset=0",
+  "redactions": "Single public vacancy retained; descriptions replaced with fictional test requirements. Pagination metadata adjusted to this one-record fixture. No recruiter contact data retained.",
+  "response": {
+    "content": [
+      {
+        "id": "744000158320111",
+        "name": "Senior / Lead Engineering Operations Manager",
+        "location": {
+          "city": "Poland",
+          "region": "Remote",
+          "country": "pl",
+          "remote": true,
+          "hybrid": false,
+          "fullLocation": "Poland, Remote, Poland"
+        },
+        "department": {
+          "id": "5408693",
+          "label": "Engineering"
+        },
+        "visibility": "PUBLIC"
+      }
+    ],
+    "totalFound": 1,
+    "offset": 0,
+    "limit": 100
+  }
+}
