@@ -28,8 +28,17 @@ export function latestRecordingAttempt(snapshot:Pick<RecordingSnapshot,'items'|'
  if(snapshot.applicationStatus==='queued')return '';
  return snapshot.currentAttempt||snapshot.items[0]?.attempt||'';
 }
-export function recordingPollDelay(snapshot:Pick<RecordingSnapshot,'status'|'applicationStatus'>){
- return ['queued','processing'].includes(snapshot.applicationStatus)||['capturing','upload_pending'].includes(snapshot.status?.state||'')?5000:15000;
+export function recordingPollDelay(snapshot:Pick<RecordingSnapshot,'status'|'applicationStatus'>,live=false){
+ return ['queued','processing'].includes(snapshot.applicationStatus)||live&&snapshot.applicationStatus==='needs_attention'||['capturing','upload_pending'].includes(snapshot.status?.state||'')?5000:15000;
+}
+export type LiveVideoInfo={status:string;control?:string;privateCheck?:boolean};
+export function liveVideoPhase(status:string|undefined,info:LiveVideoInfo|null|undefined,atEnd=false,history=false){
+ status=info?.status||status;
+ const control=info?.privateCheck?'private':info?.control==='manual'?'manual':info?.control==='resuming'?'resuming':info?.control==='submit'?'submit':status==='needs_attention'||info?.control==='needs_input'?'needs_input':status==='queued'?'queued':info?.control==='ended'?'ended':status==='processing'?'agent':!status?'connecting':'ended';
+ const caption=control==='private'?'Private verification — footage hidden':control==='manual'?'You have control — agent is waiting':control==='resuming'?'Agent is resuming with your answers':control==='submit'?'Ready — submit it yourself':control==='needs_input'?'Agent has requested user input':control==='queued'?'Waiting for the agent to continue':control==='agent'?'Agent is filling the application':control==='connecting'?'Connecting to application video':'Application session ended';
+ const ongoing=control!=='ended';
+ const label=control==='connecting'?'Connecting to live video':history?'Watching earlier footage':control==='needs_input'?'Live · waiting for user input':control==='manual'?'Live · user has control':control==='queued'||control==='resuming'?'Live · waiting for resumed footage':control==='submit'?'Live · waiting for your submission':control==='private'?'Live · private check':atEnd?ongoing?'Live · waiting for new footage':'Stream ended · replay available':'Buffered live';
+ return {control,caption,label,ongoing};
 }
 export function recordingViewMessage(snapshot:RecordingSnapshot,now=Date.now()){
  const attempt=latestRecordingAttempt(snapshot),current=snapshot.items.find(item=>item.attempt===attempt);

@@ -21,6 +21,14 @@ test('persistent human/AI handoff survives long waits without permitting other v
 });
 
 const {applicationLiveState}=await import('../'+dir+'/application-live-state.mjs');
+test('ordinary employer-answer pauses keep the live viewer waiting without opening a browser or changing a claim',()=>{
+ const a=app();delete a.verificationHandoff;a.status='needs_attention';const before=structuredClone(a);
+ const waiting=applicationLiveState(a,now);assert.equal(waiting.active,false);assert.equal(waiting.control,'needs_input');
+ assert.match(waiting.message,/Agent has requested user input/);assert.match(waiting.message,/Applications.*approve and save/);assert.doesNotMatch(waiting.message,/exact agent browser|session ended/);assert.deepEqual(a,before);
+ a.status='queued';assert.equal(applicationLiveState(a,now).active,true);assert.equal(applicationLiveState(a,now).control,'queued');
+ a.status='processing';assert.equal(applicationLiveState(a,now).control,'agent');assert.equal(a.claim.id,before.claim.id);
+ for(const status of ['applied','uncertain','failed']){a.status=status;assert.equal(applicationLiveState(a,now).active,false);assert.equal(applicationLiveState(a,now).control,'ended');}
+});
 test('live state preserves a long-lived manual form and shows control without changing outcome',()=>{
  const a=app();Object.assign(a.verificationHandoff,{kind:'input',persistent:true,questions:['What motivates you?']});const later=now+48*3600000;
  assert.equal(currentHandoff(a,later).id,'handoff');assert.equal(applicationLiveState(a,later).control,'needs_input');

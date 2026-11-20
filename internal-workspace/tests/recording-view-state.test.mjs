@@ -1,6 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {readFile} from 'node:fs/promises';
 async function module(name){const code=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;return import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));}
-const {applicationRecordingTimeline,recordingPollDelay,recordingViewMessage}=await module('recording-view-state');
+const {applicationRecordingTimeline,recordingPollDelay,recordingViewMessage,liveVideoPhase}=await module('recording-view-state');
 const {applicationEmployerLink}=await module('application-employer-link');
 const at='2026-11-13T12:00:00Z',old={attempt:'old',duration:2,startedAt:at,recordedAt:at,partial:false,reason:'',size:100};
 const snapshot=overrides=>({items:[old],nextCursor:null,status:{state:'saved',attempt:'old',at,parts:1,partial:false,code:''},applicationStatus:'needs_attention',currentAttempt:'old',applicationUpdatedAt:at,employer:{title:'Fictional role',company:'Fixture',url:'https://employer.example/apply'},...overrides});
@@ -21,6 +21,22 @@ test('polling continues after saved footage so later attempts and delayed upload
  for(const applicationStatus of ['queued','processing'])assert.equal(recordingPollDelay(snapshot({applicationStatus})),5000);
  assert.equal(recordingPollDelay(snapshot({applicationStatus:'uncertain',status:{state:'upload_pending'}})),5000);
  assert.equal(recordingPollDelay(snapshot({applicationStatus:'applied'})),15000);
+ assert.equal(recordingPollDelay(snapshot({applicationStatus:'needs_attention'}),true),5000,'the live player keeps checking during ordinary answer entry');
+});
+
+test('live video stays open at an input pause, waits through queuing and resumes without declaring an ended stream',()=>{
+ const waiting=liveVideoPhase('needs_attention',null,true,false);
+ assert.equal(waiting.caption,'Agent has requested user input');assert.equal(waiting.ongoing,true);assert.match(waiting.label,/Live.*waiting for user input/);
+ const queued=liveVideoPhase('queued',null,true,false);assert.equal(queued.control,'queued');assert.equal(queued.ongoing,true);
+ const resumed=liveVideoPhase('processing',{status:'processing',control:'agent'},true,false);assert.match(resumed.label,/waiting for new footage/);assert.match(resumed.caption,/filling the application/);
+ assert.equal(liveVideoPhase('processing',{status:'processing',control:'manual'}).control,'manual');
+ assert.equal(liveVideoPhase('processing',{status:'processing',control:'resuming'}).caption,'Agent is resuming with your answers');
+ assert.equal(liveVideoPhase('processing',{status:'processing',control:'submit'}).control,'submit');
+ assert.equal(liveVideoPhase('processing',{status:'processing',control:'needs_input',privateCheck:true}).control,'private');
+ assert.equal(liveVideoPhase('needs_attention',null,true,true).label,'Watching earlier footage');
+ for(const status of ['applied','uncertain','failed']){const ended=liveVideoPhase(status,null,true);assert.equal(ended.ongoing,false);assert.match(ended.label,/Stream ended/);}
+ assert.equal(liveVideoPhase(undefined,null).control,'connecting');
+ assert.equal(liveVideoPhase('processing',{status:'processing',control:'ended'},true).ongoing,false,'an expired or lost browser claim is not a live stream');
 });
 test('late or failed footage remains separate from submission and old status is ignored',()=>{
  assert.match(recordingViewMessage(snapshot({currentAttempt:'new',applicationStatus:'uncertain'})),/Showing work recorded so far/);

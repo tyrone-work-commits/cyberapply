@@ -43,6 +43,7 @@ await call(path,{method:'POST',body:{}});const replacement=randomUUID();eq((awai
 eq((await call('/api/application-agent/watch',{method:'POST',headers:worker,body:{...ids,stop:true}})).data.watching,false);eq((await call(path)).status,204);
 current=(await call('/api/workspace')).data;eq(current.state.applications.length,1);eq(current.state.applications[0].status,'processing');
 eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional video test complete; no employer visited.'}})).status,200);
-result=await call(path,{method:'POST',body:{}});eq(result.data.active,false);eq((await call(path)).status,204);
+result=await call(path,{method:'POST',body:{}});eq(result.data.active,false);eq(result.data.control,'needs_input');eq((await call(path)).status,204);
+const pausedRevision=(await call('/api/workspace')).data.revision;const pausedStatus=await call(path+'&part=status');eq(pausedStatus.data.control,'needs_input');assert.match(pausedStatus.data.message,/Agent has requested user input.*Applications/);checks++;eq((await call('/api/workspace')).data.revision,pausedRevision);eq((await call(path+'&part=status',{headers:other})).status,404);
 eq((await send('init',0)).status,409);
 console.log(`PASS ${checks} private video HTTP checks: owner isolation, active claim/lease, valid media type, bounded ring, sequence/reconnect, expiry, cleanup and no application retry.`);

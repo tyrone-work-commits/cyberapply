@@ -8,3 +8,4 @@
 .watch-process-modes{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.watch-process-modes .button{min-height:44px}.watch-process-modes .button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:var(--accent)}
 .agent-watch-page .application-live-view .agent-watch-screen{min-width:0;min-height:0;width:100%}.agent-watch-page .application-live-view video{min-width:0;max-width:100%}
 .dvr-playback-status{display:flex;align-items:center;min-height:44px;font-size:13px;font-weight:600;color:var(--accent)}
+.live-waiting-screen{min-height:220px!important;padding:70px 20px 24px;color:#fff;text-align:center}.live-waiting-screen p{max-width:36ch;line-height:1.6}
