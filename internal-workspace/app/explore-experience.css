@@ -62,3 +62,5 @@
 .explore-account-link{margin-top:18px}
 @media(max-width:700px){.explore-reference-grid-list{grid-template-columns:minmax(0,1fr)}.explore-page-main{padding:6px 10px 90px!important}.explore-vacancy-card{border-radius:25px;height:clamp(430px,calc(100svh - 170px),740px)}.explore-card-header{padding:16px 16px 0}.explore-card-body{padding-left:16px;padding-right:16px}.explore-card-header h2{font-size:23px;letter-spacing:-.4px}.explore-company-mark{width:48px;height:48px;font-size:27px}.explore-company-meta{font-size:12px}.explore-fact-chips>span{font-size:12px;padding:7px 10px}.explore-detail-panel{padding:15px;border-radius:20px}.explore-detail-panel h3{font-size:15px}.explore-detail-panel p,.explore-detail-panel li{font-size:13px}.explore-card-layout .swipe-actions{gap:18px}.explore-vacancy-card.is-grid{height:550px}}
 @media(prefers-reduced-motion:reduce){.explore-card-layout .swipe-actions .decision:active{transform:none}}
+
+.explore-refresh-button:disabled{opacity:.5;cursor:wait}.explore-refresh-button[aria-busy=true]{opacity:.8}.explore-refresh-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
