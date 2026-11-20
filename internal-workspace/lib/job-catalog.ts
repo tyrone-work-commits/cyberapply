@@ -14,7 +14,7 @@ export type EmployerBoard=z.infer<typeof boardSchema>;
 export type JobSearch=z.infer<typeof searchSchema>;
 export type JobSource={provider:EmployerBoard['provider'];board:string;region:'global'|'eu';externalId:string;boardUrl:string;checkedAt:string;availability:'open'|'closed';postedAt?:string;descriptionTruncated:boolean};
 export type BoardReport={key:string;company:string;provider:EmployerBoard['provider'];status:'ok'|'error';fetched:number;matching:number;complete:boolean;message?:string};
-export type DiscoveryReport={at:string;boards:BoardReport[];added:number;updated:number;closed:number;omitted:number;message:string};
+export type DiscoveryReport={at:string;boards:BoardReport[];added:number;updated:number;closed:number;omitted:number;omissionReasons?:{perRefresh:number;catalogueCount:number;catalogueSize:number;workspaceSize:number};message:string};
 export const recommendedBoards:EmployerBoard[]=[
  {provider:'greenhouse',board:'huntress',region:'global',company:'Huntress'},
  {provider:'greenhouse',board:'recordedfuture',region:'global',company:'Recorded Future'},

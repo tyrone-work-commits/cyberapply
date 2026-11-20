@@ -1,9 +1,15 @@
 import {enrichJob} from './job-extraction';
 import {readProviderBoard,normalizeProviderJob} from './provider-jobs';
-import { DomainError, liveState, record, safeJobUrl, type Job, type State, type Activity } from './cyber-domain';
+import { DomainError, liveState, record, safeJobUrl, type Job, type State, type Activity, MAX_WORKSPACE_BYTES } from './cyber-domain';
 import { boardKey, boardUrl, cybersecurityRole, matchesSearch, searchSchema, type EmployerBoard, type JobSearch, type BoardReport, type DiscoveryReport } from './job-catalog';
 
 const MAX_BYTES=8_000_000, MAX_DESCRIPTION=6500, MAX_NEW=24;
+// Catalogue quota is independent of CVs, answers and application reports. The
+// final workspace row retains its existing UTF-8/D1 safety limit and headroom.
+export const MAX_CATALOGUE_BYTES=1_200_000, MAX_CATALOGUE_JOBS=200;
+const IMPORT_WORKSPACE_BYTES=MAX_WORKSPACE_BYTES-32_000, encoder=new TextEncoder();
+const jsonBytes=(value:unknown)=>encoder.encode(JSON.stringify(value)).byteLength;
+function sameVacancy(a:Job,b:Job){return a.id===b.id||a.url===b.url||!!(a.applyUrl&&b.applyUrl&&a.applyUrl===b.applyUrl);}
 const skillWords=['SIEM','Splunk','Python','SQL','Linux','AWS','Azure','GCP','Incident response','Threat hunting','Threat intelligence','Malware','Penetration testing','Vulnerability management','IAM','SOC 2','ISO 27001','NIST','Kubernetes','Docker','Terraform','EDR','XDR','SOAR','MITRE ATT&CK','AppSec'];
 function plain(value:unknown){
  let text=typeof value==='string'?value:'';
@@ -100,17 +106,28 @@ export function mergeDiscovery(before:State,search:JobSearch,results:BoardResult
  }
  // Round-robin employers so the first large board does not consume every slot.
  const candidates:Job[]=[];const max=Math.max(0,...successful.map(r=>r.jobs.length));for(let i=0;i<max;i++)for(const result of successful)if(result.jobs[i])candidates.push(result.jobs[i]);
+ // Refresh existing records before measuring admission budgets, so later
+ // description updates cannot consume space already promised to new vacancies.
+ const pending:Job[]=[];
  for(const job of candidates){
-  const existing=state.jobs.find(item=>item.id===job.id||item.url===job.url||item.applyUrl===job.applyUrl);
+  const existing=state.jobs.find(item=>sameVacancy(item,job));
   if(existing){Object.assign(existing,{...job,id:existing.id,saved:existing.saved,disposition:existing.disposition,previousDisposition:existing.previousDisposition,decidedAt:existing.decidedAt,createdAt:existing.createdAt});updated++;continue;}
-  if(added>=MAX_NEW||state.jobs.length>=200){omitted++;continue;}
-  const length=JSON.stringify(state).length+JSON.stringify(job).length;
-  if(length>650000){omitted++;continue;}
-  state.jobs.push(job);added++;
+  if(!pending.some(item=>sameVacancy(item,job)))pending.push(job);
  }
+ const omissionReasons={perRefresh:0,catalogueCount:0,catalogueSize:0,workspaceSize:0};
+ let catalogueBytes=jsonBytes(state.jobs),workspaceBytes=jsonBytes(state);
+ for(const job of pending){
+  const growth=jsonBytes(job)+(state.jobs.length?1:0);
+  if(state.jobs.length>=MAX_CATALOGUE_JOBS){omissionReasons.catalogueCount++;continue;}
+  if(catalogueBytes+growth>MAX_CATALOGUE_BYTES){omissionReasons.catalogueSize++;continue;}
+  if(workspaceBytes+growth>IMPORT_WORKSPACE_BYTES){omissionReasons.workspaceSize++;continue;}
+  if(added>=MAX_NEW){omissionReasons.perRefresh++;continue;}
+  state.jobs.push(job);added++;catalogueBytes+=growth;workspaceBytes+=growth;
+ }
+ omitted=Object.values(omissionReasons).reduce((sum,count)=>sum+count,0);
  const failed=results.filter(result=>result.report.status==='error').length;
- const message=`${added} new vacancies added; ${updated} refreshed.${closed?` ${closed} no longer listed.`:''}${omitted?` ${omitted} matching vacancies exceed this import’s limit; narrow your filters.`:''}${failed?` ${failed} employer feed${failed===1?'':'s'} could not be read; saved work was retained.`:''}${!added&&!updated&&!failed?' No cybersecurity roles matched these filters.':''}`;
- const report:DiscoveryReport={at,boards:results.map(r=>r.report),added,updated,closed,omitted,message};
+ const message=`${added} new vacancies added; ${updated} refreshed.${closed?` ${closed} no longer listed.`:''}${omissionReasons.perRefresh?` ${omissionReasons.perRefresh} more matching vacancies are waiting for a later refresh.`:''}${omissionReasons.catalogueCount?` ${omissionReasons.catalogueCount} matching vacancies could not fit within the ${MAX_CATALOGUE_JOBS}-record vacancy limit; existing records were kept.`:''}${omissionReasons.catalogueSize?` ${omissionReasons.catalogueSize} matching vacancies could not fit within the vacancy catalogue size limit; existing records were kept.`:''}${omissionReasons.workspaceSize?` ${omissionReasons.workspaceSize} matching vacancies could not fit safely within workspace storage; your CV, saved jobs and applications were kept.`:''}${failed?` ${failed} employer feed${failed===1?'':'s'} could not be read; saved work was retained.`:''}${!added&&!updated&&!failed&&!omitted?' No cybersecurity roles matched these filters.':''}`;
+ const report:DiscoveryReport={at,boards:results.map(r=>r.report),added,updated,closed,omitted,omissionReasons,message};
  state.discovery={settings:search,lastSearch:report};record(state,'discover_jobs',message,source,at);
  return {state,message,report};
 }
