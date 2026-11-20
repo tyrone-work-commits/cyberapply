@@ -8,6 +8,14 @@ from unittest.mock import patch
 from application_agent import presence
 
 class PresenceTests(unittest.TestCase):
+ def test_authenticated_notices_are_delivered_without_a_browser_or_replaying_a_form(self):
+  with TemporaryDirectory() as folder:
+   path=Path(folder);(path/'status.json').write_text(json.dumps({'pid':os.getpid(),'state':'running'}));seen=threading.Event();calls=[]
+   def notified(notices,connection):calls.append((notices,connection));seen.set()
+   with patch('application_agent.presence.publish',return_value={'notices':[{'key':'one','kind':'input'}]}) as publish:
+    monitor=presence.start(path,'https://example.test',interval=.01,get_connection=lambda:'private-in-memory',on_notices=notified)
+    self.assertTrue(seen.wait(2));presence.stop(monitor)
+    self.assertEqual(calls[0],([{'key':'one','kind':'input'}],'private-in-memory'));self.assertFalse(monitor.thread.is_alive())
  def test_checkin_uses_private_connection_only_in_auth_headers(self):
   with TemporaryDirectory() as folder:
    path=Path(folder);(path/'connection.dat').write_bytes(b'encrypted-only')

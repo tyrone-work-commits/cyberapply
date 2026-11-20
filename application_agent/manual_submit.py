@@ -27,17 +27,8 @@ def confirmation_url(before, current):
 
 def notify_ready():
     """A normal silent Windows toast. No custom sound, applicant data or secrets."""
-    if sys.platform!='win32':return False
-    import subprocess
-    script="""[Windows.UI.Notifications.ToastNotificationManager,Windows.UI.Notifications,ContentType=WindowsRuntime] > $null
-    [Windows.Data.Xml.Dom.XmlDocument,Windows.Data.Xml.Dom.XmlDocument,ContentType=WindowsRuntime] > $null
-    $xml=New-Object Windows.Data.Xml.Dom.XmlDocument
-    $xml.LoadXml('<toast><visual><binding template="ToastGeneric"><text>CyberApply — ready to submit</text><text>Open the CyberApply browser window and press Submit. Complete reCAPTCHA yourself.</text></binding></visual><audio silent="true"/></toast>')
-    [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('CyberApply').Show([Windows.UI.Notifications.ToastNotification]::new($xml))"""
-    try:
-        result=subprocess.run(['powershell.exe','-NoProfile','-NonInteractive','-WindowStyle','Hidden','-Command',script],creationflags=subprocess.CREATE_NO_WINDOW,timeout=15,capture_output=True)
-        return result.returncode==0
-    except Exception:return False
+    from .desktop_notifications import show_notice
+    return show_notice('submit','Open CyberApply Applications to open your prepared browser and press Submit.','manual-ready')
 
 
 HUMAN_EVENTS="""()=>{if(window.__cyberapplyManualObserver)return;window.__cyberapplyManualObserver=true;window.__cyberapplyManualSubmitCount=0;
@@ -77,9 +68,10 @@ class ManualSubmit:
         # Readiness is a notification, never permission to take foreground.
         try:self.minimize(context,page);window='hidden' if getattr(context,'_cyberapply_visibility',None) else 'minimized'
         except Exception:window='background_unavailable'
-        try:notified=self.notify()
+        try:notified=self.notify() if self.notify else False
         except Exception:notified=False
         report['manual_submission']={'policy':'user_final_submit','window':window,'notification_sent':notified,'state':state}
+        if self.notify is None:report['manual_submission']['notification_delivery']='background_checkin'
         # Snapshot may be retried idempotently; neither this loop nor any callback submits.
         endpoint='/api/application-agent/manual-submit'
         pending_evidence=None;closed=False

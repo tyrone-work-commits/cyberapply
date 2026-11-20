@@ -94,7 +94,9 @@ def run():
     from . import presence
     status('checking')
     active_connection=[None]
-    presence_stop=presence.start(data_dir(),SITE,get_connection=lambda:active_connection[0])
+    from .desktop_notifications import DesktopNotifications
+    notifications=DesktopNotifications(data_dir())
+    presence_stop=presence.start(data_dir(),SITE,get_connection=lambda:active_connection[0],on_notices=lambda notices,connection:notifications.deliver(SITE,connection,notices))
     try:
         while not (data_dir() / 'stop').exists():
             try:
@@ -102,7 +104,7 @@ def run():
                 token, service=parse_connection(raw, SITE)
                 active_connection[0]=raw
                 status('checking')
-                worked=run_once(SITE, token, submit=True, browser_channel='chrome', site_access_token=service,on_state=lambda state:status(state))
+                worked=run_once(SITE, token, submit=True, browser_channel='chrome', site_access_token=service,on_state=lambda state:status(state),background_notifications=True)
                 failures=0
                 status('running', last_check=datetime.now(timezone.utc).isoformat(), last_result='processed_request' if worked else 'queue_empty')
                 delay=5

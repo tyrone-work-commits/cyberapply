@@ -1,4 +1,5 @@
 import {applicationLiveState} from './application-live-state';
+import {desktopNotices} from './desktop-notices';
 import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,manualCommand} from './manual-submission';
 import {claimLocationCapture,completeLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {locationCapture,employerChoiceLimit} from './employer-location-choices';
@@ -260,7 +261,7 @@ export async function heartbeat(request:Request){try{
  const current=await load(user);stillConnected(current.state,user);
  const at=new Date().toISOString();
  await presenceDb().prepare('INSERT INTO cyber_agent_presence (owner_id,token_hash,state,seen_at) VALUES (?,?,?,?) ON CONFLICT(owner_id) DO UPDATE SET token_hash=excluded.token_hash,state=excluded.state,seen_at=excluded.seen_at').bind(user.userId,user.agentHash,body.state,at).run();
- return response({received:true,at});
+ return response({received:true,at,notices:body.state==='stopped'?[]:desktopNotices(current.state)});
 }catch(error){return failure(error);}}
 
 // Read-only H.264 video uses a bounded private ring, outside workspace history.
