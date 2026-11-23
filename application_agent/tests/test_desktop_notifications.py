@@ -49,7 +49,7 @@ class DesktopNotificationTests(unittest.TestCase):
    args,kwargs=run.call_args;self.assertIn('-File',args[0]);self.assertNotIn('Test only',str(args[0]));self.assertNotIn('-Command',args[0])
    self.assertEqual(json.loads(kwargs['input'])['url'],APP_URL);self.assertLessEqual(kwargs['timeout'],20)
   script=Path('application_agent/windows_notifications.ps1').read_text(encoding='utf-8')
-  self.assertIn('activationType=`"protocol`"',script);self.assertIn('silent=`"true`"',script);self.assertIn('CyberApplyToastIdentity',script)
+  self.assertIn('activationType=`"protocol`"',script);self.assertIn('<audio src=`"ms-winsoundevent:Notification.Default`"/>',script);self.assertNotIn('silent=`"true`"',script);self.assertNotIn('loop=',script);self.assertIn('CyberApplyToastIdentity',script)
  def test_notification_backend_error_never_propagates_to_application_work(self):
   with TemporaryDirectory() as folder:
    def fail(_):raise OSError('Fixture failure')

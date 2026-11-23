@@ -26,7 +26,7 @@ def confirmation_url(before, current):
 
 
 def notify_ready():
-    """A normal silent Windows toast. No custom sound, applicant data or secrets."""
+    """A normal Windows toast with system sound. No applicant data or secrets."""
     from .desktop_notifications import show_notice
     return show_notice('submit','Open CyberApply Applications to open your prepared browser and press Submit.','manual-ready')
 

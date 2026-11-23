@@ -1,4 +1,4 @@
-"""Silent native Windows alerts. Persistent owner/event dedup; no employer actions."""
+"""Native Windows alerts with system sound. Persistent owner/event dedup; no employer actions."""
 import hashlib
 import json
 import math

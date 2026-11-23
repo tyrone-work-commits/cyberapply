@@ -65,7 +65,7 @@ foreach ($item in @($payload.items)) {
  $safeTitle = [Security.SecurityElement]::Escape($title)
  $safeBody = [Security.SecurityElement]::Escape([string]$item.body)
  $safeUrl = [Security.SecurityElement]::Escape($applicationsUrl)
- $document.LoadXml("<toast activationType=`"protocol`" launch=`"$safeUrl`"><visual><binding template=`"ToastGeneric`"><text>$safeTitle</text><text>$safeBody</text></binding></visual><audio silent=`"true`"/></toast>")
+ $document.LoadXml("<toast activationType=`"protocol`" launch=`"$safeUrl`"><visual><binding template=`"ToastGeneric`"><text>$safeTitle</text><text>$safeBody</text></binding></visual><audio src=`"ms-winsoundevent:Notification.Default`"/></toast>")
  $toast = [Windows.UI.Notifications.ToastNotification]::new($document)
  $toast.Tag = $item.tag
  $toast.Group = 'CyberApplyApplications'
