@@ -8,6 +8,21 @@ HOSTS={'boards.greenhouse.io','job-boards.greenhouse.io'}
 STATE={'cookies':[{'name':'candidate_session','value':'fake-session-secret','domain':'boards.greenhouse.io','path':'/','expires':-1,'httpOnly':True,'secure':True,'sameSite':'Lax'}], 'origins':[]}
 
 class LoginSessionTests(unittest.TestCase):
+    def test_parallel_saves_use_distinct_encrypted_temporary_files(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from unittest.mock import patch
+        from pathlib import Path
+        import threading
+        with TemporaryDirectory() as root:
+            paths=[];lock=threading.Lock();write=Path.write_bytes
+            def track(path,data):
+                with lock:paths.append(str(path))
+                return write(path,data)
+            with patch.object(Path,'write_bytes',track),ThreadPoolExecutor(max_workers=10) as pool:
+                list(pool.map(lambda _:LoginSessions('site','a',root=root).save(JOB,HOSTS,STATE),range(20)))
+            self.assertEqual(len(set(paths)),20)
+            self.assertEqual(LoginSessions('site','a',root=root).load(JOB,HOSTS),STATE)
+            self.assertEqual(list(Path(root).rglob('*.new')),[])
     def test_aliases_share_only_the_same_employer_and_embed_boards_are_isolated(self):
         self.assertEqual(employer_partition(JOB),employer_partition({'url':'https://job-boards.greenhouse.io/acme/jobs/456'}))
         self.assertNotEqual(employer_partition({'url':'https://job-boards.greenhouse.io/embed/job_app?for=acme'}),employer_partition({'url':'https://job-boards.greenhouse.io/embed/job_app?for=other'}))

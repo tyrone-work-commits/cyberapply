@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import time
+from uuid import uuid4
 from urllib.parse import urlsplit,parse_qs
 from .secure_storage import protect
 
@@ -82,9 +83,18 @@ class LoginSessions:
         if len(payload)>2_000_000:
             raise ValueError('Browser session exceeded the encrypted storage limit.')
         path.parent.mkdir(parents=True,exist_ok=True)
-        pending=path.with_suffix('.new')
-        pending.write_bytes(protect(payload))
-        pending.replace(path)
+        pending=path.with_name(path.name+'.'+uuid4().hex+'.new')
+        try:
+            pending.write_bytes(protect(payload))
+            for attempt in range(8):
+                try:
+                    pending.replace(path)
+                    break
+                except PermissionError:
+                    if attempt==7:raise
+                    time.sleep(min(.02*2**attempt,.25))
+        finally:
+            pending.unlink(missing_ok=True)
 
     def clear(self):
         folder=self.root/self.owner

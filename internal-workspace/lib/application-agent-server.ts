@@ -205,7 +205,7 @@ export async function pair(request:Request){try{
 export async function claim(request:Request){try{
   const user=await worker(request);const capability=await json(request);if(capability?.profileAnswersVersion!==5||capability?.manualSubmitVersion!==4||capability?.verificationHandoffVersion!==2)throw new DomainError('Update the browser runner: the filled browser must stay hidden until your explicit Open request. Install the current runner.',409);
   for(let attempt=0;attempt<3;attempt++){
-    const current=await load(user);stillConnected(current.state,user);if(current.state.applications?.some(a=>locationCapture(a.report)?.state==='reading'&&Date.parse(locationCapture(a.report)!.expiresAt)>Date.now()))return response({task:null});const before=JSON.stringify(current.state),item=claimApplication(current.state);
+    const current=await load(user);stillConnected(current.state,user);if(current.state.applications?.some(a=>locationCapture(a.report)?.state==='reading'&&Date.parse(locationCapture(a.report)!.expiresAt)>Date.now()))return response({task:null});const before=JSON.stringify(current.state),item=claimApplication(current.state,undefined,capability?.parallelApplicationsVersion===1);
     if(!item&&JSON.stringify(current.state)===before)return response({task:null});
     current.state.newApplicationAgent!.lastSeenAt=new Date().toISOString();
     let task:unknown=null;

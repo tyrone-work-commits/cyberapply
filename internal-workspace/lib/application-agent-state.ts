@@ -3,11 +3,13 @@ import {manualSession} from './manual-submission';
 import {rememberEmployerQuestions} from './employer-questions';
 import { DomainError, record, safeJobUrl, applicationProfile, getApplySettings, applicationPolicyIssue, applicationRunsToday, type State } from './cyber-domain';
 
-export function claimApplication(state:State,at=new Date().toISOString()){
-  if(state.applications?.some(item=>manualSession(item)||persistentQuestionHandoff(item)))return null;
+export const MAX_PARALLEL_APPLICATIONS=10;
+export function claimApplication(state:State,at=new Date().toISOString(),parallel=false){
+  if(!parallel&&state.applications?.some(item=>manualSession(item)||persistentQuestionHandoff(item)))return null;
   for(const item of state.applications||[])if(item.agentVersion===2&&item.status==='processing'&&item.claim&&!manualSession(item)&&!persistentQuestionHandoff(item)&&Date.parse(item.claim.expiresAt)<=Date.parse(at)){
     item.status='uncertain';item.result={at,message:'The browser runner stopped reporting. Check the employer outcome before any retry.'};
   }
+  if((state.applications||[]).filter(item=>item.agentVersion===2&&item.status==='processing').length>=(parallel?MAX_PARALLEL_APPLICATIONS:1))return null;
   const request=state.applications?.find(item=>item.agentVersion===2&&item.status==='queued'&&item.agentAuthorizedAt);
   if(!request)return null;
   if(request.report?.journey&&typeof request.report.journey==='object'&&(request.report.journey as Record<string,unknown>).possible_delivery===true){request.status='uncertain';delete request.agentAuthorizedAt;request.result={at,message:'A prior run may have delivered this application. Check the employer outcome before any retry.'};return null;}

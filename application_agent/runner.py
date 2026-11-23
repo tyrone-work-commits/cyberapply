@@ -6,6 +6,8 @@ import getpass
 import json
 import re
 import time
+import threading
+from contextlib import nullcontext
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import HTTPRedirectHandler, Request
@@ -57,18 +59,23 @@ def parse_connection(raw, site):
     return token, service_token
 
 
+_workspace_write_lock=threading.RLock()
+_workspace_posts={'claim','result','questions','manual-submit','handoff','recording-status','location-choices/claim','location-choices/result'}
+
 def call_site(site, token, path, data=None, binary=False, site_access_token=None, timeout=40):
     from urllib.request import build_opener
     req = Request(site + path, data=json.dumps(data).encode() if data is not None else None,
                   headers={"Authorization":"Bearer " + token, "Content-Type":"application/json", "Accept":"application/octet-stream" if binary else "application/json",
                            **({'OAI-Sites-Authorization':'Bearer '+site_access_token} if site_access_token else {})},
                   method="POST" if data is not None else "GET")
-    with build_opener(NoRedirect()).open(req, timeout=timeout) as response:
-        limit = 15_000_001 if binary else 2_000_000
-        raw = response.read(limit)
-        if len(raw) >= limit:
-            raise ValueError("The Site response exceeded the permitted size.")
-        return raw if binary else json.loads(raw)
+    serial=data is not None and path.removeprefix('/api/application-agent/').split('?')[0] in _workspace_posts
+    with _workspace_write_lock if serial else nullcontext():
+        with build_opener(NoRedirect()).open(req, timeout=timeout) as response:
+            limit = 15_000_001 if binary else 2_000_000
+            raw = response.read(limit)
+            if len(raw) >= limit:
+                raise ValueError("The Site response exceeded the permitted size.")
+            return raw if binary else json.loads(raw)
 
 
 def deliver_questions(site,token,task,report,site_access_token=None):
@@ -133,18 +140,18 @@ def maybe_refresh_sources(site,token,site_access_token=None,now=None):
         return False
 
 
-def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None,background_notifications=False):
+def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrome', site_access_token=None, on_state=None,background_notifications=False,parallel=False):
     from .location_choices import run_location_capture
     try:
-        if run_location_capture(site,token,call_site,site_access_token,browser_channel,on_state):return True
+        if not parallel and run_location_capture(site,token,call_site,site_access_token,browser_channel,on_state):return True
     except HTTPError as error:
         if error.code!=404:raise
     from .recording_delivery import RecordingDelivery,flush_pending
     try:flush_pending(site,token,site_access_token)
     except Exception:pass
-    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":5,"manualSubmitVersion":4,"verificationHandoffVersion":2,"coverLetterVersion":1}, site_access_token=site_access_token)["task"]
+    task = call_site(site, token, "/api/application-agent/claim", {"profileAnswersVersion":5,"manualSubmitVersion":4,"verificationHandoffVersion":2,"coverLetterVersion":1,**({'parallelApplicationsVersion':1} if parallel else {})}, site_access_token=site_access_token)["task"]
     if not task:
-        maybe_refresh_sources(site,token,site_access_token)
+        if not parallel:maybe_refresh_sources(site,token,site_access_token)
         return False
     if on_state:on_state('working')
     query = urlencode({"requestId":task["requestId"], "claimId":task["claimId"]})

@@ -25,8 +25,8 @@ def data_dir():
     return Path(os.environ['LOCALAPPDATA']) / 'CyberApply' / 'application-agent'
 
 
-def status(state, **extra):
-    folder = data_dir()
+def status(state, *, folder=None, **extra):
+    folder = Path(folder) if folder is not None else data_dir()
     folder.mkdir(parents=True, exist_ok=True)
     value = {'state': state, 'at': datetime.now(timezone.utc).isoformat(), 'pid': os.getpid(), **extra}
     temp = folder / 'status.tmp'
@@ -78,66 +78,80 @@ def retry_delay(failures):
     return min(300, 5 * (2 ** min(failures, 6)))
 
 
-def run():
-    # One runner per Windows account, including manual starts and login startup.
+def run(legacy_pid=None):
+    # Keep the established login-startup singleton. A temporary companion may
+    # keep the old serial process's exact browser. The server counts that claim
+    # in the shared ten-application limit, including when it waits for a person.
     kernel=ctypes.windll.kernel32
     kernel.CreateMutexW.argtypes=[ctypes.c_void_p,wintypes.BOOL,wintypes.LPCWSTR]
     kernel.CreateMutexW.restype=wintypes.HANDLE
     kernel.CloseHandle.argtypes=[wintypes.HANDLE]
-    mutex=kernel.CreateMutexW(None, False, 'Local\\CyberApplyApplicationAgentV2')
-    if not mutex:
-        raise OSError('Could not create the background runner lock.')
-    if ctypes.windll.kernel32.GetLastError()==183:
-        ctypes.windll.kernel32.CloseHandle(mutex)
+    name='Local\\CyberApplyParallelCompanionV1' if legacy_pid else 'Local\\CyberApplyApplicationAgentV2'
+    mutex=kernel.CreateMutexW(None, False, name)
+    if not mutex:raise OSError('Could not create the background runner lock.')
+    if kernel.GetLastError()==183:
+        kernel.CloseHandle(mutex)
         return
-    failures=0
-    from . import presence
-    status('checking')
-    active_connection=[None]
-    from .desktop_notifications import DesktopNotifications
-    notifications=DesktopNotifications(data_dir())
-    presence_stop=presence.start(data_dir(),SITE,get_connection=lambda:active_connection[0],on_notices=lambda notices,connection:notifications.deliver(SITE,connection,notices))
+    root=data_dir();folder=root/'parallel' if legacy_pid else root
+    legacy_handle=keeper=None
+    presence_stop=None
+    legacy_alive=lambda:False
     try:
-        while not (data_dir() / 'stop').exists():
-            try:
-                raw=protect((data_dir() / 'connection.dat').read_bytes(), decrypt=True).decode('utf-8')
-                token, service=parse_connection(raw, SITE)
-                active_connection[0]=raw
-                status('checking')
-                worked=run_once(SITE, token, submit=True, browser_channel='chrome', site_access_token=service,on_state=lambda state:status(state),background_notifications=True)
-                failures=0
-                status('running', last_check=datetime.now(timezone.utc).isoformat(), last_result='processed_request' if worked else 'queue_empty')
-                delay=5
-            except HTTPError as error:
-                if error.code in (401,403):
-                    status('reconnect_required', http_status=error.code)
-                    delay=60
-                else:
-                    failures+=1
-                    status('waiting_for_connection',http_status=error.code)
-                    delay=retry_delay(failures)
-            except (URLError, OSError):
-                failures+=1
-                status('waiting_for_connection')
-                delay=retry_delay(failures)
-            except Exception:
-                # Never replay a form after unknown delivery. The Site's lease
-                # and uncertain-outcome rules prevent reclaiming in-flight work.
-                failures+=1
-                status('needs_review')
-                delay=retry_delay(failures)
-            for _ in range(delay):
-                if (data_dir() / 'stop').exists():
-                    break
-                time.sleep(1)
-        status('stopped')
+        if legacy_pid:
+            saved=json.loads((root/'status.json').read_text(encoding='utf-8'))
+            if saved.get('pid')!=legacy_pid or legacy_pid==os.getpid():
+                raise ValueError('The previous application runner could not be verified.')
+            kernel.OpenProcess.argtypes=[wintypes.DWORD,wintypes.BOOL,wintypes.DWORD]
+            kernel.OpenProcess.restype=wintypes.HANDLE
+            kernel.WaitForSingleObject.argtypes=[wintypes.HANDLE,wintypes.DWORD]
+            kernel.WaitForSingleObject.restype=wintypes.DWORD
+            legacy_handle=kernel.OpenProcess(0x00100000,False,legacy_pid)
+            if not legacy_handle:raise OSError('The previous runner process is unavailable.')
+            legacy_alive=lambda:kernel.WaitForSingleObject(legacy_handle,0)==258
+            # Holding this existing named object prevents another login runner
+            # from starting until the companion has drained its own browsers.
+            keeper=kernel.CreateMutexW(None,False,'Local\\CyberApplyApplicationAgentV2')
+            if not keeper:raise OSError('Could not retain the existing runner guard.')
+        from . import presence
+        from .desktop_notifications import DesktopNotifications
+        from .parallel_runner import run_pool,MAX_PARALLEL_APPLICATIONS
+        from .runner import call_site,maybe_refresh_sources
+        from .location_choices import run_location_capture
+        active_connection=[None]
+        notifications=DesktopNotifications(root)
+        status('checking',folder=folder)
+        presence_stop=presence.start(folder,SITE,get_connection=lambda:active_connection[0],
+            on_notices=lambda notices,connection:None if legacy_alive() else notifications.deliver(SITE,connection,notices))
+        def connected():
+            raw=protect((root/'connection.dat').read_bytes(),decrypt=True).decode('utf-8')
+            token,service=parse_connection(raw,SITE)
+            active_connection[0]=raw
+            return token,service
+        def work(on_state):
+            token,service=connected()
+            return run_once(SITE,token,submit=True,browser_channel='chrome',site_access_token=service,
+                            on_state=on_state,background_notifications=True,parallel=True)
+        def maintenance():
+            token,service=connected()
+            run_location_capture(SITE,token,call_site,service,'chrome')
+            maybe_refresh_sources(SITE,token,service)
+        run_pool(work,lambda:(root/'stop').exists() or bool(legacy_pid and not legacy_alive()),
+                 lambda state,**extra:status(state,folder=folder,**extra),
+                 limit=MAX_PARALLEL_APPLICATIONS,maintenance=maintenance)
     finally:
-        presence.stop(presence_stop)
-        if (data_dir()/'stop').exists():
-            try:
-                if active_connection[0] is not None:presence.publish(data_dir(),SITE,'stopped',connection=active_connection[0])
-            except Exception:pass
-        ctypes.windll.kernel32.CloseHandle(mutex)
+        if presence_stop:
+            presence.stop(presence_stop)
+            if (root/'stop').exists() and not legacy_alive():
+                try:
+                    if active_connection[0] is not None:presence.publish(folder,SITE,'stopped',connection=active_connection[0])
+                except Exception:pass
+        for handle in (keeper,legacy_handle,mutex):
+            if handle:kernel.CloseHandle(handle)
+    if legacy_pid and not (root/'stop').exists():
+        # The old process ended and every companion browser finished naturally.
+        # Start the standard ten-slot login runner; never replay an old claim.
+        subprocess.Popen([str(Path(sys.executable).with_name('pythonw.exe')),'-m','application_agent.background','run'],
+                         cwd=ROOT,creationflags=subprocess.CREATE_NO_WINDOW,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
 
 def setup_window():
@@ -179,15 +193,18 @@ def setup_window():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action',choices=['setup','run','status','stop','uninstall','clear-sessions','register-setup'])
+    parser.add_argument('action',choices=['setup','run','assist','status','stop','uninstall','clear-sessions','register-setup'])
+    parser.add_argument('--legacy-pid',type=int,help=argparse.SUPPRESS)
     args=parser.parse_args()
+    if args.action=='assist' and (not args.legacy_pid or args.legacy_pid<=0):parser.error('A previous runner process is required.')
+    if args.action!='assist' and args.legacy_pid is not None:parser.error('Unexpected previous runner process.')
     if args.action=='setup':
         setup_window()
     elif args.action=='register-setup':
         from .setup_launcher import register_setup_launcher
         print('Registered setup link:',register_setup_launcher())
-    elif args.action=='run':
-        run()
+    elif args.action in ('run','assist'):
+        run(args.legacy_pid)
     elif args.action=='status':
         path=data_dir()/'status.json'
         print(path.read_text(encoding='utf-8') if path.exists() else '{"state":"not_configured"}')
