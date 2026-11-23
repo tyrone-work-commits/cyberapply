@@ -1,9 +1,9 @@
 'use client';
 import {IconTip} from "./icon-tip";
 import {useEffect,useRef,useState} from 'react';
-import {ChevronDown,ExternalLink,Layers,LoaderCircle,X} from 'lucide-react';
+import {ChevronDown,ExternalLink,Layers,LoaderCircle,Shuffle,X} from 'lucide-react';
 import {bulkApplyCandidates,selectedCv,type Job,type State} from '@/lib/cyber-domain';
-import {CLOSER_CV_MATCH,closerCvMatch,rankBatchJobs,validBatchSelection,type BatchJobMatch} from '@/lib/batch-job-selection';
+import {CLOSER_CV_MATCH,closerCvMatch,randomBatchSelection,rankBatchJobs,validBatchSelection,type BatchJobMatch} from '@/lib/batch-job-selection';
 import {sourceLabel} from '@/lib/job-catalog';
 import './explore-batch-apply.css';
 
@@ -23,10 +23,12 @@ function BatchPicker({batch,saving,busy,failure,onClose,onApply}:{batch:Batch;sa
  const disabled=saving||busy||!!failure,valid=validBatchSelection(batch.jobs,selected,batch.count);
  useEffect(()=>{const previous=document.activeElement as HTMLElement;ref.current?.showModal();return()=>previous?.focus?.();},[]);
  function toggle(id:string){if(disabled)return;setSelected(current=>current.includes(id)?current.filter(value=>value!==id):current.length<batch.count?[...current,id]:current);}
+ function chooseRandom(){if(disabled)return;setSelected(randomBatchSelection(batch.jobs,batch.count));setFilter('selected');}
  return <dialog ref={ref} className="modal explore-batch-preview" aria-labelledby="bulk-apply-title" onCancel={event=>{event.preventDefault();if(!saving)onClose();}}>
  <div className="modal-head"><h2 id="bulk-apply-title">Choose {batch.count} jobs to apply for</h2><IconTip text="Close the job picker"><button type="button" className="button icon-button quiet" aria-label="Close batch picker" disabled={saving} onClick={onClose}><X size={19}/></button></IconTip></div>
  <p>Using <strong>{batch.cvName}</strong>. Open each job’s details, compare its CV skill match, then select the jobs you want.</p>
  <p className="subtle batch-match-explanation">Closer matches have at least {CLOSER_CV_MATCH}% of their listed skill keywords found in this CV. This comparison does not verify eligibility or predict hiring success.</p>
+ <div className="batch-random-selection"><button type="button" className="button quiet" disabled={disabled||batch.jobs.length<batch.count} onClick={chooseRandom}><Shuffle size={16}/>Choose {batch.count} random</button><p>Pick from all available vacancies, regardless of CV match. This replaces your selection. Review or change the jobs before applying.</p></div>
  <div className="batch-match-filters" role="group" aria-label="Filter jobs by CV match">{([['closer',`Closer CV matches (${closer.length})`],['all',`All available (${batch.jobs.length})`],['selected',`Selected (${selected.length})`]] as const).map(([value,label])=><button key={value} type="button" className="button quiet" aria-pressed={filter===value} disabled={saving} onClick={()=>setFilter(value)}>{label}</button>)}</div>
  <p className="batch-selection-count" role="status" aria-live="polite">{selected.length} of {batch.count} jobs selected{selected.length===batch.count?'. Ready to apply.':`. Choose ${batch.count-selected.length} more.`}</p>
  {closer.length>0&&closer.length<batch.count&&filter==='closer'&&<p className="subtle">There are {closer.length} closer CV matches. You can view All available to choose the rest.</p>}

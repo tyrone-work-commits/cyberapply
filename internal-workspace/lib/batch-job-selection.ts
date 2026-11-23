@@ -8,6 +8,16 @@ export function rankBatchJobs(state:State,jobs:Job[]):BatchJobMatch[]{
  return bulkApplyCandidates(state,jobs).map(job=>({job,...jobFit(job,state.profile.resumeText)})).sort((a,b)=>(b.score??-1)-(a.score??-1)||b.matched.length-a.matched.length);
 }
 export function closerCvMatch(item:BatchJobMatch){return item.score!==null&&item.score>=CLOSER_CV_MATCH;}
+/** Sample available vacancies without replacement; never change their CV-match order. */
+export function randomBatchSelection(jobs:BatchJobMatch[],count:5|10,random:()=>number=Math.random):string[]{
+ const ids=[...new Set(jobs.map(item=>item.job.id))];
+ if(ids.length<count)return [];
+ for(let i=0;i<count;i++){
+  const next=i+Math.floor(random()*(ids.length-i));
+  [ids[i],ids[next]]=[ids[next],ids[i]];
+ }
+ return ids.slice(0,count);
+}
 export function validBatchSelection(jobs:BatchJobMatch[],ids:string[],count:5|10){
  return ids.length===count&&new Set(ids).size===count&&ids.every(id=>jobs.some(item=>item.job.id===id));
 }
