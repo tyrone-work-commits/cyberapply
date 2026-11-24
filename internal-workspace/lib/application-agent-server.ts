@@ -422,17 +422,16 @@ export async function recordingViewer(request:Request){try{
  const attempt=url.searchParams.get('attempt');
  if(!attempt){
   const cursor=url.searchParams.get('cursor')||undefined;if(cursor&&cursor.length>2000)throw new DomainError('Invalid recording cursor.');
-  const prefix=recordingPrefix(user.userId,id),options={prefix,limit:1000,cursor,include:['customMetadata']},page=await files().list(options);
+  const prefix=recordingPrefix(user.userId,id),options={prefix,limit:1000,cursor,include:['customMetadata']};
   // R2 paginates by key, not recording date. Always include the current claim,
   // even when older history fills the first page.
   const currentItem=recordingOwnerItem(current.state,id);
   const latestOptions={...options,prefix:prefix+(currentItem.claim?.id||''),limit:100,cursor:undefined};
-  const latestPage=currentItem.claim?await files().list(latestOptions):null;
+  const [page,latestPage,statusObject]=await Promise.all([files().list(options),currentItem.claim?files().list(latestOptions):null,currentItem.claim?files().get(recordingStatusKey(user.userId,id,currentItem.claim.id)):null]);
   const objects=[...new Map([...page.objects,...(latestPage?.objects||[])].map(object=>[object.key,object])).values()];
   const media=objects.filter((object):object is NonNullable<typeof object>=>!!object).filter(object=>object.key.startsWith(prefix)&&/^[0-9a-f-]{36}(?:-part-\d{3})?\.mp4$/.test(object.key.slice(prefix.length))).map(object=>({attempt:object.customMetadata?.claimId,duration:Number(object.customMetadata?.duration||0),startedAt:object.customMetadata?.startedAt,recordedAt:object.customMetadata?.recordedAt,partial:object.customMetadata?.partial==='true',reason:object.customMetadata?.reason||'',size:object.size,part:object.customMetadata?.part===undefined?null:Number(object.customMetadata.part)})).filter(item=>item.attempt);
   const groups=new Map<string,typeof media>();for(const item of media){const group=groups.get(item.attempt!)||[];group.push(item);groups.set(item.attempt!,group);}
   const items=[...groups].map(([attempt,parts])=>{parts.sort((a,b)=>(a.part??-1)-(b.part??-1));return {attempt,duration:parts.reduce((n,p)=>n+p.duration,0),startedAt:parts[0].startedAt,recordedAt:parts[parts.length-1].recordedAt,partial:parts.some(p=>p.partial),reason:parts.find(p=>p.reason)?.reason||'',size:parts.reduce((n,p)=>n+p.size,0),parts};}).sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt)));
-  const statusObject=currentItem.claim?await files().get(recordingStatusKey(user.userId,id,currentItem.claim.id)):null;
   const status=statusObject?await statusObject.json<Record<string,unknown>>():null;
   const job=current.state.jobs.find(job=>job.id===currentItem.jobId);
   return response({items,nextCursor:page.truncated?page.cursor:null,status,applicationStatus:currentItem.status,currentAttempt:currentItem.claim?.id||null,applicationUpdatedAt:currentItem.result?.at||currentItem.claim?.at||currentItem.agentAuthorizedAt||currentItem.at,employer:{title:job?.title||'Job listing unavailable',company:job?.company||'Employer',url:applicationEmployerLink(currentItem,job)}});
