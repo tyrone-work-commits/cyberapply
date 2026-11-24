@@ -28,6 +28,7 @@ export function browserRecoverySnapshot(owner:string,applications:ApplicationReq
 
 export function recoveryGate(snapshot:RecoverySnapshot|null,expectsBrowser:boolean,failed=false,now=Date.now()){
  const stale=!!snapshot&&(!Number.isFinite(Date.parse(snapshot.checkedAt))||Date.parse(snapshot.checkedAt)<now-20000||Date.parse(snapshot.checkedAt)>now+1000);
- const unavailable=failed||stale;
+ // One missed HTTP check is not proof that a still-fresh exact browser died.
+ const unavailable=stale||failed&&!snapshot;
  return {blocked:unavailable?(expectsBrowser||!!snapshot?.entries.length):snapshot?snapshot.blocked:expectsBrowser,highlighted:!!snapshot?.needsRecovery||unavailable&&(expectsBrowser||!!snapshot?.entries.length),checking:!snapshot&&!failed||stale||failed};
 }

@@ -12,16 +12,15 @@ export function useApplicationSessionRecovery(applications:ApplicationRequest[])
  const refreshRef=useRef<()=>void>(()=>{});
  const signature=applications.map(item=>`${item.id}:${item.status}:${item.claim?.id||''}:${item.manualSubmission?.state||''}`).sort().join('|');
  useEffect(()=>{
-  let stopped=false,timer:ReturnType<typeof setTimeout>|undefined,controller:AbortController|undefined,inFlight=false,generation=0;
-  async function read(){if(stopped||inFlight||document.hidden)return;inFlight=true;const ownGeneration=generation;controller=new AbortController();setChecking(true);const timeout=setTimeout(()=>controller?.abort(),10000);
-   try{const r=await fetch('/api/applications/browser-recovery',{cache:'no-store',signal:controller.signal});if(!r.ok)throw Error();const value=await r.json() as RecoverySnapshot;if(!Array.isArray(value.entries)||typeof value.blocked!=='boolean'||typeof value.needsRecovery!=='boolean'||!Number.isFinite(Date.parse(value.checkedAt)))throw Error();if(!stopped&&ownGeneration===generation){setSnapshot(value);setCheckedSignature(signature);setFailed(false);setClock(Date.now());}}
-   catch{if(!stopped&&ownGeneration===generation)setFailed(true);}finally{clearTimeout(timeout);inFlight=false;if(!stopped){setChecking(false);timer=setTimeout(read,3000);}}
+  let stopped=false,timer:ReturnType<typeof setTimeout>|undefined,expiry:ReturnType<typeof setTimeout>|undefined,controller:AbortController|undefined,inFlight=false,generation=0;
+  async function read(showChecking=false){if(stopped||inFlight||document.hidden)return;inFlight=true;const ownGeneration=generation;controller=new AbortController();if(showChecking)setChecking(true);const timeout=setTimeout(()=>controller?.abort(),10000);
+   try{const r=await fetch('/api/applications/browser-recovery',{cache:'no-store',signal:controller.signal});if(!r.ok)throw Error();const value=await r.json() as RecoverySnapshot;if(!Array.isArray(value.entries)||typeof value.blocked!=='boolean'||typeof value.needsRecovery!=='boolean'||!Number.isFinite(Date.parse(value.checkedAt)))throw Error();if(!stopped&&ownGeneration===generation){setSnapshot(value);setCheckedSignature(signature);setFailed(false);setClock(Date.now());if(expiry)clearTimeout(expiry);expiry=setTimeout(()=>setClock(Date.now()),Math.max(1,Date.parse(value.checkedAt)+20001-Date.now()));}}
+   catch{if(!stopped&&ownGeneration===generation)setFailed(true);}finally{clearTimeout(timeout);inFlight=false;if(!stopped){setChecking(false);timer=setTimeout(()=>void read(),3000);}}
   }
-  function refresh(){if(timer)clearTimeout(timer);if(!inFlight)void read();}
-  function resumed(){if(document.hidden)return;generation++;controller?.abort();setFailed(true);refresh();}
-  refreshRef.current=refresh;document.addEventListener('visibilitychange',resumed);window.addEventListener('pageshow',resumed);window.addEventListener('online',resumed);void read();
-  const tick=setInterval(()=>setClock(Date.now()),1000);
-  return()=>{stopped=true;generation++;controller?.abort();if(timer)clearTimeout(timer);clearInterval(tick);document.removeEventListener('visibilitychange',resumed);window.removeEventListener('pageshow',resumed);window.removeEventListener('online',resumed);};
+  function refresh(){if(timer)clearTimeout(timer);if(!inFlight)void read(true);}
+  function resumed(){if(document.hidden)return;generation++;controller?.abort();setCheckedSignature('');setFailed(true);refresh();}
+  refreshRef.current=refresh;document.addEventListener('visibilitychange',resumed);window.addEventListener('pageshow',resumed);window.addEventListener('online',resumed);void read(true);
+  return()=>{stopped=true;generation++;controller?.abort();if(timer)clearTimeout(timer);if(expiry)clearTimeout(expiry);document.removeEventListener('visibilitychange',resumed);window.removeEventListener('pageshow',resumed);window.removeEventListener('online',resumed);};
  },[signature]);
  const refresh=useCallback(()=>refreshRef.current(),[]),gate=recoveryGate(checkedSignature===signature?snapshot:null,expectsBrowser,failed,clock);
  return {snapshot,...gate,checking:checking||gate.checking,open,setOpen,refresh};

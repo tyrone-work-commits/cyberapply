@@ -1,8 +1,8 @@
 import type {ApplicationRequest} from './cyber-domain';
 import type {BrowserWindowRow} from './application-browser-window';
 import {manualSession,lostManualRecoveryEligible,ownerConfirmedUnsentEligible,type ManualBrowserHealth} from './manual-submission';
-export const MANUAL_BROWSER_FRESH_MS=20000,MANUAL_OPEN_ACK_MS=15000;
-/** A process-wide heartbeat cannot establish that this exact form is alive. */
+export const MANUAL_BROWSER_FRESH_MS=60000,MANUAL_OPEN_ACK_MS=15000;
+/** The exact manual owner thread may wait on bounded network/browser operations. Allow a 60s reporting window; a process-wide heartbeat never substitutes for it. */
 export function manualBrowserHealth(owner:string,item:ApplicationRequest,row:BrowserWindowRow|null,now=Date.now()):ManualBrowserHealth{
  const h=manualSession(item),scoped=!!h&&!!row&&row.owner_id===owner&&row.request_id===item.id&&row.claim_id===item.claim?.id&&(!h.browserSessionId||row.session_id===h.browserSessionId);
  const fresh=scoped&&!row!.closed&&row!.seen_at>=now-MANUAL_BROWSER_FRESH_MS&&row!.seen_at<=now+1000;

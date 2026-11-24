@@ -51,5 +51,5 @@ assert.ok(g.data.entries.some(entry=>entry.requestId===b.task.requestId&&entry.s
 assert.doesNotMatch(JSON.stringify(g.data),/PRIVATE HEALTH|resumeText|health@example|claimId|browserSessionId|approvedHosts|password/);checks++;
 const foreignGate=await call(gatePath,{headers:foreign});eq(foreignGate.status,200);eq(foreignGate.data.entries,[]);eq(foreignGate.data.blocked,false);
 const gateAfter=(await call('/api/workspace')).data;eq(gateAfter.revision,gateBefore.revision);eq(gateAfter.state,gateBefore.state);
-const anonGate=await fetch(base+gatePath);eq(anonGate.ok,false);const postGate=await fetch(base+gatePath,{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:'{}'});eq(postGate.ok,false);
+const anonGate=await fetch(base+gatePath);eq(anonGate.ok,false);await anonGate.arrayBuffer();const postGate=await fetch(base+gatePath,{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:'{}'});eq(postGate.ok,false);await postGate.arrayBuffer();
 console.log('PASS 13 aggregate session-recovery HTTP checks: owner scope, mixed states, minimal metadata and no workspace writes.');
