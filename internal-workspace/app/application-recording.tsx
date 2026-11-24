@@ -6,6 +6,7 @@ import {createPortal} from 'react-dom';
 import {ArrowLeft,Download,ExternalLink,Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
 import {dvrTarget,resumeVideo} from '@/lib/video-dvr';
 import {RecordingLoader} from '@/lib/recording-loader';
+import recordingWorkerUrl from '../lib/recording-remux.worker.ts?worker&url';
 import {applicationRecordingTimeline,recordingPollDelay,recordingViewMessage,liveVideoPhase,type LiveVideoInfo,type RecordingSnapshot} from '@/lib/recording-view-state';
 export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false,liveInfo}:{requestId:string;onClose?:()=>void;embedded?:boolean;dvr?:boolean;liveInfo?:LiveVideoInfo|null}){
  const [snapshot,setSnapshot]=useState<RecordingSnapshot|null>(null),[message,setMessage]=useState('Loading your private application video…'),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false),[refresh,setRefresh]=useState(0);
@@ -68,7 +69,7 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
      const buffers=await Promise.all(ordered.map(part=>downloads.get(url(part))!));
      if(disposed)return;
      const combined=await new Promise<ArrayBuffer>((resolve,reject)=>{
-      worker=new Worker(new URL('../lib/recording-remux.worker.ts',import.meta.url),{type:'module'});
+      worker=new Worker(recordingWorkerUrl,{type:'module'});
       worker.onmessage=(event:MessageEvent<{bytes?:ArrayBuffer;error?:string}>)=>event.data.bytes?resolve(event.data.bytes):reject(Error(event.data.error||'The video could not be prepared.'));
       worker.onerror=()=>reject(Error('The video could not be prepared. Use Refresh video to try again.'));
       const copies=buffers.map(bytes=>bytes.slice(0));worker.postMessage(copies,copies);
