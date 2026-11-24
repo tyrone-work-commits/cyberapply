@@ -2,7 +2,7 @@ import {manualBrowserHealth,mergeManualReport} from './manual-browser-health';
 import {getBrowserWindow,updateBrowserWindow} from './application-browser-window';
 import {applicationLiveState} from './application-live-state';
 import {desktopNotices} from './desktop-notices';
-import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,restoreLostManualSubmission,manualCommand} from './manual-submission';
+import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,restoreLostManualSubmission,restoreOwnerConfirmedUnsent,manualCommand} from './manual-submission';
 import {claimLocationCapture,completeLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
@@ -60,7 +60,7 @@ const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','u
 
 export async function manualSubmitOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
- const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
  if(body)sameOrigin(request);
  const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
  for(let attempt=0;attempt<3;attempt++){
@@ -68,14 +68,14 @@ export async function manualSubmitOwner(request:Request){try{
   const health=manualBrowserHealth(user.userId,item,await getBrowserWindow(presenceDb(),user.userId,item.id));
   if(!body)return response({session:manualDisplaySession(item),health});
   let session;
-  if(body.command==='restore'){
-   if(health.state!=='not_reporting'||!health.canRestore)throw new DomainError('This session is connected or its unsent outcome cannot be established. No application was restarted.',409);
+  if(body.command==='restore'||body.command==='confirm_unsent'){
+   if(health.state!=='not_reporting'||!(body.command==='confirm_unsent'?health.canConfirmUnsent:health.canRestore))throw new DomainError('This session is connected or its unsent outcome cannot be established. No application was restarted.',409);
    assertApplicationAuthorizationCurrent(current.state,item);
    const file=current.state.attachments.find(f=>f.id===item.cv?.fileId),job=current.state.jobs.find(j=>j.id===item.jobId);
    if(!file||!item.cvSha256||!job||job.source?.availability==='closed')throw new DomainError('The original CV or vacancy is unavailable.',409);
    const object=await files().get(file.key);if(!object||await digest(await object.arrayBuffer())!==item.cvSha256)throw new DomainError('The original CV changed or is unavailable.',409);
    if(manualBrowserHealth(user.userId,item,await getBrowserWindow(presenceDb(),user.userId,item.id)).state!=='not_reporting')throw new DomainError('The original browser reconnected. Open that exact browser instead.',409);
-   session=restoreLostManualSubmission(item,body.id,body.approvedHosts,body.openConfirmed===true&&body.closedBeforeSubmitConfirmed===true);
+   session=body.command==='confirm_unsent'?restoreOwnerConfirmedUnsent(item,body.id,body.approvedHosts,body.neverSubmittedConfirmed===true&&body.closedBeforeSubmitConfirmed===true):restoreLostManualSubmission(item,body.id,body.approvedHosts,body.openConfirmed===true&&body.closedBeforeSubmitConfirmed===true);
   }else if(closedBeforeSubmit(item)&&item.manualSubmission?.id===body.id){
    if(body.command==='cancel'){item.manualSubmission.state='cancelled';item.report={...item.report,manual_submission:{...(item.report?.manual_submission as object),recovery_cancelled:true}};item.manualSubmission.updatedAt=new Date().toISOString();session=null;}
    else {

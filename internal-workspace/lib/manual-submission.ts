@@ -1,9 +1,21 @@
 import {DomainError,type ApplicationRequest} from './cyber-domain';
 export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string};browserSessionId?:string;browserHealthVersion?:1;openCommandId?:string;openRequestedAt?:string;openedCommandId?:string;openError?:'window_unavailable';browserExposedAt?:string};
-export type ManualBrowserHealth={state:'checking'|'connected'|'not_reporting';open:'idle'|'pending'|'opened'|'failed'|'timed_out';canRestore:boolean;lastSeenAt?:string;legacy?:boolean};
+export type ManualBrowserHealth={state:'checking'|'connected'|'not_reporting';open:'idle'|'pending'|'opened'|'failed'|'timed_out';canRestore:boolean;canConfirmUnsent?:boolean;lastSeenAt?:string;legacy?:boolean};
 export function lostManualRecoveryEligible(item:ApplicationRequest){
  const h=manualSession(item),j=item.report?.journey as Record<string,unknown>|undefined,m=item.report?.manual_submission as Record<string,unknown>|undefined;
  return !!h&&h.state==='ready'&&h.browserHealthVersion===1&&!h.browserExposedAt&&!item.result?.receipt&&!item.result?.evidence&&!h.receipt&&j?.version===1&&j.continue_click_attempts===0&&j.submit_click_attempts===0&&j.possible_delivery===false&&j.manual_submit_observed===false&&j.human_submit_observed===0&&m?.policy==='user_final_submit'&&m.human_submit_observed===0&&m.recovery_cancelled!==true;
+}
+/** A legacy lost session needs a fresh owner declaration, never fabricated worker evidence. */
+export function ownerConfirmedUnsentEligible(item:ApplicationRequest){
+ const h=manualSession(item),j=item.report?.journey as Record<string,unknown>|undefined,m=item.report?.manual_submission as Record<string,unknown>|undefined;
+ return !!h&&h.state==='ready'&&!h.browserHealthVersion&&!item.result?.receipt&&!item.result?.evidence&&!h.receipt&&j?.version===1&&j.continue_click_attempts===0&&j.submit_click_attempts===0&&j.possible_delivery===false&&j.manual_submit_observed===false&&j.human_submit_observed===0&&m?.policy==='user_final_submit'&&m.window==='hidden'&&m.human_submit_observed===0&&m.recovery_cancelled!==true;
+}
+export function restoreOwnerConfirmedUnsent(item:ApplicationRequest,id:string,hosts:string[],confirmed:boolean){
+ const h=manualSession(item);if(!h||h.id!==id||!ownerConfirmedUnsentEligible(item))throw new DomainError('This legacy form has missing or conflicting submission evidence. No application was restarted.',409);
+ if(!confirmed)throw new DomainError('Confirm that you never pressed final Submit and the old window is no longer available.',409);
+ if(hosts.some(host=>!h.challengeHosts.includes(host))||h.challengeHosts.some(host=>!hosts.includes(host)))throw new DomainError('Approve exactly the listed reCAPTCHA destinations.',409);
+ const at=new Date().toISOString();item.manualSubmission={id:h.id,claimId:h.claimId,state:'reopening',at:h.at,updatedAt:at,challengeHosts:h.challengeHosts,approvedHosts:hosts,openRequested:false};
+ item.status='queued';item.agentAuthorizedAt=at;item.report={...item.report,manual_submission:{...mFrom(item),recovery_source:'owner_declared_legacy_unsent',owner_unsent_declaration:{at,never_pressed_final_submit:true,old_window_unavailable:true}}};item.result={at,message:'Rebuilding the same request after your explicit declaration that you never pressed final Submit and the old window is unavailable. Original CV and saved answers retained. The replacement stays hidden until you choose Open; final Submit remains manual.'};return item.manualSubmission;
 }
 export function restoreLostManualSubmission(item:ApplicationRequest,id:string,hosts:string[],confirmed:boolean){
  const h=manualSession(item);if(!h||h.id!==id||!lostManualRecoveryEligible(item))throw new DomainError('The saved evidence cannot establish that this lost form is unsent. Check the employer outcome before retrying.',409);
