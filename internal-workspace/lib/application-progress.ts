@@ -1,6 +1,6 @@
 import {currentHandoff,persistentQuestionHandoff} from './verification-handoff';
 import type { ApplicationRequest } from './cyber-domain';
-import {manualDisplaySession} from './manual-submission';
+import {manualDisplaySession,type ManualBrowserHealth} from './manual-submission';
 
 export type ProgressGroup = 'in_progress' | 'needs_you' | 'applied' | 'check_outcome';
 type Step = {label:string;state:'done'|'current'|'pending'};
@@ -23,7 +23,7 @@ function hasConfirmation(application:ApplicationRequest){
 }
 
 /** Presentation only: this never changes a saved outcome or authorizes a retry. */
-export function applicationProgress(application:ApplicationRequest,now=Date.now()):ApplicationProgress{
+export function applicationProgress(application:ApplicationRequest,now=Date.now(),browserHealth?:ManualBrowserHealth):ApplicationProgress{
   const status=application.status;
   const confirmed=status==='applied'&&hasConfirmation(application);
   const expiresAt=Date.parse(application.claim?.expiresAt||'');
@@ -53,6 +53,12 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     group='needs_you';label=manual.state==='needs_submit'?'Needs you: submit':manual.state==='cancel_requested'?'Cancellation requested':'Ready – submit it yourself';tone='warning';description='Open the CyberApply browser window and press Submit. Complete any reCAPTCHA yourself. The same form stays open until you submit or cancel; the agent never retries Submit.';
     if(manual.state==='closed_before_submit')description='The browser closed before any recorded Continue or Submit. Confirm you closed before submitting to reopen and refill this application with the original CV and saved answers.';
     if(manual.state==='reopening'){label='Reopening your unsent form';description='The runner is refilling the original application after your explicit reopen request. It will wait for you to press Submit.';}
+    if(['ready','needs_submit'].includes(manual.state)&&browserHealth){
+      if(browserHealth.state==='checking'){label='Checking browser session';description='Checking whether this exact filled application browser is still connected.';}
+      else if(browserHealth.state==='not_reporting'){label='Browser session disconnected';description='This exact application browser is no longer reporting. A running agent does not restore an old browser’s memory. Your CV and saved answers remain; do not submit again while the outcome is uncertain.';}
+      else if(['failed','timed_out'].includes(browserHealth.open)){label='Browser did not open';description='The browser did not confirm the Open request. Check its connection below; no new application was started.';}
+      else if(browserHealth.open==='pending'){label='Opening browser';description='Your Open request was saved. Waiting for this exact browser to confirm it opened.';}
+    }
   }else if(checkOutcome){
     group='check_outcome';label='Awaiting confirmation';tone='neutral';
     description=lostClaim?'The agent stopped reporting before an outcome was confirmed. Check the employer website or your email account before trying again.':

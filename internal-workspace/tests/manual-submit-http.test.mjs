@@ -12,7 +12,7 @@ eq((await call('/api/application-agent/claim',{method:'POST',headers:worker,body
 const task=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2}})).data.task,ids={requestId:task.requestId,claimId:task.claimId},id=randomUUID();
 
 const workerPath='/api/application-agent/manual-submit',ownerPath='/api/applications/manual-submit',query='?requestId='+task.requestId;
-const begin={...ids,id,event:'ready',challengeHosts:['www.google.com'],report:{journey:{version:1,submit_click_attempts:0,possible_delivery:false}}};
+const begin={...ids,id,event:'ready',browserHealthVersion:1,browserSessionId:randomUUID(),challengeHosts:['www.google.com'],report:{journey:{version:1,submit_click_attempts:0,possible_delivery:false}}};
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...begin,challengeHosts:['evil.test']}})).status,409);
 let r=await call(workerPath,{method:'POST',headers:worker,body:begin});eq(r.status,200);eq(r.data.session.state,'ready');eq(r.data.session.expiresAt,undefined);
 eq((await call(workerPath,{method:'POST',headers:worker,body:begin})).data.session.id,id);

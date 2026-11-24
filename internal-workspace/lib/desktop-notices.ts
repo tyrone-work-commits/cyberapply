@@ -1,15 +1,18 @@
 import type {State} from './cyber-domain';
-import {manualDisplaySession} from './manual-submission';
+import {manualDisplaySession,type ManualBrowserHealth} from './manual-submission';
 import {currentHandoff} from './verification-handoff';
 
-export type DesktopNotice={key:string;kind:'input'|'submit';company:string;role:string};
+export type DesktopNotice={key:string;kind:'input'|'submit';company:string;role:string;reason?:'browser_session'};
 /** Owner-authenticated heartbeat metadata only; never changes a form or request. */
-export function desktopNotices(state:State,now=Date.now()):DesktopNotice[]{
+export function desktopNotices(state:State,now=Date.now(),health?:Record<string,ManualBrowserHealth>):DesktopNotice[]{
  const notices:DesktopNotice[]=[];
  for(const item of state.applications||[]){
   const manual=manualDisplaySession(item),handoff=currentHandoff(item,now);
   let kind:DesktopNotice['kind']|undefined,version='';
-  if(manual&&['ready','needs_submit','closed_before_submit'].includes(manual.state)){
+  let reason:DesktopNotice['reason'];
+  if(manual&&['ready','needs_submit'].includes(manual.state)&&health?.[item.id]?.state==='not_reporting'){
+   kind='input';version=`browser_lost:${manual.id}`;reason='browser_session';
+  }else if(manual&&['ready','needs_submit','closed_before_submit'].includes(manual.state)){
    kind='submit';version=`manual:${manual.id}:${manual.state}`;
   }else if(handoff&&['waiting','opening','opened'].includes(handoff.state)){
    kind='input';version=`handoff:${handoff.id}`;
@@ -18,7 +21,7 @@ export function desktopNotices(state:State,now=Date.now()):DesktopNotice[]{
   }
   if(!kind)continue;
   const job=state.jobs.find(job=>job.id===item.jobId);
-  notices.push({key:`${item.id}|${version}`,kind,company:(job?.company||'Employer').slice(0,120),role:(job?.title||'Job application').slice(0,180)});
+  notices.push({key:`${item.id}|${version}`,kind,company:(job?.company||'Employer').slice(0,120),role:(job?.title||'Job application').slice(0,180),...(reason?{reason}:{})});
   if(notices.length===100)break;
  }
  return notices;

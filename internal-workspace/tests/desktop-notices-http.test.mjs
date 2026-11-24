@@ -17,7 +17,7 @@ for(const title of ['Fictional SOC Analyst','Fictional Security Engineer']){
   eq((await heartbeat()).data.notices.length,0);
   eq((await call('/api/application-agent/result',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional ordinary question pause.',report:{questions:[{question:'Preferred shift?',field_type:'select',options:['Day','Night']}],unresolved:[{question:'Preferred shift?',field_type:'select'}]}}})).status,200);
  }else{
-  const ready=await call('/api/application-agent/manual-submit',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,id:randomUUID(),event:'ready',challengeHosts:[],report:{journey:{version:1,submit_click_attempts:0,continue_click_attempts:0,possible_delivery:false}}}});eq(ready.status,200);
+  const ready=await call('/api/application-agent/manual-submit',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,id:randomUUID(),event:'ready',browserHealthVersion:1,browserSessionId:randomUUID(),challengeHosts:[],report:{journey:{version:1,submit_click_attempts:0,continue_click_attempts:0,possible_delivery:false}}}});eq(ready.status,200);
  }
  current=(await call('/api/workspace')).data;
 }

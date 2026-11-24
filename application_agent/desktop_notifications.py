@@ -49,7 +49,7 @@ class DesktopNotifications:
                 if not isinstance(previous,dict):previous={}
                 if previous.get('sentAt') is not None or previous.get('retryAt',0)>now or digest in keys.values():continue
                 title=re.sub(r'[\s\x00-\x1f]+',' ',f'{company[:120]} — {role[:180]}').strip()
-                action='Open Applications to review the employer questions.' if notice['kind']=='input' else 'Open Applications, then open your prepared browser and press Submit.'
+                action='Open Applications to check the disconnected browser session.' if notice.get('reason')=='browser_session' else 'Open Applications to review the employer questions.' if notice['kind']=='input' else 'Open Applications, then open your prepared browser and press Submit.'
                 tag=digest[:16];keys[tag]=digest;pending.append({'kind':notice['kind'],'body':title[:220]+'. '+action,'tag':tag})
                 if len(pending)==10:break
             if not pending:return

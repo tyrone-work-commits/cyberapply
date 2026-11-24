@@ -30,8 +30,11 @@ class BrowserWindow:
         except Exception:error='window_unavailable'
         with self.lock:self.handled=requested;self.error=error
     def close(self):
-        self.stop.set()
-        if self.thread:self.thread.join(timeout=5)
+        self.suspend()
         if self.registered:
             try:self._exchange('closed')
             except Exception:pass
+    def suspend(self):
+        """Let the manual form's owner thread report its actual liveness."""
+        self.stop.set()
+        if self.thread:self.thread.join(timeout=5)

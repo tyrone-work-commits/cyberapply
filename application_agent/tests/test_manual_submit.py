@@ -133,3 +133,27 @@ def test_disabled_submit_waits_for_person_instead_of_closing_as_ambiguous():
     result,posts,actor,_=run_manual(html,True)
     assert result['status']=='applied' and len(posts)==1,result
     assert result['report']['journey']['submit_click_attempts']==0
+
+def test_repeated_exact_open_nonce_is_acknowledged_without_refocusing_or_submitting():
+    posts=[];calls=[];opened=[]
+    nonce='5a814bd1-4d80-42e3-8d60-8cf850a49501'
+    class NoSubmit(ManualSubmit):
+        def minimize(self,context,page):self.page=page
+        def window(self,context,page):opened.append(id(page))
+        def api(self,path,body):
+            calls.append(body)
+            assert body['browserHealthVersion']==1 and body['browserSessionId']==self.id
+            return {'session':{'state':'cancel_requested' if len(calls)>=4 else 'ready','openRequested':True,'openCommandId':nonce,'approvedHosts':[]}}
+    actor=NoSubmit(None,{'requestId':'one','claimId':'fixture-claim'},notify=None);actor.call=actor.api
+    @contextmanager
+    def factory():
+        with browser_factory(FORM.replace('{extra}','<p>Protected by reCAPTCHA</p>'),posts) as runtime:
+            launch=runtime.chromium.launch
+            runtime.chromium.launch=lambda **kw:launch(**{**kw,'headless':True})
+            yield runtime
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _:{},resolver=dns,timeout=1500,before_submit=lambda:True,playwright_factory=factory,manual_submit_handler=actor)
+    # Ordinary employer forms without reCAPTCHA submit automatically, so mark
+    # this isolated fixture as protected by its content.
+    assert not posts
+    assert result['status']=='uncertain'
+    assert len(opened)==1 and calls[-1]['openedCommandId']==nonce

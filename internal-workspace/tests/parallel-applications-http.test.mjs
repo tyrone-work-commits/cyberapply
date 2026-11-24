@@ -13,7 +13,7 @@ const claim=(body=parallel)=>call('/api/application-agent/claim',{headers:worker
 const first=await claim(legacy);eq(first.status,200);assert.ok(first.data.task);const tasks=[first.data.task];
 const ids=t=>({requestId:t.requestId,claimId:t.claimId});
 const firstSession=randomUUID();
-eq((await call('/api/application-agent/manual-submit',{headers:worker,body:{...ids(tasks[0]),id:firstSession,event:'ready',challengeHosts:[],report:{journey:{version:1,submit_click_attempts:0,continue_click_attempts:0,possible_delivery:false}}}})).status,200);
+eq((await call('/api/application-agent/manual-submit',{headers:worker,body:{...ids(tasks[0]),id:firstSession,event:'ready',browserHealthVersion:1,browserSessionId:randomUUID(),challengeHosts:[],report:{journey:{version:1,submit_click_attempts:0,continue_click_attempts:0,possible_delivery:false}}}})).status,200);
 eq((await claim(legacy)).data.task,null);eq((await claim({...legacy,parallelApplicationsVersion:99})).data.task,null);
 // True simultaneous HTTP claims exercise D1 revision conflicts. Only unclaimed
 // requests may be picked again; an outcome/Submit is never retried here.
@@ -21,7 +21,7 @@ for(const result of await Promise.all(Array.from({length:9},()=>claim()))){asser
 for(let i=0;tasks.length<10&&i<20;i++){const r=await claim();eq(r.status,200);assert.ok(r.data.task);tasks.push(r.data.task);}
 eq(tasks.length,10);eq(new Set(tasks.map(t=>t.requestId)).size,10);eq(new Set(tasks.map(t=>t.claimId)).size,10);eq((await claim()).data.task,null);
 current=(await call('/api/workspace')).data;eq(current.state.applications.filter(a=>a.status==='processing').length,10);eq(current.state.applications.filter(a=>a.status==='queued').length,2);eq(current.state.applications.find(a=>a.id===tasks[0].requestId).manualSubmission.id,firstSession);
-const secondSession=randomUUID();eq((await call('/api/application-agent/manual-submit',{headers:worker,body:{...ids(tasks[1]),id:secondSession,event:'ready',challengeHosts:[]}})).status,200);
+const secondSession=randomUUID();eq((await call('/api/application-agent/manual-submit',{headers:worker,body:{...ids(tasks[1]),id:secondSession,event:'ready',browserHealthVersion:1,browserSessionId:randomUUID(),challengeHosts:[]}})).status,200);
 eq((await call('/api/applications/manual-submit',{body:{requestId:tasks[0].requestId,id:firstSession,command:'open',openConfirmed:true,approvedHosts:[]}})).status,200);
 let a=await call('/api/application-agent/manual-submit?'+new URLSearchParams(ids(tasks[0])),{headers:worker});eq(a.data.session.openRequested,true);
 a=await call('/api/application-agent/manual-submit?'+new URLSearchParams(ids(tasks[1])),{headers:worker});eq(a.data.session.openRequested,false);eq(a.data.session.id,secondSession);

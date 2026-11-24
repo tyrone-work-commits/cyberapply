@@ -49,6 +49,16 @@ def test_focus_failure_is_reported_without_navigation_or_submit():
     assert control.error=='window_unavailable' and control._exchange('poll')['error']=='window_unavailable'
     control.check();assert page.front==0
 
+def test_manual_phase_suspends_generic_heartbeat_without_closing_the_page():
+    ready=threading.Event();calls=[]
+    def api(path,body):calls.append(body);ready.set();return {}
+    page=Page();control=BrowserWindow(api,{'requestId':'request','claimId':'claim'},interval=.01)
+    control.attach(Context(page),page);assert ready.wait(2)
+    control.suspend();count=len(calls);control.stop.wait(.03)
+    assert len(calls)==count and not control.thread.is_alive()
+    assert not page.is_closed() and all(c['event']!='closed' for c in calls)
+    control.close();assert calls[-1]['event']=='closed'
+
 def test_focusing_during_preparation_preserves_original_page_filled_email_cv_and_fields():
     observed=[];posts=[]
     class Focus(BrowserWindow):

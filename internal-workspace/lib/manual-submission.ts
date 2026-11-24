@@ -1,5 +1,18 @@
 import {DomainError,type ApplicationRequest} from './cyber-domain';
-export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string}};
+export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string};browserSessionId?:string;browserHealthVersion?:1;openCommandId?:string;openRequestedAt?:string;openedCommandId?:string;openError?:'window_unavailable';browserExposedAt?:string};
+export type ManualBrowserHealth={state:'checking'|'connected'|'not_reporting';open:'idle'|'pending'|'opened'|'failed'|'timed_out';canRestore:boolean;lastSeenAt?:string;legacy?:boolean};
+export function lostManualRecoveryEligible(item:ApplicationRequest){
+ const h=manualSession(item),j=item.report?.journey as Record<string,unknown>|undefined,m=item.report?.manual_submission as Record<string,unknown>|undefined;
+ return !!h&&h.state==='ready'&&h.browserHealthVersion===1&&!h.browserExposedAt&&!item.result?.receipt&&!item.result?.evidence&&!h.receipt&&j?.version===1&&j.continue_click_attempts===0&&j.submit_click_attempts===0&&j.possible_delivery===false&&j.manual_submit_observed===false&&j.human_submit_observed===0&&m?.policy==='user_final_submit'&&m.human_submit_observed===0&&m.recovery_cancelled!==true;
+}
+export function restoreLostManualSubmission(item:ApplicationRequest,id:string,hosts:string[],confirmed:boolean){
+ const h=manualSession(item);if(!h||h.id!==id||!lostManualRecoveryEligible(item))throw new DomainError('The saved evidence cannot establish that this lost form is unsent. Check the employer outcome before retrying.',409);
+ if(!confirmed)throw new DomainError('Confirm the old browser is closed and you never pressed Continue or Submit before rebuilding.',409);
+ if(hosts.some(host=>!h.challengeHosts.includes(host))||h.challengeHosts.some(host=>!hosts.includes(host)))throw new DomainError('Approve exactly the listed reCAPTCHA destinations.',409);
+ const now=new Date().toISOString();item.manualSubmission={id:h.id,claimId:h.claimId,state:'reopening',at:h.at,updatedAt:now,challengeHosts:h.challengeHosts,approvedHosts:hosts,openRequested:false,reopenConfirmedAt:now};
+ item.status='queued';item.agentAuthorizedAt=now;item.report={...item.report,manual_submission:{...mFrom(item),recovery_source:'user_confirmed_lost_hidden_session'}};item.result={at:now,message:'Rebuilding the unsent form after you confirmed the old session ended without Continue or Submit. The original CV and saved answers are retained. Submit remains manual.'};return item.manualSubmission;
+}
+function mFrom(item:ApplicationRequest){return item.report?.manual_submission&&typeof item.report.manual_submission==='object'?item.report.manual_submission as Record<string,unknown>:{};}
 /** A waiting browser is never reclaimed or automatically replayed, even offline. */
 export function manualSession(item:ApplicationRequest){const h=item.manualSubmission;return item.status==='processing'&&h&&h.claimId===item.claim?.id&&['ready','needs_submit','cancel_requested'].includes(h.state)?h:null;}
 /** Positive evidence only. Missing counters, prior Continue, or possible delivery forbid recovery. */
@@ -25,6 +38,6 @@ export function recoverManualSubmission(item:ApplicationRequest,id:string,hosts:
 export function manualCommand(item:ApplicationRequest,id:string,command:'open'|'cancel',hosts:string[]=[],openConfirmed=false){
  const h=manualSession(item);if(!h||h.id!==id||!['ready','needs_submit','cancel_requested'].includes(h.state))throw new DomainError('This exact browser session is unavailable. No new application was started.',409);
  if(command==='cancel'){h.state='cancel_requested';h.openRequested=false;}
- else {if(!openConfirmed)throw new DomainError('Tick the checkbox before opening the CyberApply browser window.',409);if(h.state==='cancel_requested')throw new DomainError('Cancellation is already requested.',409);if(hosts.some(host=>!h.challengeHosts.includes(host)))throw new DomainError('Approve only the displayed reCAPTCHA hosts.',409);if(h.challengeHosts.some(host=>!h.approvedHosts.includes(host)&&!hosts.includes(host)))throw new DomainError('Approve the displayed reCAPTCHA hosts before opening this window.',409);h.approvedHosts=[...new Set([...h.approvedHosts,...hosts])];h.openRequested=true;}
+ else {if(!openConfirmed)throw new DomainError('Tick the checkbox before opening the CyberApply browser window.',409);if(h.state==='cancel_requested')throw new DomainError('Cancellation is already requested.',409);if(hosts.some(host=>!h.challengeHosts.includes(host)))throw new DomainError('Approve only the displayed reCAPTCHA hosts.',409);if(h.challengeHosts.some(host=>!h.approvedHosts.includes(host)&&!hosts.includes(host)))throw new DomainError('Approve the displayed reCAPTCHA hosts before opening this window.',409);h.approvedHosts=[...new Set([...h.approvedHosts,...hosts])];h.openRequested=true;h.openCommandId=crypto.randomUUID();h.openRequestedAt=new Date().toISOString();delete h.openError;}
  h.updatedAt=new Date().toISOString();return h;
 }

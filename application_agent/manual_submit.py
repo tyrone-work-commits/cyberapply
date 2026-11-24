@@ -53,6 +53,10 @@ class ManualSubmit:
 
     def wait(self,context,page,report,journey,hosts,success,recaptcha=None,watch=None):
         self.context,self.page=context,page
+        control=getattr(self,'window_control',None)
+        if callable(getattr(control,'suspend',None)):control.suspend()
+        browser_session=getattr(control,'session_id',self.id)
+        opened_command=None;open_error=None
         self.active=True;initial=page.url;session=None;state='ready';last_poll=0;last_event=None
         # Observe only event counts, never CAPTCHA values/tokens. No click is performed here.
         def observed(source,count):
@@ -104,7 +108,7 @@ class ManualSubmit:
                 # Keep the main report small enough for the bounded endpoint. No CV bytes.
                 snapshot={k:report[k] for k in ('journey','manual_submission','unresolved','submission_control') if k in report}
                 try:
-                    result=self.call(endpoint,{**self.ids,'id':self.id,'event':event,'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],'report':snapshot,**({'evidence':pending_evidence} if pending_evidence else {})})
+                    result=self.call(endpoint,{**self.ids,'id':self.id,'event':event,'browserHealthVersion':1,'browserSessionId':browser_session,**({'openedCommandId':opened_command} if opened_command else {}),**({'openError':open_error} if open_error else {}),'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],'report':snapshot,**({'evidence':pending_evidence} if pending_evidence else {})})
                     session=result['session'];last_event=event
                     report['manual_submission'].pop('connection',None)
                     if pending_evidence and session['state']=='confirmed':
@@ -120,11 +124,13 @@ class ManualSubmit:
                         newly=set(session.get('approvedHosts',[]))-recaptcha.approved
                         recaptcha.approved.update(session.get('approvedHosts',[]));recaptcha.pending.difference_update(recaptcha.approved)
                         if newly:recaptcha.restore(page)
-                    if session.get('openRequested'):
+                    command=session.get('openCommandId')
+                    if session.get('openRequested') and (not command or command!=opened_command):
+                        opened_command=command;open_error=None
                         try:
                             self.window(context,page);report['manual_submission']['window']='visible'
                             if watch:watch.set_control('manual')
-                        except Exception:report['manual_submission']['window']='foreground_unavailable'
+                        except Exception:report['manual_submission']['window']='foreground_unavailable';open_error='window_unavailable'
                 except Exception:
                     # Temporary HTTP, token, or desktop connectivity failures do not
                     # close/refresh/recreate the filled browser or replay any action.

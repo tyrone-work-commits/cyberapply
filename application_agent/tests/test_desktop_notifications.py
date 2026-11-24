@@ -10,6 +10,13 @@ def connection(owner='owner'):return json.dumps({'site':SITE,'token':'ca2.'+owne
 def notice(key='request|answers:claim',kind='input'):return {'key':key,'kind':kind,'company':'Fictional employer','role':'Test role'}
 
 class DesktopNotificationTests(unittest.TestCase):
+ def test_lost_browser_notice_explains_recovery_instead_of_claiming_ready_to_submit(self):
+  with TemporaryDirectory() as folder:
+   calls=[]
+   def send(items):calls.extend(items);return {item['tag'] for item in items}
+   n=DesktopNotifications(folder,send)
+   for _ in range(2):n.deliver(SITE,connection(),[{**notice('lost-browser'),'reason':'browser_session'}])
+   self.assertEqual(len(calls),1);self.assertIn('disconnected browser session',calls[0]['body']);self.assertNotIn('press Submit',calls[0]['body'])
  def test_repeated_checkins_and_restart_do_not_repeat_the_same_pause(self):
   with TemporaryDirectory() as folder:
    calls=[]
