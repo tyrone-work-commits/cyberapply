@@ -4,6 +4,12 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 
 ## Ordered checkpoints
 
+### 24 November 2026 — Browser connection status colours
+
+Applications now shows neutral grey “Checking connection” while confirming browser sessions after refresh/resume, green for a confirmed connection, and yellow only for a disconnected session or a failed check that requires attention. Starting/rebuilding sessions remain neutral while they reconnect. The recovery button no longer raises an action-needed warning solely because a check is pending. Refresh invalidates old connection evidence without treating that invalidation as a failed request. Required cards remain locked until fresh connections are confirmed; exact-browser freshness, owner isolation and safe recovery/duplicate protection are preserved.
+
+Checks: all 10 browser-recovery domain checks and TypeScript passed. Delayed-response browser QA verified grey → green, yellow for a lost session and failed fresh check, correct card locking/unlocking and zero fixture writes. Layouts passed at 375/768/1200px. Production build passed; publication tracked in Linear. No employer form action, native runner restart, protected sign-in/shared-style or API/schema change.
+
 ### 24 November 2026 — Watch Live startup and loading
 
 The live viewer previously downloaded private checkpoints sequentially and joined the entire history on the UI thread before showing video. Watch Live now starts the newest available checkpoint directly while a three-download pool loads full history in the background. Manifest refreshes reuse cached and in-flight downloads instead of cancelling them. A dedicated worker joins MP4s without blocking the page; switching to the continuous video preserves playback position and pause state. A single checkpoint streams directly, and only the complete current timeline is downloadable. Slow reads have bounded timeouts/retries, retained footage stays visible, and metadata reads reconnect automatically. The authenticated manifest's independent R2 reads run concurrently. Original owner checks, private storage, limits, verification redaction and employer outcome evidence remain unchanged.
