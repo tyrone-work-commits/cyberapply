@@ -60,7 +60,7 @@ const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','u
 
 export async function manualSubmitOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
- const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),keepHidden:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
  if(body)sameOrigin(request);
  const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
  for(let attempt=0;attempt<3;attempt++){
@@ -91,6 +91,7 @@ export async function manualSubmitOwner(request:Request){try{
    if(body.command==='open'&&health.state!=='connected')throw new DomainError('This exact application browser is not connected. The runner being online does not restore its old window. No new application was opened.',409);
    session=manualCommand(item,body.id,body.command,body.approvedHosts,body.openConfirmed===true);
   }
+  if(body.keepHidden&&item.manualSubmission?.state==='reopening')delete item.manualSubmission.reopenConfirmedAt;
   try{await save(user,current.revision,current.state,'manual_submit_'+body.command);return response({session,health:manualBrowserHealth(user.userId,item,await getBrowserWindow(presenceDb(),user.userId,item.id))});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
  }
  throw new DomainError('Browser status changed. Refresh before trying again.',409);

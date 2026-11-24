@@ -22,9 +22,9 @@ eq((await a.event('poll',{browserSessionId:randomUUID(),report:unsent})).status,
 eq((await a.close()).status,200);eq((await a.read()).data.health.state,'not_reporting');eq((await a.read()).data.health.canRestore,false);eq((await a.command('open',{openConfirmed:true})).status,409);eq((await a.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
 const b=await fixture('hidden-recovery');const originalCv=b.task.cv;
 eq((await b.close()).status,200);eq((await b.read()).data.health.canRestore,true);eq((await b.command('restore')).status,409);eq((await b.command('restore',{openConfirmed:true})).status,409);eq((await b.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true,approvedHosts:['evil.test']})).status,409);
-eq((await b.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).data.session.state,'reopening');eq((await b.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
+eq((await b.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true,keepHidden:true})).data.session.state,'reopening');eq((await b.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
 r=await call('/api/application-agent/claim',{headers:worker,body:capabilities});eq(r.status,200);eq(r.data.task.requestId,b.task.requestId);assert.notEqual(r.data.task.claimId,b.task.claimId);checks++;eq(r.data.task.cv,originalCv);
-const recovered=r.data.task,newSession=randomUUID(),newBrowser=randomUUID();r=await call(workerPath,{headers:worker,body:{requestId:recovered.requestId,claimId:recovered.claimId,id:newSession,event:'ready',browserHealthVersion:1,browserSessionId:newBrowser,report:unsent}});eq(r.status,200);eq(r.data.session.openRequested,true);assert.ok(r.data.session.openCommandId);checks++;
+const recovered=r.data.task,newSession=randomUUID(),newBrowser=randomUUID();r=await call(workerPath,{headers:worker,body:{requestId:recovered.requestId,claimId:recovered.claimId,id:newSession,event:'ready',browserHealthVersion:1,browserSessionId:newBrowser,report:unsent}});eq(r.status,200);eq(r.data.session.openRequested,false);eq(r.data.session.openCommandId,undefined);
 // A lost legacy form cannot be declared unsent using absent action evidence.
 const c=await fixture('legacy',true);eq((await c.read()).data.health.state,'not_reporting');eq((await c.read()).data.health.legacy,true);eq((await c.read()).data.health.canRestore,false);eq((await c.command('open',{openConfirmed:true})).status,409);eq((await c.command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
 // A legacy form can rebuild only on a new explicit owner declaration, without changing worker evidence.
@@ -43,3 +43,13 @@ const before=(await call('/api/workspace')).data;eq((await a.command('cancel')).
 eq((await call('/api/application-agent/result',{headers:worker,body:{...d.ids,status:'applied',message:'No evidence'}})).status,409);
 const status=await d.read();assert.doesNotMatch(JSON.stringify(status.data),/PRIVATE HEALTH|resumeText|health@example|cookies|password/);checks++;
 console.log(`PASS ${checks} manual-session health HTTP checks: exact liveness/ack, lost-session guards, explicit hidden-unsent rebuild, legacy protection, monotonic delivery evidence and owner isolation. No employer traffic.`);
+
+// Aggregate checks are owner scoped, minimal and read-only, including legacy recovery and mixed states.
+const gatePath='/api/applications/browser-recovery',gateBefore=(await call('/api/workspace')).data;
+let g=await call(gatePath);eq(g.status,200);eq(g.data.blocked,true);eq(g.data.needsRecovery,true);assert.ok(g.data.entries.some(entry=>entry.requestId===d.task.requestId&&entry.state==='lost'));checks++;
+assert.ok(g.data.entries.some(entry=>entry.requestId===b.task.requestId&&entry.state==='connected'));checks++;
+assert.doesNotMatch(JSON.stringify(g.data),/PRIVATE HEALTH|resumeText|health@example|claimId|browserSessionId|approvedHosts|password/);checks++;
+const foreignGate=await call(gatePath,{headers:foreign});eq(foreignGate.status,200);eq(foreignGate.data.entries,[]);eq(foreignGate.data.blocked,false);
+const gateAfter=(await call('/api/workspace')).data;eq(gateAfter.revision,gateBefore.revision);eq(gateAfter.state,gateBefore.state);
+const anonGate=await fetch(base+gatePath);eq(anonGate.ok,false);const postGate=await fetch(base+gatePath,{method:'POST',headers:{...auth,'Content-Type':'application/json'},body:'{}'});eq(postGate.ok,false);
+console.log('PASS 13 aggregate session-recovery HTTP checks: owner scope, mixed states, minimal metadata and no workspace writes.');

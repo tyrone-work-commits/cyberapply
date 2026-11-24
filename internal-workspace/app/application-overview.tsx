@@ -1,4 +1,5 @@
 "use client";
+import {ApplicationSessionRecovery,useApplicationSessionRecovery} from './application-session-recovery';
 import {ApplicationBrowserButton} from './application-browser-button';
 import {ApplicationManualSubmit} from './application-manual-submit';
 import {manualDisplaySession,type ManualBrowserHealth} from '@/lib/manual-submission';
@@ -40,10 +41,12 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
  onClear:()=>Promise<boolean>;onRestore:()=>Promise<void>;clearedCount?:number;
  onDelete:(target:DeleteTarget,legacy:boolean)=>Promise<boolean>;legacyDeleted?:boolean;
 }){
+ const sessionRecovery=useApplicationSessionRecovery(applications);
+ const sessionLocked=sessionRecovery.blocked;
  const [filter,setFilter]=useState<ProgressGroup|'all'>('all'),[search,setSearch]=useState('');
  const [confirmClear,setConfirmClear]=useState(false);
  const [manualHealth,setManualHealth]=useState<Record<string,ManualBrowserHealth>>({});
- const reportHealth=(id:string,next:ManualBrowserHealth)=>setManualHealth(previous=>{const old=previous[id];return old&&old.state===next.state&&old.open===next.open&&old.canRestore===next.canRestore&&old.legacy===next.legacy?previous:{...previous,[id]:next};});
+ const reportHealth=(id:string,next:ManualBrowserHealth)=>setManualHealth(previous=>{const old=previous[id];return old&&old.state===next.state&&old.open===next.open&&old.canRestore===next.canRestore&&old.canConfirmUnsent===next.canConfirmUnsent&&old.legacy===next.legacy?previous:{...previous,[id]:next};});
  const clearReview=useRef<HTMLDivElement>(null);
  useEffect(()=>{if(!confirmClear)return;const trigger=document.activeElement as HTMLElement|null;clearReview.current?.focus({preventScroll:true});clearReview.current?.scrollIntoView({block:'nearest'});return()=>{if(trigger?.isConnected)trigger.focus({preventScroll:true});};},[confirmClear]);
  const [selecting,setSelecting]=useState(false),[selectedIds,setSelectedIds]=useState<string[]>([]);
@@ -51,7 +54,7 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
  const selected=applications.filter(item=>item.status!=='processing'&&selectedIds.includes(item.id));
  const applicationLabel=(application:ApplicationRequest)=>{const job=jobs.find(item=>item.id===application.jobId);return `${job?.title||'Application'}${job?.company?` · ${job.company}`:''}`;};
  const closeDelete=()=>setDeleteTarget(null);
- const deleteRecords=async(target:DeleteTarget,legacy:boolean)=>{const saved=await onDelete(target,legacy);if(saved&&target.scope==='selected'){setSelectedIds([]);setSelecting(false);}return saved;};
+ const deleteRecords=async(target:DeleteTarget,legacy:boolean)=>{if(sessionLocked)return false;const saved=await onDelete(target,legacy);if(saved&&target.scope==='selected'){setSelectedIds([]);setSelecting(false);}return saved;};
  const [deleteTarget,setDeleteTarget]=useState<DeleteTarget|null>(null);
  const chosenCv=files.find(file=>file.id===selectedCvId);
  const ordered=[...applications].sort((a,b)=>b.at.localeCompare(a.at));
@@ -70,27 +73,29 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
    <div className="agent-tracker-cv"><FileText size={16}/><span>CV for your next Apply swipe: <strong>{chosenCv?.name||'Choose a CV'}</strong></span><button className="text-link" type="button" onClick={onChooseCv}>{chosenCv?'Change CV':'Choose a CV'}<ArrowRight size={13}/></button></div>
   </div>
   {(applications.length>0||drafts.length>0)&&<section className="panel application-management" aria-label="Manage applications"><h3>Manage applications</h3>
-   <button className="button quiet" type="button" disabled={busy||applications.some(item=>item.status==='processing')} onClick={()=>setConfirmClear(true)}><Trash2 size={16}/>Clear all applications</button>
-  {confirmClear&&<div ref={clearReview} tabIndex={-1} className="panel application-reset-confirm" role="group" aria-label="Confirm clearing applications"><h3>Clear your applications list?</h3><p>This clears all {applications.length} application records and {drafts.length} saved drafts, including records hidden by filters. Your CVs, profile, saved jobs and agent connection stay saved. Queued requests will stop. This does not withdraw anything sent to an employer.</p><p>You can restore cleared records here. A previously submitted or uncertain application remains protected against an accidental duplicate.</p><div className="account-actions"><button className="button quiet" type="button" disabled={busy} onClick={()=>setConfirmClear(false)}>Cancel</button><button className="button" type="button" disabled={busy} onClick={()=>void onClear().then(saved=>{if(saved){setConfirmClear(false);setFilter('all');setSearch('');}})}><Trash2 size={16}/>Clear applications</button></div></div>}
+   <button className="button quiet" type="button" disabled={busy||sessionLocked||applications.some(item=>item.status==='processing')} onClick={()=>setConfirmClear(true)}><Trash2 size={16}/>Clear all applications</button>
+  {confirmClear&&<div ref={clearReview} tabIndex={-1} className="panel application-reset-confirm" role="group" aria-label="Confirm clearing applications"><h3>Clear your applications list?</h3><p>This clears all {applications.length} application records and {drafts.length} saved drafts, including records hidden by filters. Your CVs, profile, saved jobs and agent connection stay saved. Queued requests will stop. This does not withdraw anything sent to an employer.</p><p>You can restore cleared records here. A previously submitted or uncertain application remains protected against an accidental duplicate.</p><div className="account-actions"><button className="button quiet" type="button" disabled={busy} onClick={()=>setConfirmClear(false)}>Cancel</button><button className="button" type="button" disabled={busy||sessionLocked} onClick={()=>void onClear().then(saved=>{if(saved){setConfirmClear(false);setFilter('all');setSearch('');}})}><Trash2 size={16}/>Clear applications</button></div></div>}
   </section>}
   </ApplicationControlsDialog>
   <p className="subtle">Open the original employer application page in a new tab from any card. This is separate from the agent’s filled browser session. Watch live shows the agent’s current browser and offers a same-session handoff when your input is needed. Watch recording shows one continuous video of the agent’s work so far and extends automatically when it continues, including after you save employer answers.</p>
   {(clearedCount>0||!legacyDeleted)&&<div className="application-reset-controls">
-   {clearedCount>0&&<button className="button quiet" type="button" disabled={busy} onClick={()=>void onRestore()}><Undo2 size={16}/>Restore cleared applications ({clearedCount})</button>}
-   {clearedCount>0&&<button className="button quiet danger" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'cleared',label:`${clearedCount} cleared application records and their saved drafts`})}><Trash2 size={16}/>Permanently delete cleared applications</button>}
-   {!legacyDeleted&&<button className="button quiet" type="button" disabled={busy} onClick={()=>setDeleteTarget({scope:'candidate_facts',label:'Old Candidate Facts and manual review data; uploaded CV files and CV review scores are kept.'})}><Trash2 size={16}/>Delete old Candidate Facts data</button>}
+   {clearedCount>0&&<button className="button quiet" type="button" disabled={busy||sessionLocked} onClick={()=>void onRestore()}><Undo2 size={16}/>Restore cleared applications ({clearedCount})</button>}
+   {clearedCount>0&&<button className="button quiet danger" type="button" disabled={busy||sessionLocked} onClick={()=>setDeleteTarget({scope:'cleared',label:`${clearedCount} cleared application records and their saved drafts`})}><Trash2 size={16}/>Permanently delete cleared applications</button>}
+   {!legacyDeleted&&<button className="button quiet" type="button" disabled={busy||sessionLocked} onClick={()=>setDeleteTarget({scope:'candidate_facts',label:'Old Candidate Facts and manual review data; uploaded CV files and CV review scores are kept.'})}><Trash2 size={16}/>Delete old Candidate Facts data</button>}
   </div>}
   <div className="application-filters" role="group" aria-label="Filter applications by status">{filters.map(([key,label])=><button key={key} type="button" aria-pressed={filter===key} className={filter===key?'application-filter active':'application-filter'} onClick={()=>setFilter(key)}><span>{label}</span><strong>{counts[key]}</strong></button>)}</div>
   <div className="application-list-heading"><div><h2>Your applications</h2><p role="status">{visible.length} {visible.length===1?'application':'applications'}{filter==='all'?'':` · ${filters.find(([key])=>key===filter)?.[1]}`}</p></div><label className="application-search"><Search size={16}/><span className="sr-only">Find an application by role, company or source</span><input type="search" placeholder="Find a role or company" value={search} onChange={event=>setSearch(event.target.value)}/></label></div>
   {!!applications.length&&<section className="application-bulk-controls" aria-label="Select applications to delete">
-   {!selecting?<button className="button quiet" type="button" disabled={busy||!applications.some(item=>item.status!=='processing')} onClick={()=>setSelecting(true)}><Trash2 size={16}/>Select applications</button>:<>
-    <label className="application-bulk-check"><input type="checkbox" disabled={busy||!selectableVisible.length} checked={allShownSelected} ref={element=>{if(element)element.indeterminate=!allShownSelected&&selectableVisible.some(item=>selectedIds.includes(item.id));}} onChange={event=>setSelectedIds(previous=>event.target.checked?[...new Set([...previous,...selectableVisible.map(item=>item.id)])].slice(0,MAX_APPLICATION_DELETE_SELECTION):previous.filter(id=>!selectableVisible.some(item=>item.id===id)))}/><span>Select all shown</span></label>
+   {!selecting?<button className="button quiet" type="button" disabled={busy||sessionLocked||!applications.some(item=>item.status!=='processing')} onClick={()=>setSelecting(true)}><Trash2 size={16}/>Select applications</button>:<>
+    <label className="application-bulk-check"><input type="checkbox" disabled={busy||sessionLocked||!selectableVisible.length} checked={allShownSelected} ref={element=>{if(element)element.indeterminate=!allShownSelected&&selectableVisible.some(item=>selectedIds.includes(item.id));}} onChange={event=>setSelectedIds(previous=>event.target.checked?[...new Set([...previous,...selectableVisible.map(item=>item.id)])].slice(0,MAX_APPLICATION_DELETE_SELECTION):previous.filter(id=>!selectableVisible.some(item=>item.id===id)))}/><span>Select all shown</span></label>
     <p role="status">{selected.length} selected{hiddenSelected?` · ${hiddenSelected} hidden by filters`:''}</p>
-    <button className="button quiet danger" type="button" disabled={busy||!selected.length} onClick={()=>setDeleteTarget({scope:'selected',applicationIds:selected.map(item=>item.id),labels:selected.map(applicationLabel),label:`${selected.length} selected application${selected.length===1?'':'s'}`})}><Trash2 size={16}/>Delete selected ({selected.length})</button>
+    <button className="button quiet danger" type="button" disabled={busy||sessionLocked||!selected.length} onClick={()=>setDeleteTarget({scope:'selected',applicationIds:selected.map(item=>item.id),labels:selected.map(applicationLabel),label:`${selected.length} selected application${selected.length===1?'':'s'}`})}><Trash2 size={16}/>Delete selected ({selected.length})</button>
     <button className="button quiet" type="button" disabled={busy} onClick={()=>{setSelecting(false);setSelectedIds([]);}}>Cancel selection</button>
     <p className="application-bulk-note">Select up to {MAX_APPLICATION_DELETE_SELECTION} applications. Applications the agent is processing cannot be selected. Deleting here does not withdraw an employer application.</p>
    </>}
+   <ApplicationSessionRecovery recovery={sessionRecovery}/>
   </section>}
+  <div className={sessionLocked?'application-cards-locked':undefined} inert={sessionLocked||undefined} aria-hidden={sessionLocked||undefined}>
   {visible.length?<ol className="application-overview-list">{visible.map(application=>{
    const job=jobs.find(item=>item.id===application.jobId),progress=applicationProgress(application,Date.now(),manualDisplaySession(application)?manualHealth[application.id]||{state:'checking',open:'idle',canRestore:false}:undefined),attachedFile=files.find(file=>file.id===application.cv?.fileId),draft=drafts.find(item=>item.id===application.draftId),verificationNeeded=!application.manualSubmission&&applicationAnswerStage(application,employerQuestions)==='verification';
    const liveHandoff=currentHandoff(application),handoffInQuestions=applicationFormQuestions(application,employerQuestions).some(item=>isHumanAgentQuestion(String((item as Record<string,unknown>).question||'')));
@@ -132,7 +137,8 @@ export function ApplicationOverview({settingsOpen,onCloseSettings,applications,j
     </details>
    </li>;
   })}</ol>:<div className="panel application-overview-empty"><span className="agent-tracker-icon"><FileText size={25}/></span><h3>{ordered.length?'No applications in this view':'Your next application starts in Explore'}</h3><p>{ordered.length?'Try another status or search for a different role or company.':'Swipe Apply on a role. With your CV and agent connected, its progress will appear here.'}</p>{ordered.length?<button className="button quiet" type="button" onClick={()=>{setFilter('all');setSearch('');}}>Show all applications</button>:<button className="button" type="button" onClick={onExplore}>Explore jobs<ArrowRight size={15}/></button>}</div>}
- {deleteTarget&&<ApplicationDeleteDialog target={deleteTarget} busy={busy} onCancel={closeDelete} onDelete={deleteRecords}/>}
+ </div>
+ {deleteTarget&&!sessionLocked&&<ApplicationDeleteDialog target={deleteTarget} busy={busy} onCancel={closeDelete} onDelete={deleteRecords}/>}
  </section>;
 }
 
