@@ -157,3 +157,38 @@ def test_repeated_exact_open_nonce_is_acknowledged_without_refocusing_or_submitt
     assert not posts
     assert result['status']=='uncertain'
     assert len(opened)==1 and calls[-1]['openedCommandId']==nonce
+
+@pytest.mark.parametrize('focus_error',[False,True])
+def test_open_result_is_acknowledged_before_video_work_and_video_failure_is_not_focus_failure(monkeypatch,focus_error):
+    from copy import deepcopy
+    from itertools import count
+    from types import SimpleNamespace
+    calls=[];events=[];nonce='5a814bd1-4d80-42e3-8d60-8cf850a49501'
+    clock=count(0,3);monkeypatch.setattr('application_agent.manual_submit.time.monotonic',lambda:next(clock))
+    page=SimpleNamespace(url='https://job-boards.greenhouse.io/fixture/jobs/123',frames=[],is_closed=lambda:False,wait_for_timeout=lambda _:None)
+    context=SimpleNamespace(expose_binding=lambda *_:None,add_init_script=lambda *_:None)
+    def api(path,body):
+        calls.append(deepcopy(body))
+        if body.get('openedCommandId'):events.append('ack')
+        return {'session':{'state':'cancel_requested' if len(calls)>=3 else 'ready','openRequested':True,'openCommandId':nonce,'approvedHosts':[]}}
+    actor=ManualSubmit(api,{'requestId':'fixture','claimId':'fixture-claim'},notify=None)
+    actor.minimize=lambda *_:None
+    def focus(*_):
+        events.append('window')
+        if focus_error:raise OSError('Synthetic focus failure')
+    actor.window=focus
+    def video(label):
+        if label=='manual':events.append('video');raise OSError('Synthetic recording update failure')
+    watch=SimpleNamespace(set_control=video,attach=lambda *_:None,capture=lambda **_:None)
+    journey=SimpleNamespace(data={'version':1,'continue_click_attempts':0,'submit_click_attempts':0,'possible_delivery':False})
+    report={'journey':journey.data}
+    result=actor.wait(context,page,report,journey,[],None,watch=watch)
+    assert result['status']=='uncertain' and len(calls)==3
+    assert calls[1]['openedCommandId']==nonce and calls[1]['event']=='poll'
+    assert events.count('window')==1
+    if focus_error:
+        assert calls[1]['openError']=='window_unavailable' and 'video' not in events
+    else:
+        assert 'openError' not in calls[1] and events.index('ack')<events.index('video')
+        assert calls[1]['report']['manual_submission']['window']=='visible'
+    assert journey.data['submit_click_attempts']==0 and journey.data['possible_delivery'] is False

@@ -129,8 +129,17 @@ class ManualSubmit:
                         opened_command=command;open_error=None
                         try:
                             self.window(context,page);report['manual_submission']['window']='visible'
-                            if watch:watch.set_control('manual')
                         except Exception:report['manual_submission']['window']='foreground_unavailable';open_error='window_unavailable'
+                        # Report the exact Open result before another browser inspection or
+                        # recording operation can delay it. Failure retries metadata only
+                        # on the normal poll; the same nonce never focuses a second time.
+                        if command:
+                            try:
+                                self.call(endpoint,{**self.ids,'id':self.id,'event':'poll','browserHealthVersion':1,'browserSessionId':browser_session,'openedCommandId':command,**({'openError':open_error} if open_error else {}),'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],'report':{k:report[k] for k in ('journey','manual_submission','unresolved','submission_control') if k in report}})
+                            except Exception:report['manual_submission']['connection']='waiting_to_reconnect'
+                        if watch and not open_error:
+                            try:watch.set_control('manual')
+                            except Exception:pass  # Recording failure is not window-opening failure.
                 except Exception:
                     # Temporary HTTP, token, or desktop connectivity failures do not
                     # close/refresh/recreate the filled browser or replay any action.

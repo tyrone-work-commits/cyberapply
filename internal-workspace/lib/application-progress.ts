@@ -56,7 +56,8 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
     if(['ready','needs_submit'].includes(manual.state)&&browserHealth){
       if(browserHealth.state==='checking'){label='Checking browser session';description='Checking whether this exact filled application browser is still connected.';}
       else if(browserHealth.state==='not_reporting'){label='Browser session disconnected';description='This exact application browser is no longer reporting. A running agent does not restore an old browser’s memory. Your CV and saved answers remain; do not submit again while the outcome is uncertain.';}
-      else if(['failed','timed_out'].includes(browserHealth.open)){label='Browser did not open';description='The browser did not confirm the Open request. Check its connection below; no new application was started.';}
+      else if(browserHealth.open==='failed'){label='Browser did not open';description='The browser reported that it could not show its window. Check its connection below; no new application was started.';}
+      else if(browserHealth.open==='timed_out'){label='Waiting for browser confirmation';description='The Open acknowledgement is delayed. Chrome may already be open; this is not a confirmed failure. The app is still checking the same browser, without restarting the application.';}
       else if(browserHealth.open==='pending'){label='Opening browser';description='Your Open request was saved. Waiting for this exact browser to confirm it opened.';}
     }
   }else if(checkOutcome){
