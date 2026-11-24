@@ -2,6 +2,11 @@ import {test} from 'node:test';import assert from 'node:assert/strict';import ts
 const source=ts.transpileModule(await readFile('lib/recording-loader.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;
 const {RecordingLoader}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
 const video=()=>new Response(new Uint8Array([1,2,3]),{headers:{'Content-Type':'video/mp4'}});
+test('the default browser fetch retains the global receiver instead of receiving the loader instance',async()=>{
+ const original=globalThis.fetch;let calls=0;
+ try{globalThis.fetch=function(){assert.equal(this,globalThis);calls++;return Promise.resolve(video());};const loader=new RecordingLoader();await loader.load('private');assert.equal(calls,1);loader.close();}
+ finally{globalThis.fetch=original;}
+});
 test('bounded parallel downloads share in-flight requests across refreshed manifests and retain chronological results',async()=>{
  let active=0,peak=0,calls=0;const release=[];
  const loader=new RecordingLoader(async()=>{calls++;peak=Math.max(peak,++active);await new Promise(resolve=>release.push(resolve));active--;return video();});

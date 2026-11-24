@@ -7,7 +7,7 @@ export class RecordingLoader {
  private bytes=0;
  private wanted:Set<string>|null=null;
  private controller=new AbortController();
- constructor(private fetcher:typeof fetch=fetch,private concurrency=3,private timeout=12000){}
+ constructor(private fetcher:typeof fetch=(input,init)=>globalThis.fetch(input,init),private concurrency=3,private timeout=12000){}
  close(){this.controller.abort();this.cache.clear();this.bytes=0;}
  retain(urls:string[]){this.wanted=new Set(urls);for(const [url,data] of this.cache)if(!this.wanted.has(url)){this.cache.delete(url);this.bytes-=data.byteLength;}}
  async load(url:string){
