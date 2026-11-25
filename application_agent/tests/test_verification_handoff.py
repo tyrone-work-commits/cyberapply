@@ -221,3 +221,65 @@ def test_actual_form_navigation_still_stops_personal_handoff_without_replay():
     assert result['status']=='needs_attention' and not posts,result
     assert h.blocked_navigation and 'actual application form' in result['message']
     assert result['report']['journey']['submit_click_attempts']==0
+
+
+class CloseReturnHandoff(FixtureHandoff):
+    def __init__(self, *, native_close=False, mutate=True, answer='done'):
+        super().__init__(mutate=mutate)
+        self.native_close=native_close;self.answer=answer;self.closed_attempts=0
+    def api(self,path,body):
+        if body:
+            reply=super().api(path,body)
+            if body['event']=='return_requested':self.current['state']='resuming'
+            if body['event']=='opened' and not body.get('code'):
+                assert self.current['closeReturnsControl'] is True
+                if self.mutate:self.page.get_by_label('Which of the following best describes you?').select_option(self.answer)
+                if self.native_close:
+                    # A trusted manual click supplies Chrome's required user activation.
+                    self.page.get_by_label('Which of the following best describes you?').click()
+                    self.page.close(run_before_unload=True)
+                    self.page.wait_for_timeout(100)
+                    assert not self.page.is_closed()
+                    self.closed_attempts+=1
+                else:self.page.get_by_role('button',name='Close and return to agent').click()
+            return reply
+        if self.current['state']=='waiting':self.current['state']='opening'
+        elif self.incomplete:self.current['state']='cancelled'
+        return {'handoff':self.current}
+
+@pytest.mark.parametrize('native_close',[False,True])
+@pytest.mark.parametrize('answer',['done','agent'])
+def test_person_closes_identity_handoff_and_same_form_cv_selection_return_to_agent(native_close,answer):
+    from application_agent.tests.test_manual_submit import Actor
+    h=CloseReturnHandoff(native_close=native_close,answer=answer);actor=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor)
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert h.page is actor.page and h.context is actor.context
+    assert ('name="manual"\r\n\r\n'+answer+'\r\n').encode() in posts[0]
+    assert h.events==['begin','opened','return_requested','resumed']
+    assert h.windows==['normal','minimized']  # Initial hiding belongs to the final-submit controller.
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.closed_attempts==int(native_close)
+
+def test_close_without_selection_keeps_form_and_does_not_resume_or_submit():
+    h=CloseReturnHandoff(mutate=False);result,posts=run_fixture(h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'return_requested' not in h.events and 'resumed' not in h.events
+    assert h.incomplete==1 and result['report']['journey']['submit_click_attempts']==0
+    assert h.windows==['minimized','normal']
+
+
+def test_selection_becoming_incomplete_before_return_keeps_window_visible_and_paused():
+    from application_agent.tests.test_manual_submit import Actor
+    class ResetOnReturn(CloseReturnHandoff):
+        def api(self,path,body):
+            reply=super().api(path,body)
+            if body and body['event']=='return_requested':self.page.get_by_label('Which of the following best describes you?').select_option('')
+            return reply
+    h=ResetOnReturn();actor=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor)
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'resumed' not in h.events and h.incomplete==1
+    assert h.windows==['normal'] and result['report']['journey']['submit_click_attempts']==0

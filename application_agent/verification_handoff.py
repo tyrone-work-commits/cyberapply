@@ -105,7 +105,7 @@ class BrowserHandoff:
         """
         self.turns+=1;pause_id=str(uuid4());self.active=True;self.kind=kind;self.phase='before_submit';self.blocked_navigation=False
         self.failure_reason='';self.protected_frames={page.main_frame}
-        endpoint='/api/application-agent/handoff';opened=False;success=False
+        endpoint='/api/application-agent/handoff';opened=False;success=False;close_return=None;close_requested=False
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
         def wait():
             if getattr(self,'window_control',None):self.window_control.check()
@@ -130,8 +130,14 @@ class BrowserHandoff:
                 except Exception:pass
                 try:frame.evaluate("""()=>{window.__cyberapplyHumanPause=true;if(!window.__cyberapplyPauseGuard){window.__cyberapplyPauseGuard=true;document.addEventListener('submit',e=>{if(window.__cyberapplyHumanPause){e.preventDefault();e.stopImmediatePropagation();}},true);document.addEventListener('click',e=>{const b=e.target.closest('button,input[type=submit]');if(window.__cyberapplyHumanPause&&b&&/^(submit(?: application)?|send application|apply(?: now)?|complete application|next|continue|next step|review application)$/i.test((b.innerText||b.value||'').trim())){e.preventDefault();e.stopImmediatePropagation();}},true);}}""")
                 except Exception:pass
-            send('begin',persistent=True,kind=kind,phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[])
+            if kind=='question':
+                try:
+                    from .identity_close_return import IdentityCloseReturn
+                    close_return=IdentityCloseReturn(context,page)
+                except Exception:pass  # Older/unsupported browsers retain explicit Return control.
+            send('begin',persistent=True,kind=kind,phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[],**({'closeReturnsControl':True} if close_return else {}))
             while True:
+                if close_return and close_return.navigation_requested:self.blocked_navigation=True
                 if page.is_closed() or self.blocked_navigation:
                     self.failure_reason='The employer browser was closed. No employer action was replayed.' if page.is_closed() else 'The employer tried to navigate the actual application form during verification. The request paused without replaying any action.'
                     send('failed',code='session_changed');return False
@@ -152,6 +158,17 @@ class BrowserHandoff:
                     except Exception:send('failed',code='window_unavailable');return False
                     send('opened');opened=True
                     if watch:watch.set_control('manual')
+                if opened and h['state']=='opened' and close_return and close_return.wants_return():
+                    try:authorized=authorize() is True
+                    except Exception:wait();continue
+                    if not authorized:
+                        self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
+                    try:ready=not page.locator('input[type="password"]:visible,input[autocomplete="one-time-code"]:visible').count() and completed()
+                    except Exception:ready=False
+                    if not ready:close_return.incomplete();send('opened',code='incomplete')
+                    else:
+                        h=send('return_requested')
+                        close_requested=h['state']=='resuming'
                 if h['state']=='resuming' and opened:
                     try:authorized=authorize() is True
                     except Exception:wait();continue
@@ -159,18 +176,22 @@ class BrowserHandoff:
                         self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
                     try:ready=not page.locator('input[type="password"]:visible,input[autocomplete="one-time-code"]:visible').count() and completed()
                     except Exception:ready=False
-                    if not ready:send('opened',code='incomplete')
+                    if not ready:
+                        if close_requested:close_return.incomplete();close_requested=False
+                        send('opened',code='incomplete')
                     else:
+                        if close_requested:self.window(context,page,'minimized')
                         if watch:watch.set_control('resuming')
                         success=send('resumed')['state']=='resumed';return success
                 wait()
         finally:
+            if close_return:close_return.dispose()
             self.active=False
             for frame in page.frames:
                 if recaptcha_resource(frame.url):continue
                 try:frame.evaluate('()=>{window.__cyberapplyHumanPause=false;}')
                 except Exception:pass
-            # Keep the same visible window. The caller verifies all prepared
+            # Keep the same page, hidden after close-and-return. The caller verifies all prepared
             # fields and original CV bytes before continuing the same form.
             if success and watch and not page.is_closed():
                 watch.attach(context,page);watch.set_control('agent');watch.capture(force=True)

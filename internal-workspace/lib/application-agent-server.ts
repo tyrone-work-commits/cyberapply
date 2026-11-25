@@ -10,7 +10,7 @@ import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
 import {recordingPrefix,recordingKey,recordingStatusKey,recordingRange,recordingClaimValid,MAX_RECORDING_SIZE} from './application-recordings';
 import {applicationEmployerLink} from './application-employer-link';
-import {currentHandoff,handoffCommand,isHumanAgentQuestion,inputHandoffQuestions,RECAPTCHA_HOSTS,RECAPTCHA_QUESTION} from './verification-handoff';
+import {currentHandoff,handoffCommand,requestCloseReturn,isHumanAgentQuestion,inputHandoffQuestions,RECAPTCHA_HOSTS,RECAPTCHA_QUESTION} from './verification-handoff';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
 import { DomainError, record, type State } from './cyber-domain';
@@ -185,7 +185,7 @@ export async function verificationOwner(request:Request){try{
 }catch(error){return failure(error);}}
 export async function verificationWorker(request:Request){try{
  const user=await worker(request),url=new URL(request.url);
- const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['begin','opened','resumed','cancelled','expired','failed']),persistent:z.literal(true).optional(),kind:z.enum(['question','input','recaptcha','challenge']).optional(),phase:z.enum(['before_submit','after_submit']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['begin','opened','return_requested','resumed','cancelled','expired','failed']),persistent:z.literal(true).optional(),closeReturnsControl:z.literal(true).optional(),kind:z.enum(['question','input','recaptcha','challenge']).optional(),phase:z.enum(['before_submit','after_submit']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
  const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,ids.requestId,ids.claimId);
@@ -194,19 +194,19 @@ export async function verificationWorker(request:Request){try{
   if(body.event==='begin'){
    const kind=body.kind||'question',hosts=[...new Set(body.challengeHosts||[])].sort(),phase=body.phase||'before_submit';
    const valid=kind==='input'?phase==='before_submit'&&!hosts.length&&inputHandoffQuestions(body.questions||[]):kind==='question'?phase==='before_submit'&&!hosts.length&&!!body.questions?.length&&body.questions.every(isHumanAgentQuestion):kind==='recaptcha'&&body.questions?.length===1&&body.questions[0]===RECAPTCHA_QUESTION&&hosts.every(host=>RECAPTCHA_HOSTS.includes(host));
-   if(!valid||body.persistent&&!['question','input'].includes(kind))throw new DomainError('Unsupported handoff scope. Use a same-browser form-input handoff or a separately approved manual reCAPTCHA session.',409);
+   if(!valid||body.persistent&&!['question','input'].includes(kind)||body.closeReturnsControl&&(!body.persistent||kind!=='question'))throw new DomainError('Unsupported handoff scope. Use a same-browser form-input handoff or a separately approved manual reCAPTCHA session.',409);
    if(item.verificationHandoff?.id===body.id)return response({handoff:item.verificationHandoff});
    if(item.verificationHandoff?.claimId===ids.claimId&&['cancelled','expired','failed'].includes(item.verificationHandoff.state))throw new DomainError('This browser handoff has ended. No new verification or employer action will be started on this claim.',409);
    if(currentHandoff(item)&&['waiting','opening','opened','resuming'].includes(item.verificationHandoff!.state))throw new DomainError('Another handoff is active for this exact browser.',409);
    const turn=item.verificationHandoff?.claimId===ids.claimId?item.verificationHandoff.turn+1:1;if(turn>8)throw new DomainError('This application reached its bounded verification handoff limit.',409);
    const now=Date.now(),expiresAt=body.persistent?Date.parse(item.claim!.expiresAt):Math.min(Date.parse(item.claim!.expiresAt)-90000,now+240000);if(expiresAt<=now)throw new DomainError('Not enough time remains in this exact claim. No new browser was started.',409);
-   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',...(body.persistent?{persistent:true as const}:{}),kind:kind as 'question'|'input'|'recaptcha',phase,questions:body.questions!,challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
+   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',...(body.persistent?{persistent:true as const}:{}),...(body.closeReturnsControl?{closeReturnsControl:true as const}:{}),kind:kind as 'question'|'input'|'recaptcha',phase,questions:body.questions!,challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
   }else{
    const h=item.verificationHandoff;if(!h||h.id!==body.id||h.claimId!==ids.claimId)throw new DomainError('This handoff does not belong to the current browser claim.',409);
    if(['resumed','cancelled','expired','failed'].includes(h.state))return response({handoff:h});
    if(body.event==='opened'&&!['opening','opened','resuming'].includes(h.state)||body.event==='resumed'&&h.state!=='resuming')throw new DomainError('The browser handoff command changed.',409);
    if(['opened','resumed'].includes(body.event)&&!currentHandoff(item))throw new DomainError('This browser handoff expired.',409);
-   h.state=body.event;h.code=body.code;h.at=new Date().toISOString();
+   if(body.event==='return_requested')requestCloseReturn(item,body.id);else{h.state=body.event;h.code=body.code;h.at=new Date().toISOString();}
    if(h.persistent&&['resumed','failed','cancelled'].includes(h.state))item.claim!.expiresAt=new Date(Date.now()+(h.state==='resumed'?15*60000:120000)).toISOString();
   }
   try{await save(user,current.revision,current.state,'verification_handoff_'+body.event);return response({handoff:item.verificationHandoff});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}

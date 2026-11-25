@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {mkdir,readFile,writeFile} from 'node:fs/promises';
 const dir='.sites-runtime/handoff-tests';await mkdir(dir,{recursive:true});
 for(const name of ['application-live-state','manual-submission','verification-handoff','application-progress','verification-question','verification-handoff','employer-location-choices','application-form-questions','application-question-choices','employer-questions','features','candidate-facts','cover-letter','cyber-domain'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
-const {currentHandoff,handoffCommand}=await import('../'+dir+'/verification-handoff.mjs'),{applicationProgress}=await import('../'+dir+'/application-progress.mjs');
+const {currentHandoff,handoffCommand,requestCloseReturn}=await import('../'+dir+'/verification-handoff.mjs'),{applicationProgress}=await import('../'+dir+'/application-progress.mjs');
 const now=Date.parse('2026-11-13T12:00:00Z');
 const app=()=>({id:'app',jobId:'job',status:'processing',reason:'connection_required',sourceUrl:'https://fixture.example',cv:{fileId:'cv'},claim:{id:'claim',at:new Date(now-1000).toISOString(),expiresAt:new Date(now+600000).toISOString()},verificationHandoff:{id:'handoff',claimId:'claim',turn:1,state:'waiting',kind:'question',questions:['Which of the following best describes you?'],challengeHosts:[],approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(now+240000).toISOString()}});
 test('open and resume operate only on the same still-active browser claim',()=>{const a=app();assert.equal(currentHandoff(a,now).id,'handoff');assert.throws(()=>handoffCommand(a,'wrong','open',[],now),/unavailable/);assert.throws(()=>handoffCommand(a,'handoff','resume',[],now),/Open the exact/);handoffCommand(a,'handoff','open',[],now);assert.equal(a.verificationHandoff.state,'opening');a.verificationHandoff.state='opened';handoffCommand(a,'handoff','resume',[],now);assert.equal(a.verificationHandoff.state,'resuming');assert.equal(a.status,'processing');assert.equal(a.cv.fileId,'cv');assert.equal(a.claim.id,'claim');});
@@ -40,4 +40,13 @@ test('private CAPTCHA video is excluded, and general input cannot grant new host
  const a=app();Object.assign(a.verificationHandoff,{kind:'recaptcha',questions:['Complete the employer reCAPTCHA in this browser.'],challengeHosts:['www.google.com']});assert.equal(applicationLiveState(a,now).privateCheck,true);
  for(const question of ['Password','Security code','reCAPTCHA','One time code']){const b=app();Object.assign(b.verificationHandoff,{kind:'input',persistent:true,questions:[question]});assert.equal(currentHandoff(b,now),null);}
  const b=app();Object.assign(b.verificationHandoff,{kind:'input',persistent:true,questions:['Motivation?']});assert.throws(()=>handoffCommand(b,'handoff','open',['www.google.com'],now),/does not grant/);
+});
+
+
+test('manual close returns only an opted-in persistent opened identity session, idempotently',()=>{
+ const a=app();Object.assign(a.verificationHandoff,{persistent:true,closeReturnsControl:true,state:'opened'});const before=structuredClone(a);
+ requestCloseReturn(a,'handoff',now);assert.equal(a.verificationHandoff.state,'resuming');requestCloseReturn(a,'handoff',now);
+ assert.equal(a.claim.id,before.claim.id);assert.deepEqual(a.cv,before.cv);assert.equal(a.status,'processing');assert.deepEqual(a.verificationHandoff.approvedHosts,[]);
+ for(const change of [{kind:'input',questions:['Motivation?']},{kind:'recaptcha',questions:['Complete the employer reCAPTCHA in this browser.']},{closeReturnsControl:undefined},{persistent:undefined},{state:'waiting'},{state:'cancelled'},{state:'resumed'},{claimId:'other'}]){const b=structuredClone(before);Object.assign(b.verificationHandoff,change);assert.throws(()=>requestCloseReturn(b,'handoff',now));}
+ assert.throws(()=>requestCloseReturn(before,'wrong',now));
 });

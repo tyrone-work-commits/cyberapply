@@ -3,7 +3,12 @@ import {isHumanAgentQuestion} from './verification-question';
 export {isHumanAgentQuestion} from './verification-question';
 export const RECAPTCHA_HOSTS=['www.google.com','www.recaptcha.net','www.gstatic.com','recaptcha.google.com'];
 export const RECAPTCHA_QUESTION='Complete the employer reCAPTCHA in this browser.';
-export type VerificationHandoff={persistent?:true;id:string;claimId:string;turn:number;state:'waiting'|'opening'|'opened'|'resuming'|'resumed'|'cancelled'|'expired'|'failed';kind:'question'|'input'|'recaptcha'|'challenge';phase?:'before_submit'|'after_submit';questions:string[];challengeHosts:string[];approvedHosts:string[];at:string;expiresAt:string;code?:'incomplete'|'window_unavailable'|'session_changed'|'connection_lost'};
+export type VerificationHandoff={persistent?:true;closeReturnsControl?:true;id:string;claimId:string;turn:number;state:'waiting'|'opening'|'opened'|'resuming'|'resumed'|'cancelled'|'expired'|'failed';kind:'question'|'input'|'recaptcha'|'challenge';phase?:'before_submit'|'after_submit';questions:string[];challengeHosts:string[];approvedHosts:string[];at:string;expiresAt:string;code?:'incomplete'|'window_unavailable'|'session_changed'|'connection_lost'};
+export function requestCloseReturn(item:ApplicationRequest,id:string,now=Date.now()){
+ const h=currentHandoff(item,now);
+ if(!h||h.id!==id||h.kind!=='question'||!h.persistent||!h.closeReturnsControl||!['opened','resuming'].includes(h.state))throw new DomainError('Close-and-return is unavailable for this exact human or AI handoff.',409);
+ h.state='resuming';delete h.code;h.at=new Date(now).toISOString();return h;
+}
 export function inputHandoffQuestions(questions:string[]){return questions.length>0&&questions.length<=10&&questions.every(q=>!!q.trim()&&q.length<=300&&!/captcha|password|verification code|security code|one.time.code/i.test(q));}
 export function persistentQuestionHandoff(item:ApplicationRequest){
  const h=item.verificationHandoff;return item.status==='processing'&&h?.persistent===true&&(h.kind==='question'&&h.questions.length>0&&h.questions.every(isHumanAgentQuestion)||h.kind==='input'&&inputHandoffQuestions(h.questions))&&h.phase!=='after_submit'&&h.claimId===item.claim?.id&&!h.challengeHosts.length&&!h.approvedHosts.length&&['waiting','opening','opened','resuming'].includes(h.state)?h:null;
