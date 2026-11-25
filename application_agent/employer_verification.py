@@ -59,20 +59,36 @@ class RecaptchaAccess:
             if request.method in {'GET','HEAD','OPTIONS'} and request.resource_type in {'script','document','stylesheet','image','font'}:return True
             if request.method in {'GET','POST','HEAD','OPTIONS'} and recaptcha_resource(request.frame.url):return True
         self.pending.update(self.pins)
-        if request.method=='GET' and request.resource_type in {'script','document'} and len(self.resources)<10:self.resources[request.url]=request.resource_type
+        if request.method=='GET' and request.resource_type in {'script','document'} and len(self.resources)<10:
+            frame=request.frame
+            self.resources[(id(frame),request.url)]={'kind':request.resource_type,'frame':frame,'document_url':frame.url,
+                'parent':frame.parent_frame if request.resource_type=='document' else None,
+                'parent_url':frame.parent_frame.url if request.resource_type=='document' and frame.parent_frame else None}
         return False
 
     def restore(self,page):
-        # Only observed failed bootstrap resources; never reload the employer form.
-        for url,kind in list(self.resources.items()):
+        # Retry only observed failed bootstrap resources in their original
+        # document. Never refresh an employer form, inspect a token or Submit.
+        outcome={'attempted':0,'restarted':0,'unavailable':0}
+        for key,resource in list(self.resources.items()):
+            _,url=key
             if urlsplit(url).hostname not in self.approved:continue
-            if kind=='script':
-                page.evaluate("""url=>{for(const old of document.querySelectorAll('script[src]'))if(old.src===url){const s=document.createElement('script');for(const a of old.attributes)s.setAttribute(a.name,a.value);old.replaceWith(s);break;}}""",url)
-            else:
-                for element in page.locator('iframe[src]').all():
-                    if element.evaluate('e=>e.src')!=url:continue
-                    handle=element.element_handle();frame=handle.content_frame() if handle else None
-                    if frame and frame!=page.main_frame:
-                        try:frame.goto(url,wait_until='domcontentloaded',timeout=5000)
-                        except Exception:pass
-        self.resources.clear()
+            self.resources.pop(key,None);outcome['attempted']+=1
+            restarted=False
+            try:
+                frame=resource['frame']
+                if resource['kind']=='script':
+                    if frame in page.frames and not frame.is_detached() and frame.url==resource['document_url']:
+                        restarted=frame.evaluate("""url=>{for(const old of document.querySelectorAll('script[src]'))if(old.src===url){const s=document.createElement('script');for(const a of old.attributes)s.setAttribute(a.name,a.value);old.replaceWith(s);return true;}return false;}""",url) is True
+                else:
+                    parent=resource['parent']
+                    if parent in page.frames and not parent.is_detached() and parent.url==resource['parent_url']:
+                        for element in parent.locator('iframe[src]').all():
+                            if element.evaluate('e=>e.src')!=url:continue
+                            handle=element.element_handle();target=handle.content_frame() if handle else None
+                            if target is frame and target!=page.main_frame and not target.is_detached():
+                                target.goto(url,wait_until='domcontentloaded',timeout=5000);restarted=True
+                            break
+            except Exception:pass  # A disappearing widget must not close/reload the filled form.
+            outcome['restarted' if restarted else 'unavailable']+=1
+        return outcome

@@ -123,7 +123,7 @@ class ManualSubmit:
                     if recaptcha:
                         newly=set(session.get('approvedHosts',[]))-recaptcha.approved
                         recaptcha.approved.update(session.get('approvedHosts',[]));recaptcha.pending.difference_update(recaptcha.approved)
-                        if newly:recaptcha.restore(page)
+                        if newly:report['manual_submission']['verification_resource_recovery']=recaptcha.restore(page)
                     command=session.get('openCommandId')
                     if session.get('openRequested') and (not command or command!=opened_command):
                         opened_command=command;open_error=None
