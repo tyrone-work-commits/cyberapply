@@ -101,6 +101,8 @@ class ManualSubmit:
             if error:state='needs_submit'
             report['manual_submission']['state']='confirmed' if pending_evidence else state
             report['manual_submission']['human_submit_observed']=self.human_attempts
+            if recaptcha and callable(getattr(recaptcha,'summary',None)):
+                report['manual_submission']['verification_connection']=recaptcha.summary()
             now=time.monotonic()
             if now-last_poll>=2 or pending_evidence or closed:
                 unsent=closed and not self.delivery and self.human_attempts==0 and journey.data.get('continue_click_attempts')==0 and journey.data.get('submit_click_attempts')==0 and journey.data.get('possible_delivery') is False

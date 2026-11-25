@@ -152,3 +152,63 @@ def test_a_replaced_widget_frame_is_never_navigated_by_old_recovery():
     page=Mock();page.frames=[parent,replacement];page.main_frame=parent;access.approved={'www.google.com'}
     assert access.restore(page)=={'attempted':1,'restarted':0,'unavailable':1}
     replacement.goto.assert_not_called();old.goto.assert_not_called();parent.goto.assert_not_called()
+
+
+def test_approved_employer_page_can_read_native_verification_resources():
+    access=RecaptchaAccess(RECAPTCHA_HOSTS)
+    req=SimpleNamespace(url='https://www.recaptcha.net/recaptcha/enterprise/anchor?fixture=not-retained',method='GET',resource_type='fetch',frame=SimpleNamespace(url='https://employer.example/apply'))
+    assert access.permit(req) is False
+    access.approved={'www.recaptcha.net'}
+    assert access.permit(req) is True
+    req.resource_type='xhr';assert access.permit(req) is True
+    req.method='POST';assert access.permit(req) is False
+    access.pins.clear();req.method='GET';assert access.permit(req) is False
+
+
+def test_verification_diagnostics_do_not_store_tokens_urls_or_applicant_data():
+    import json
+    secret='PRIVATE_TOKEN_AND_CV_TEXT'
+    access=RecaptchaAccess(RECAPTCHA_HOSTS)
+    req=SimpleNamespace(url='https://www.google.com/recaptcha/enterprise/anchor?token='+secret,method='GET',resource_type='fetch',frame=SimpleNamespace(url='https://employer.example/apply?email='+secret),failure='unexpected failure '+secret)
+    access.permit(req)
+    access.observe_response(SimpleNamespace(url=req.url,status=403,request=req))
+    access.observe_failure(req)
+    saved=access.summary()
+    assert secret not in json.dumps(saved)
+    assert 'https://' not in json.dumps(saved)
+    assert saved['blocked']==1
+    assert {row['outcome'] for row in saved['events']}=={'approval_required','http_error','network_error'}
+    assert next(row for row in saved['events'] if row['outcome']=='network_error')['error']=='request_failed'
+
+
+def test_verification_diagnostics_remain_bounded_and_record_failure_kind():
+    access=RecaptchaAccess(RECAPTCHA_HOSTS)
+    req=SimpleNamespace(url='https://www.google.com/recaptcha/api.js',method='GET',resource_type='script',frame=SimpleNamespace(url='https://employer.example/apply'),failure='net::ERR_NAME_NOT_RESOLVED')
+    for status in range(400,500):access.observe_response(SimpleNamespace(url=req.url,status=status,request=req))
+    assert len(access.summary()['events'])==24
+    other=RecaptchaAccess(RECAPTCHA_HOSTS);other.observe_failure(req)
+    assert other.summary()['events'][0]['error']=='net::ERR_NAME_NOT_RESOLVED'
+
+
+def test_native_widget_bootstrap_can_finish_approved_read_before_synthetic_human_submit():
+    class ReadyActor(ExplicitAccess):
+        def api(self,path,body):
+            if self.current and body['event']=='poll' and not self.clicked:
+                self.page.wait_for_function('document.documentElement.dataset.verificationReady==="yes"',timeout=3000)
+            return super().api(path,body)
+    posts=[];served=[]
+    def employer(req):
+        parsed=urlsplit(req.url)
+        if parsed.hostname=='www.google.com':
+            served.append((parsed.path,req.resource_type))
+            if parsed.path.endswith('api.js'):
+                return {'content_type':'text/javascript','body':"fetch('https://www.google.com/recaptcha/enterprise/anchor?fixture=only').then(r=>r.text()).then(()=>document.documentElement.dataset.verificationReady='yes');"}
+            return {'content_type':'text/plain','body':'ISOLATED READ FIXTURE; NOT A REAL CAPTCHA'}
+        return 'Your application has been submitted' if req.method=='POST' else FORM.replace('{extra}','<script src="https://www.google.com/recaptcha/api.js"></script>')
+    actor=ReadyActor();handoff=BrowserHandoff(lambda *_:None,{'requestId':'one','claimId':'fixture'})
+    result=execute_application(PAYLOAD,CV,submit=True,planner=plan,research_fn=lambda _: {},resolver=dns,timeout=1500,before_submit=lambda:True,playwright_factory=lambda:hidden_factory(employer,posts),verification_handler=handoff,manual_submit_handler=actor)
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert ('/recaptcha/enterprise/anchor','fetch') in served
+    assert result['report']['journey']['submit_click_attempts']==0
+    diagnostics=result['report']['manual_submission']['verification_connection']
+    assert diagnostics['allowed']>=2

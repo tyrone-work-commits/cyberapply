@@ -51,13 +51,52 @@ class RecaptchaAccess:
     """Narrow, session-consented native widget traffic. Never a CAPTCHA solver."""
     def __init__(self,pins):
         self.pins=set(pins);self.approved=set();self.pending=set();self.resources={}
+        self.allowed=0;self.blocked=0;self.events={}
+
+    def _diagnostic(self,request,outcome,status=None,error=None):
+        # Only fixed categories and public provider hosts. Never retain a URL,
+        # query, token, request/response body, headers or applicant data.
+        try:
+            host=urlsplit(request.url).hostname
+            if host not in RECAPTCHA_HOSTS:return
+            method=request.method if request.method in {'GET','HEAD','OPTIONS','POST'} else 'other'
+            kind=request.resource_type if request.resource_type in {'script','document','stylesheet','image','font','fetch','xhr'} else 'other'
+            origin='widget' if recaptcha_resource(request.frame.url) else 'employer'
+            key=(host,method,kind,origin,outcome,status,error)
+            if key not in self.events and len(self.events)>=24:return
+            self.events[key]=min(1000000,self.events.get(key,0)+1)
+        except Exception:pass
+
+    def summary(self):
+        return {'allowed':self.allowed,'blocked':self.blocked,'events':[
+            {'host':host,'method':method,'resource_type':kind,'context':origin,'outcome':outcome,'count':count,
+             **({'status':status} if status is not None else {}),**({'error':error} if error else {})}
+            for (host,method,kind,origin,outcome,status,error),count in self.events.items()]}
+
+    def observe_response(self,response):
+        try:
+            if recaptcha_resource(response.url) and 400<=response.status<=599:
+                self._diagnostic(response.request,'http_error',status=response.status)
+        except Exception:pass
+
+    def observe_failure(self,request):
+        try:
+            if recaptcha_resource(request.url):
+                failure=request.failure
+                known={'net::ERR_ABORTED','net::ERR_FAILED','net::ERR_NAME_NOT_RESOLVED','net::ERR_CONNECTION_RESET','net::ERR_CONNECTION_CLOSED','net::ERR_CONNECTION_TIMED_OUT','net::ERR_TIMED_OUT','net::ERR_INTERNET_DISCONNECTED','net::ERR_BLOCKED_BY_CLIENT','net::ERR_CERT_AUTHORITY_INVALID'}
+                self._diagnostic(request,'network_error',error=failure if failure in known else 'request_failed')
+        except Exception:pass
 
     def permit(self,request):
         if not recaptcha_resource(request.url):return None
         host=urlsplit(request.url).hostname
         if host in self.approved and host in self.pins:
-            if request.method in {'GET','HEAD','OPTIONS'} and request.resource_type in {'script','document','stylesheet','image','font'}:return True
-            if request.method in {'GET','POST','HEAD','OPTIONS'} and recaptcha_resource(request.frame.url):return True
+            readable=request.method in {'GET','HEAD','OPTIONS'} and request.resource_type in {'script','document','stylesheet','image','font','fetch','xhr'}
+            widget=request.method in {'GET','POST','HEAD','OPTIONS'} and recaptcha_resource(request.frame.url)
+            if readable or widget:
+                self.allowed=min(1000000,self.allowed+1);return True
+        self.blocked=min(1000000,self.blocked+1)
+        self._diagnostic(request,'host_not_pinned' if host not in self.pins else 'approval_required' if host not in self.approved else 'request_not_supported')
         self.pending.update(self.pins)
         if request.method=='GET' and request.resource_type in {'script','document'} and len(self.resources)<10:
             frame=request.frame

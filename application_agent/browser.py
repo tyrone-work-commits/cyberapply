@@ -273,6 +273,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
             context.on('response',observe_city_lookup)
             context.on('response',uploads.observe_ticket)
             context.on('response',uploads.observe_upload)
+            if verification_handler:
+                context.on('response',verification_handler.recaptcha.observe_response)
+                context.on('requestfailed',verification_handler.recaptcha.observe_failure)
             # Job forms need HTTP, not arbitrary peer/socket transports that bypass
             # request routing. Apply this before any page or iframe script executes.
             restrict_transports(context)
@@ -486,6 +489,9 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                     context.on('response',observe_city_lookup)
                     context.on('response',uploads.observe_ticket)
                     context.on('response',uploads.observe_upload)
+                    if verification_handler:
+                        context.on('response',verification_handler.recaptcha.observe_response)
+                        context.on('requestfailed',verification_handler.recaptcha.observe_failure)
                     restrict_transports(context)
                     context.route('**/*',guard)
                     blocked.clear()
