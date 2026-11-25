@@ -1,4 +1,4 @@
-import {applicationFormQuestions,canEditApplicationQuestions,applicationVerificationQuestions} from './application-form-questions';
+import {applicationFormQuestions,canEditApplicationQuestions,applicationVerificationQuestions,canPrepareApplicationVerification} from './application-form-questions';
 import {applicationQuestionChoices,checkboxAnswer} from './application-question-choices';
 import { z } from 'zod';
 import type { JobSource, JobSearch, DiscoveryReport } from './job-catalog';
@@ -355,14 +355,15 @@ export function reduceAction(before: State, action: Action, source: Activity['so
     if(!rememberConfirmedEmployerAnswers(state,request,remembered,at))throw new DomainError('Your saved answers exceed the workspace size limit. Shorten answers or remove unused library entries, then save again.',409);
     message='Answers saved to this application and Answers library. Future matching questions can reuse them; verification and employer consent remain reference-only. No application was queued or submitted.';
     if(action.continueAgent){
-      if(applicationVerificationQuestions(request,state.accountProfile.employerQuestions||[]).length){
+      if(applicationVerificationQuestions(request,state.accountProfile.employerQuestions||[]).length&&!canPrepareApplicationVerification(request,state.accountProfile.employerQuestions||[])){
         request.status='needs_attention';
         message='Your answers are saved. This employer requires verification on its original website. Saving an answer here cannot complete that check, so the application was not restarted.';
         request.result={...request.result,at,message};
       }else try{
+        const preparingVerification=canPrepareApplicationVerification(request,state.accountProfile.employerQuestions||[]);
         const queued=reduceAction(state,{type:'queue_application_agent',applicationId:request.id},source,at);
         Object.assign(state,queued.state);
-        message='Answers saved to this application and Answers library. Your application agent will continue automatically with these answers.';
+        message=preparingVerification?'Answers saved to this application and Answers library. The agent will prepare this unsent form, then wait for you to answer the human or AI dropdown in its exact browser.':'Answers saved to this application and Answers library. Your application agent will continue automatically with these answers.';
       }catch(error){
         if(!(error instanceof DomainError))throw error;
         message='Answers saved to this application and Answers library. The agent could not continue yet: '+error.message;

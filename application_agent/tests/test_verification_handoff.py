@@ -59,9 +59,10 @@ def test_exact_page_context_and_cv_survive_manual_handoff_then_one_submit_confir
     assert result['report']['verification_handoffs'][0]['same_browser'] is True
     assert not any(a.get('question')=='Which of the following best describes you?' for a in result['report']['answers'])
 
-def test_production_planner_leaves_identity_dropdown_for_the_person_then_resumes_once():
+@pytest.mark.parametrize('agent_option',['I am an AI agent','I am an AI, bot or automated program.','I am an AI, bot, or automated program.'])
+def test_production_planner_leaves_identity_dropdown_for_the_person_then_resumes_once(agent_option):
     from application_agent.reasoning import build_plan
-    h=FixtureHandoff();result,posts=run_fixture(h,planner=build_plan)
+    h=FixtureHandoff();result,posts=run_fixture(h,planner=build_plan,agent_option=agent_option)
     assert result['status']=='applied' and len(posts)==1,result
     assert h.events==['begin','opened','resumed']
     assert result['report']['journey']['submit_click_attempts']==1
@@ -182,11 +183,12 @@ def test_identity_return_then_greenhouse_manual_submit_uses_same_page_context_an
     assert h.current['persistent'] is True
 
 
-def test_current_employer_ai_bot_or_automated_program_wording_gets_personal_handoff():
+@pytest.mark.parametrize('agent_option',['I am an AI, bot or Automated Program.','I am an AI, bot, or automated program.'])
+def test_current_employer_ai_bot_or_automated_program_wording_gets_personal_handoff(agent_option):
     from application_agent.tests.test_manual_submit import Actor
     h=FixtureHandoff();actor=Actor([])
     payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
-    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor,agent_option='I am an AI, bot or Automated Program.')
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor,agent_option=agent_option)
     assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
     assert h.page is actor.page and h.context is actor.context
     assert result['report']['journey']['submit_click_attempts']==0

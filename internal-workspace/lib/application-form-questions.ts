@@ -47,6 +47,21 @@ export function applicationAnswerStage(application:ApplicationRequest,memory:Emp
  return applicationVerificationQuestions(application,memory).length?'verification' as const:'editable' as const;
 }
 
+/** Preparing a new browser is permitted only for a positively unsent, supported identity check. */
+export function canPrepareApplicationVerification(application:ApplicationRequest,memory:EmployerQuestion[]=[]){
+ if(!canEditApplicationQuestions(application)||application.manualSubmission||!application.cv?.fileId)return false;
+ const journey=application.report?.journey as Record<string,unknown>|undefined;
+ if(!journey||journey.version!==1||journey.possible_delivery!==false||journey.continue_click_attempts!==0||journey.submit_click_attempts!==0||journey.manual_submit_observed===true||typeof journey.human_submit_observed==='number'&&journey.human_submit_observed!==0)return false;
+ const checks=applicationVerificationQuestions(application,memory);
+ if(!checks.length||!checks.every(q=>/^which(?: of (?:the )?following)? best describes you\b/i.test(q.trim().replace(/\s+/g,' '))))return false;
+ return checks.every(question=>{
+  const row=rows(application.report?.questions).find(row=>employerQuestionKey(String(row.question||''))===employerQuestionKey(question));
+  if(!row||!['select','combobox'].includes(String(row.field_type))||!Array.isArray(row.options))return false;
+  const options=row.options.filter((v):v is string=>typeof v==='string').map(v=>v.trim().toLowerCase().replace(/[ .!*]+$/g,''));
+  return options.some(v=>/^(?:i am )?(?:a )?human(?: being)?$/.test(v))&&options.some(v=>/^(?:i am )?(?:an? )?(?:ai|artificial intelligence)(?:[ /-]*(?:llm|agent|bot|assistant|program))*$/.test(v)||/^i am an ai, bot,? or automated program$/.test(v));
+ });
+}
+
 /** Durable acknowledgement of a CyberApply answer save, never an employer receipt. */
 export function applicationAnswerSave(application:ApplicationRequest):{at:string;count:number|null}|null{
  if(!application.confirmedAnswers?.length)return null;

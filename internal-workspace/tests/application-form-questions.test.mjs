@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {mkdir,readFile,writeFile} from 'node:fs/promises';
 const dir='.sites-runtime/form-question-tests';await mkdir(dir,{recursive:true});
 for(const name of ['features','candidate-facts','cover-letter','employer-location-choices','employer-questions','application-form-questions','application-question-choices','cyber-domain'])await writeFile(`${dir}/${name}.mjs`,ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText.replace(/from '(\.\/[^']+)'/g,"from '$1.mjs'"));
-const {applicationFormQuestions,canEditApplicationQuestions,applicationAnswerStage,applicationVerificationQuestions,applicationAnswerSave}=await import('../'+dir+'/application-form-questions.mjs');
+const {applicationFormQuestions,canEditApplicationQuestions,applicationAnswerStage,applicationVerificationQuestions,applicationAnswerSave,canPrepareApplicationVerification}=await import('../'+dir+'/application-form-questions.mjs');
 const {emptyState:baseState,reduceAction,actionSchema}=await import('../'+dir+'/cyber-domain.mjs');
 const at='2026-11-07T12:00:00Z';
 test('answer save acknowledgement survives a report replacement and reload without implying submission',()=>{
@@ -123,4 +123,20 @@ test('multiple selections save, reload and remain editable in the library with s
  for(const answer of ['["Unknown"]','["0-25%","0-25%"]','[1]','Yes'])assert.throws(()=>saveAnswers(s,[{question,value:answer}]),/captured/);
  const updated=reduceAction(saved,{type:'save_employer_answer',questionId:row.id,answer:'["No Travel"]'},'interface',at).state;assert.equal(updated.accountProfile.employerQuestions[0].answer,'["No Travel"]');
  assert.throws(()=>reduceAction(saved,{type:'save_employer_answer',questionId:row.id,answer:'["Unsupported"]'},'interface',at),/captured/);
+});
+
+const identityQuestion='Which of the following best describes you?*';
+function unsentIdentity(extra={}){return fixture({cv:{fileId:'cv'},report:{journey:{version:1,possible_delivery:false,continue_click_attempts:0,submit_click_attempts:0},unresolved:[{question:identityQuestion}],questions:[{question:identityQuestion,field_type:'combobox',options:['I am a human.','I am an AI, bot, or automated program.']},{question:'Preferred shift?',field_type:'select',options:['Day','Night']}]},...extra});}
+test('supported closed identity browsers can be prepared only with positive zero-delivery evidence',()=>{
+ const app=unsentIdentity(),before=structuredClone(app);assert.equal(canPrepareApplicationVerification(app),true);assert.deepEqual(app,before);
+ for(const status of ['queued','processing','uncertain','applied','failed'])assert.equal(canPrepareApplicationVerification({...app,status}),false);
+ for(const patch of [{possible_delivery:true},{possible_delivery:undefined},{continue_click_attempts:1},{submit_click_attempts:1},{manual_submit_observed:true},{human_submit_observed:1},{version:undefined}])assert.equal(canPrepareApplicationVerification({...app,report:{...app.report,journey:{...app.report.journey,...patch}}}),false);
+ assert.equal(canPrepareApplicationVerification({...app,cv:undefined}),false);assert.equal(canPrepareApplicationVerification({...app,manualSubmission:{state:'cancel_requested'}}),false);
+ for(const options of [['I am a human.'],['Human resources','AI engineer'],[]])assert.equal(canPrepareApplicationVerification({...app,report:{...app.report,questions:[{question:identityQuestion,field_type:'combobox',options}]}}),false);
+ assert.equal(canPrepareApplicationVerification({...app,report:{...app.report,unresolved:[{question:'Complete a security check',source:'verification'}]}}),false);
+});
+test('saving ordinary answers can prepare a positively unsent identity form, never solve its check or create another request',()=>{
+ const s=emptyState();s.applications=[unsentIdentity({candidate:structuredClone(s.profile)})];s.attachments=[{id:'cv',name:'Fictional CV.txt'}];s.newApplicationAgent={enabled:true,issuedAt:at,expiresAt:'2027-01-01T00:00:00Z'};
+ const saved=reduceAction(s,{type:'answer_application_questions',applicationId:'application',answers:[{question:'Preferred shift?',value:'Night'}],continueAgent:true},'interface',at);
+ assert.equal(saved.state.applications.length,1);assert.equal(saved.state.applications[0].id,'application');assert.equal(saved.state.applications[0].status,'queued');assert.equal(saved.state.applications[0].confirmedAnswers[0].value,'Night');assert.equal(saved.state.accountProfile.employerQuestions[0].answer,'Night');assert.match(saved.message,/wait for you.*human or AI/);assert.equal(saved.state.applications[0].verificationHandoff,undefined);assert.equal(saved.state.applications[0].result,undefined);assert.equal(s.applications[0].status,'needs_attention');
 });
