@@ -1,3 +1,5 @@
+import {recoverExpiredBrowserSessions} from './application-browser-recovery-server';
+import {canAutomaticallyRecoverBrowser} from './automatic-browser-recovery';
 import {manualBrowserHealth,mergeManualReport} from './manual-browser-health';
 import {getBrowserWindow,updateBrowserWindow} from './application-browser-window';
 import {applicationLiveState} from './application-live-state';
@@ -242,7 +244,7 @@ export async function restartRecovery(request:Request){try{
  const user=await worker(request),parsed=z.object({version:z.literal(1),computerBootAt:z.string().datetime({offset:true}),runnerStartedAt:z.string().datetime({offset:true})}).strict().safeParse(await json(request));
  if(!parsed.success)throw new DomainError('Invalid browser restart recovery metadata.',400);
  // Compatibility for already-running older workers: startup checks may read
- // this endpoint, but only an explicit owner recovery command may rebuild.
+ // this endpoint remains read-only. Safe automatic recovery runs on authenticated heartbeats.
  const current=await load(user);stillConnected(current.state,user);
  return response({restored:0,manualRecoveryRequired:true});
 }catch(error){return failure(error);}}
@@ -303,10 +305,11 @@ export async function learnQuestions(request:Request){try{
 
 export async function heartbeat(request:Request){try{
  const user=await worker(request),body=z.object({state:z.enum(['checking','running','working','reconnect_required','waiting_for_connection','needs_review','stopped'])}).strict().parse(await json(request));
- const current=await load(user);stillConnected(current.state,user);
+ let current=await load(user);stillConnected(current.state,user);
  const at=new Date().toISOString();
  await presenceDb().prepare('INSERT INTO cyber_agent_presence (owner_id,token_hash,state,seen_at) VALUES (?,?,?,?) ON CONFLICT(owner_id) DO UPDATE SET token_hash=excluded.token_hash,state=excluded.state,seen_at=excluded.seen_at').bind(user.userId,user.agentHash,body.state,at).run();
  const rows=await presenceDb().prepare('SELECT * FROM cyber_application_browser_windows WHERE owner_id=? ORDER BY seen_at DESC LIMIT 1000').bind(user.userId).all<import('./application-browser-window').BrowserWindowRow>();
+ if(body.state!=='stopped'&&current.state.applications?.some(item=>canAutomaticallyRecoverBrowser(user.userId,item,rows.results.find(row=>row.request_id===item.id)||null))){try{await recoverExpiredBrowserSessions(user,user.agentHash);current=await load(user);}catch{ /* Preserve heartbeat availability; a later check or optional button can retry recovery. */ }}
  const health=Object.fromEntries((current.state.applications||[]).filter(item=>!!manualSession(item)).map(item=>[item.id,manualBrowserHealth(user.userId,item,rows.results.find(row=>row.request_id===item.id)||null)]));
  return response({received:true,at,notices:body.state==='stopped'?[]:desktopNotices(current.state,Date.now(),health)});
 }catch(error){return failure(error);}}

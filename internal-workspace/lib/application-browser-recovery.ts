@@ -1,9 +1,10 @@
+import {canAutomaticallyRecoverBrowser} from './automatic-browser-recovery';
 import type {ApplicationRequest,Job} from './cyber-domain';
 import {browserWindowState,type BrowserWindowRow} from './application-browser-window';
 import {manualBrowserHealth} from './manual-browser-health';
 import {manualDisplaySession,manualSession} from './manual-submission';
 
-export type RecoveryEntry={requestId:string;title:string;company:string;state:'connected'|'starting'|'lost'|'restoring'|'closed_unsent';manual:boolean;canRecover:boolean;message:string};
+export type RecoveryEntry={requestId:string;title:string;company:string;state:'connected'|'starting'|'lost'|'restoring'|'closed_unsent';manual:boolean;canRecover:boolean;autoRecoverable?:boolean;message:string};
 export type RecoverySnapshot={checkedAt:string;entries:RecoveryEntry[];blocked:boolean;needsRecovery:boolean};
 /** Only a request that currently expects a browser can lock the page. Ordinary answer pauses and completed records do not. */
 export function browserRecoverySnapshot(owner:string,applications:ApplicationRequest[],jobs:Job[],rows:BrowserWindowRow[],now=Date.now()):RecoverySnapshot{
@@ -12,9 +13,9 @@ export function browserRecoverySnapshot(owner:string,applications:ApplicationReq
  for(const item of applications){
   const manual=manualDisplaySession(item);
   if(item.status!=='processing'&&!manual)continue;
-  const job=jobs.find(job=>job.id===item.jobId),base={requestId:item.id,title:job?.title||'Application',company:job?.company||'Employer',manual:!!manual,canRecover:false};
+  const job=jobs.find(job=>job.id===item.jobId),base={requestId:item.id,title:job?.title||'Application',company:job?.company||'Employer',manual:!!manual,canRecover:false,autoRecoverable:canAutomaticallyRecoverBrowser(owner,item,ownRows.get(item.id)||null,now)};
   if(manual?.state==='reopening'){entries.push({...base,state:'restoring',message:'Rebuilding this same unsent form. Waiting for its new browser connection.'});continue;}
-  if(manual?.state==='closed_before_submit'){entries.push({...base,state:'closed_unsent',canRecover:true,message:'The browser closed before any recorded submission. Confirm recovery below.'});continue;}
+  if(manual?.state==='closed_before_submit'){entries.push({...base,state:'closed_unsent',canRecover:true,message:base.autoRecoverable?'The browser closed with verified unsent evidence. Automatic recovery is preparing the replacement.':'The browser closed before any recorded submission. Check safe recovery below.'});continue;}
   if(manualSession(item)){
    const health=manualBrowserHealth(owner,item,ownRows.get(item.id)||null,now);
    entries.push({...base,state:health.state==='connected'?'connected':'lost',canRecover:health.canRestore||health.canConfirmUnsent===true,message:health.state==='connected'?'The exact filled browser is connected.':'This exact browser stopped reporting. Review safe recovery below; do not submit again if its outcome is uncertain.'});continue;
