@@ -1,8 +1,7 @@
+import {cleanApplicationMedia,type ApplicationCleanupRow} from './application-media-cleanup';
 import {queueLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {enrichJob} from './job-extraction';
 import {configuredSearch} from './job-source-preferences';
-import {recordingPrefix} from './application-recordings';
-import {watchStorageKeys} from './agent-watch-storage';
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
 import { actionSchema, emptyState, liveState, retireLocalAgent, DomainError, reduceAction, record, workspacePayload, type State, type Activity, type Attachment } from './cyber-domain';
@@ -82,6 +81,20 @@ export async function refreshApplicationQuestionChoices(user:Identity,expected:n
  return {...await save(user,expected,current.state,'refresh_application_question_choices'),message};
 }
 
+export async function applicationCleanupStatus(user:Identity){
+ await ensureAccountActive(user);
+ const row=await db().prepare('SELECT COUNT(*) AS count FROM cyber_application_media_cleanup WHERE owner_id=?').bind(user.userId).first<{count:number}>();
+ return {cleanupPending:row?.count||0};
+}
+export async function finishApplicationCleanup(user:Identity){
+ await ensureAccountActive(user);
+ return cleanApplicationMedia(user.userId,{
+  rows:async()=>{const rows=await db().prepare('SELECT request_id,cover_key FROM cyber_application_media_cleanup WHERE owner_id=? ORDER BY created_at,request_id LIMIT 100').bind(user.userId).all<ApplicationCleanupRow>();return rows.results;},
+  complete:async id=>{await db().batch([db().prepare('DELETE FROM cyber_application_browser_windows WHERE owner_id=? AND request_id=?').bind(user.userId,id),db().prepare('DELETE FROM cyber_application_media_cleanup WHERE owner_id=? AND request_id=?').bind(user.userId,id)]);},
+  count:async()=>(await applicationCleanupStatus(user)).cleanupPending,
+ },files());
+}
+
 export async function permanentlyDeleteApplications(user:Identity,expected:number,scope:DeletionScope,applicationId?:string,deleteCandidateFacts=false,applicationIds?:string[]){
  const current=await load(user);
  if(current.revision!==expected)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
@@ -104,15 +117,14 @@ export async function permanentlyDeleteApplications(user:Identity,expected:numbe
   db().prepare("UPDATE cyber_workspaces SET payload=?,revision=?,write_token=?,updated_at=? WHERE owner_id=? AND revision=? AND json_extract(payload,'$.__deleting') IS NULL").bind(payload,revision,token,at,user.userId,expected),
   db().prepare(`WITH redacted AS (SELECT owner_id,revision,${redaction.expression} AS clean FROM cyber_revisions WHERE owner_id=? AND ${guard}) UPDATE cyber_revisions SET payload=(SELECT CASE WHEN json_array_length(clean,'$.applicationArchive.applications')=0 AND json_array_length(clean,'$.applicationArchive.drafts')=0 THEN json_remove(clean,'$.applicationArchive','$.lastDecision') ELSE json_remove(clean,'$.lastDecision') END FROM redacted WHERE redacted.owner_id=cyber_revisions.owner_id AND redacted.revision=cyber_revisions.revision) WHERE owner_id=? AND ${guard}`).bind(...redaction.params,user.userId,user.userId,token,user.userId,user.userId,token),
   db().prepare(`INSERT INTO cyber_revisions (owner_id,revision,payload,action,created_at) SELECT ?,?,?,?,? WHERE ${guard}`).bind(user.userId,revision,payload,'permanently_delete_application_records',at,user.userId,token),
+  db().prepare(`INSERT OR IGNORE INTO cyber_application_media_cleanup (owner_id,request_id,cover_key,created_at) SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.key'),? FROM json_each(?) WHERE ${guard}`).bind(user.userId,at,JSON.stringify([...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].filter(item=>plan.ids.includes(item.id)).map(item=>({id:item.id,key:item.coverLetter?.key||null}))),user.userId,token),
  ]);
  if(results[0].meta.changes!==1)throw new DomainError('Your workspace changed. Reload before permanently deleting records.',409);
- // Commit the owner/revision-guarded deletion before touching private media. A
- // concurrent worker claim must reject this deletion without losing its video.
- if(plan.ids.length)await files().delete(plan.ids.flatMap(id=>watchStorageKeys(user.userId,id).all));
- for(const id of plan.ids){while(true){const page=await files().list({prefix:recordingPrefix(user.userId,id),limit:1000});const keys=page.objects.map(object=>object.key);if(!keys.length)break;await files().delete(keys);}}
- if(plan.ids.length)await db().prepare('DELETE FROM cyber_application_browser_windows WHERE owner_id=? AND request_id IN (SELECT value FROM json_each(?))').bind(user.userId,JSON.stringify(plan.ids)).run();
- const coverKeys=[...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].filter(item=>plan.ids.includes(item.id)).map(item=>item.coverLetter?.key).filter((key):key is string=>!!key&&key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`));if(coverKeys.length)try{await files().delete(coverKeys);}catch{console.error('Deleted application cover-file cleanup pending under owner prefix.');}
- return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),message:'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};
+ // The cleanup journal commits atomically with the exact owner/revision deletion.
+ // A later R2 error must not report the already removed records as undeleted.
+ let cleanupPending=plan.ids.length;
+ try{cleanupPending=(await finishApplicationCleanup(user)).cleanupPending;}catch{/* Journal remains durable for an explicit cleanup retry. */}
+ return {revision,updatedAt:at,state:plan.state,searchCooldown:liveSearchCooldown(plan.state.discovery?.lastSearch.at),cleanupPending,message:cleanupPending?'Application records and saved-history copies were deleted. Private recording cleanup is pending; use Finish recording cleanup. Your original CV files remain saved.':'Records permanently deleted from your workspace and saved versions. This does not withdraw employer applications or delete original CV files.'};
 }
 export function sourceSecrets(){const value=(env as unknown as Record<string,string|undefined>).RECRUITEE_BOARD_TOKENS;if(!value)return {};try{const parsed=JSON.parse(value);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))return {};return{recruitee:Object.fromEntries(Object.entries(parsed).filter(([board,token])=>/^[a-z0-9][a-z0-9-]{0,79}$/.test(board)&&typeof token==='string'&&token.length<=2000&&!/[\r\n]/.test(token)) as [string,string][])};}catch{return {};}}
 export async function discoverJobs(user:Identity,expected:number,settings:unknown,source:Activity['source']) {
@@ -180,6 +192,7 @@ export async function deleteAccount(user:Identity,expected:number){
       db().prepare('DELETE FROM cyber_career_usage WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_agent_presence WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_application_browser_windows WHERE owner_id=?').bind(user.userId),
+      db().prepare('DELETE FROM cyber_application_media_cleanup WHERE owner_id=?').bind(user.userId),
       db().prepare('DELETE FROM cyber_receipt_checks WHERE owner_id=?').bind(user.userId),
     db().prepare('DELETE FROM cyber_revisions WHERE owner_id=?').bind(user.userId),
       db().prepare("DELETE FROM cyber_workspaces WHERE owner_id=? AND json_extract(payload,'$.__deleting')=1").bind(user.userId),

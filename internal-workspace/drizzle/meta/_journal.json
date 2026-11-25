@@ -43,6 +43,13 @@
       "when": 1794862098057,
       "tag": "0005_application_browser_windows",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795615200000,
+      "tag": "0006_application_media_cleanup",
+      "breakpoints": true
     }
   ]
 }

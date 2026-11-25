@@ -3,7 +3,7 @@ import {randomUUID} from 'node:crypto';
 const base=process.env.CYBER_TEST_BASE;
 if(!base||!['localhost','127.0.0.1'].includes(new URL(base).hostname))throw Error('Use an isolated loopback Worker with fictional data.');
 const owner='delete-test-'+randomUUID(),auth={'oai-authenticated-user-id':owner,'oai-authenticated-user-email':'deletion@example.test'};
-async function call(path,{method='GET',body,headers=auth,binary=false}={}){const r=await fetch(base+path,{method,headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});return {status:r.status,data:binary?new Uint8Array(await r.arrayBuffer()):await r.json()};}
+async function call(path,{method='GET',body,headers=auth,binary=false}={}){const r=await fetch(base+path,{method,redirect:'manual',signal:AbortSignal.timeout(15000),headers:{...headers,...(body&&!(body instanceof FormData)?{'Content-Type':'application/json'}:{})},body:body instanceof FormData?body:body?JSON.stringify(body):undefined});return {status:r.status,data:binary?new Uint8Array(await r.arrayBuffer()):await r.json()};}
 let current=(await call('/api/workspace')).data;
 async function act(action){const r=await call('/api/workspace',{method:'POST',body:{revision:current.revision,action}});assert.equal(r.status,200,JSON.stringify(r.data));current=r.data;}
 await act({type:'complete_onboarding',fullName:'Fictional QA',headline:'Fixture',targetRole:'SOC Analyst',city:'Fixture city',phone:'+12345678901',expectedSalary:{amount:2000,currency:'USD',period:'month'},usaVisaRequired:true,usaRightToWork:false});
@@ -66,3 +66,11 @@ assert.equal((await call('/api/files/'+file.id,{binary:true})).status,200);
 for(const row of (await call('/api/history')).data.items){const version=(await call('/api/history?revision='+row.revision)).data;for(const id of toDelete)assert.ok(!JSON.stringify(version.state).includes(id));}
 assert.deepEqual((await call('/api/workspace',{headers:otherHeaders})).data,other);
 console.log('PASS bulk deletion HTTP: bounded unique IDs, strict payload, confirmation, revision, ownership, processing guard, atomic exact selection, saved-history redaction and original CV/Profile/connection preservation.');
+
+assert.equal((await call('/api/applications/delete',{headers:{}})).status,401);
+assert.equal((await call('/api/applications/delete')).data.cleanupPending,0);
+assert.equal((await call('/api/applications/delete',{method:'POST',body:{action:'finish_cleanup'}})).data.cleanupPending,0);
+assert.equal((await call('/api/applications/delete',{method:'POST',body:{action:'finish_cleanup',applicationIds:[retained]}})).status,400);
+assert.equal((await call('/api/applications/delete',{method:'POST',headers:{...auth,Origin:'https://other.example'},body:{action:'finish_cleanup'}})).status,403);
+assert.deepEqual((await call('/api/workspace',{headers:otherHeaders})).data,other);
+console.log('PASS cleanup HTTP: authenticated owner-only status/retry, strict cleanup-only payload, cross-origin rejection and unrelated owner preservation.');
