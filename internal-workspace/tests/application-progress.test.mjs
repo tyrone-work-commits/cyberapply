@@ -12,7 +12,7 @@ const {applicationProgress}=await import('../.sites-runtime/application-progress
 const at='2026-10-28T12:00:00.000Z',now=Date.parse(at);
 test('closed-before-submit legacy record stays Ready with no ordinary retry or confirmation step',()=>{
  const item=request({status:'uncertain',claim:{id:'old',at,expiresAt:at},manualSubmission:{id:'manual',claimId:'old',state:'cancelled',challengeHosts:[],approvedHosts:[]},report:{journey:{version:1,continue_click_attempts:0,submit_click_attempts:0,possible_delivery:false,manual_submit_observed:false,human_submit_observed:0},manual_submission:{policy:'user_final_submit',human_submit_observed:0}}});
- const before=structuredClone(item),progress=applicationProgress(item,now+86400000);assert.equal(progress.label,'Ready – submit it yourself');assert.equal(progress.group,'needs_you');assert.equal(progress.canQueue,false);assert.equal(progress.steps[2].state,'pending');assert.deepEqual(item,before);
+ const before=structuredClone(item),progress=applicationProgress(item,now+86400000);assert.equal(progress.label,'Ready – submit it yourself');assert.equal(progress.group,'submit_yourself');assert.equal(progress.canQueue,false);assert.equal(progress.steps[2].state,'pending');assert.deepEqual(item,before);
 });
 function request(overrides={}){return {id:'request-test',jobId:'job',draftId:'draft',draftVersion:1,text:'Original draft',candidate:{fullName:'Test Candidate',email:'test@example.test',skills:[],preferredRoles:[],resumeText:'CV snapshot',reviewed:false},cv:{fileId:'original-cv',name:'original.pdf',type:'application/pdf',size:1000},at,status:'needs_action',reason:'connection_required',sourceUrl:'https://employer.example/job',...overrides};}
 
@@ -76,6 +76,16 @@ test('legacy six-step reports explain missing evidence without rewriting saved s
 test('persistent manual submission shows Ready or Needs you without lease expiry or requeue',()=>{
  for(const [state,label] of [['ready','Ready – submit it yourself'],['needs_submit','Needs you: submit'],['cancel_requested','Cancellation requested']]){
  const p=applicationProgress(request({status:'processing',claim:{id:'claim',at,expiresAt:'2020-01-01'},manualSubmission:{id:'manual',claimId:'claim',state},report:{journey:{version:1,possible_delivery:true,submit_click_attempts:0}}}),now);
- assert.equal(p.label,label);assert.equal(p.group,'needs_you');assert.equal(p.canQueue,false);assert.match(p.description,/press Submit/);
+ assert.equal(p.label,label);assert.equal(p.group,state==='cancel_requested'?'needs_you':'submit_yourself');assert.equal(p.canQueue,false);assert.match(p.description,/press Submit/);
  }
+});
+
+
+test('Submit yourself groups only final manual submission, without altering records or recovery boundaries',()=>{
+ for(const [state,expected] of [['ready','submit_yourself'],['needs_submit','submit_yourself'],['reopening','in_progress'],['cancel_requested','needs_you']]){
+  const item=request({status:state==='reopening'?'queued':'processing',claim:{id:'claim',at,expiresAt:at},manualSubmission:{id:'manual',claimId:'claim',state,at,updatedAt:at,challengeHosts:[],approvedHosts:[]}}),before=structuredClone(item);
+  assert.equal(applicationProgress(item,now).group,expected);assert.deepEqual(item,before);assert.equal(applicationProgress(item,now).canQueue,false);
+ }
+ for(const status of ['needs_attention','needs_action','failed'])assert.equal(applicationProgress(request({status}),now).group,'needs_you');
+ assert.equal(applicationProgress(request({status:'uncertain'}),now).group,'check_outcome');
 });

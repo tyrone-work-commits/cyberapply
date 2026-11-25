@@ -2,7 +2,7 @@ import {currentHandoff,persistentQuestionHandoff} from './verification-handoff';
 import type { ApplicationRequest } from './cyber-domain';
 import {manualDisplaySession,type ManualBrowserHealth} from './manual-submission';
 
-export type ProgressGroup = 'in_progress' | 'needs_you' | 'applied' | 'check_outcome';
+export type ProgressGroup = 'in_progress' | 'needs_you' | 'submit_yourself' | 'applied' | 'check_outcome';
 type Step = {label:string;state:'done'|'current'|'pending'};
 export type ApplicationProgress = {
   group:ProgressGroup;
@@ -50,7 +50,7 @@ export function applicationProgress(application:ApplicationRequest,now=Date.now(
   if(confirmed){
     group='applied';label='Applied';tone='success';description='Employer confirmation is recorded. Review the confirmation details below.';
   }else if(manual){
-    group='needs_you';label=manual.state==='needs_submit'?'Needs you: submit':manual.state==='cancel_requested'?'Cancellation requested':'Ready – submit it yourself';tone='warning';description='Open the CyberApply browser window and press Submit. Complete any reCAPTCHA yourself. The same form stays open until you submit or cancel; the agent never retries Submit.';
+    group=manual.state==='reopening'?'in_progress':manual.state==='cancel_requested'?'needs_you':'submit_yourself';label=manual.state==='needs_submit'?'Needs you: submit':manual.state==='cancel_requested'?'Cancellation requested':'Ready – submit it yourself';tone='warning';description='Open the CyberApply browser window and press Submit. Complete any reCAPTCHA yourself. The same form stays open until you submit or cancel; the agent never retries Submit.';
     if(manual.state==='closed_before_submit')description='The browser closed before any recorded Continue or Submit. Confirm you closed before submitting to reopen and refill this application with the original CV and saved answers.';
     if(manual.state==='reopening'){label='Reopening your unsent form';description='The runner is refilling the original application after your explicit reopen request. It will wait for you to press Submit.';}
     if(['ready','needs_submit'].includes(manual.state)&&browserHealth){

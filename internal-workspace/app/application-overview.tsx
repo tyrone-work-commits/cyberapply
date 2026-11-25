@@ -30,7 +30,7 @@ function sourceName(job?: Job) {
   return `${providerNames[job.source.provider]} · ${job.company}`;
 }
 function timestamp(value:string){return new Date(value).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});}
-const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['applied','Applied'],['check_outcome','Awaiting confirmation']];
+const filters:[ProgressGroup|'all',string][]=[['all','All applications'],['in_progress','In progress'],['needs_you','Needs you'],['submit_yourself','Submit yourself'],['applied','Applied'],['check_outcome','Awaiting confirmation']];
 
 export function ApplicationOverview({settingsOpen,onCloseSettings,applications,jobs,drafts,files,selectedCvId,agentEnabled,lastSeenAt,busy,onRefresh,onRefreshChoices,onChooseCv,onExplore,onQueue,onAnswer,onClear,onRestore,onDelete,legacyDeleted,clearedCount=0,employerQuestions=[],accountProfile}:{
  settingsOpen:boolean;onCloseSettings:()=>void;
