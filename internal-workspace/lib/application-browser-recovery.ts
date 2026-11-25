@@ -6,7 +6,7 @@ import {manualDisplaySession,manualSession} from './manual-submission';
 
 export type RecoveryEntry={requestId:string;title:string;company:string;state:'connected'|'starting'|'lost'|'restoring'|'closed_unsent';manual:boolean;canRecover:boolean;autoRecoverable?:boolean;message:string};
 export type RecoverySnapshot={checkedAt:string;entries:RecoveryEntry[];blocked:boolean;needsRecovery:boolean};
-/** Only a request that currently expects a browser can lock the page. Ordinary answer pauses and completed records do not. */
+/** Aggregate browser readiness only. This never restricts access to saved records or ordinary employer answers. */
 export function browserRecoverySnapshot(owner:string,applications:ApplicationRequest[],jobs:Job[],rows:BrowserWindowRow[],now=Date.now()):RecoverySnapshot{
  const entries:RecoveryEntry[]=[];
  const ownRows=new Map(rows.filter(row=>row.owner_id===owner).map(row=>[row.request_id,row]));
