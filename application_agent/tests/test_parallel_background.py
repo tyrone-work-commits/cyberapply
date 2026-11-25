@@ -13,7 +13,7 @@ def test_normal_background_pool_uses_ten_independent_workers_and_existing_creden
    assert options['limit']==10 and not stopping()
    assert work(lambda state:None)
    publish('working',activeApplications=1,parallelSlots=10)
-  with patch.object(background,'data_dir',return_value=folder),patch.object(background.ctypes.windll,'kernel32',kernel),patch.object(background,'protect',return_value=b'ca2.owner.'+b'a'*64),patch.object(background,'run_once',return_value=True) as job,patch('application_agent.parallel_runner.run_pool',side_effect=pool),patch('application_agent.presence.start'),patch('application_agent.presence.stop'),patch.object(background.subprocess,'Popen') as start:
+  with patch.object(background,'data_dir',return_value=folder),patch.object(background.ctypes.windll,'kernel32',kernel),patch.object(background,'protect',return_value=b'ca2.owner.'+b'a'*64),patch.object(background,'run_once',return_value=True) as job,patch('application_agent.parallel_runner.run_pool',side_effect=pool),patch('application_agent.presence.start'),patch('application_agent.presence.stop'),patch('application_agent.restart_recovery.RestartRecovery'),patch.object(background.subprocess,'Popen') as start:
    background.run();assert job.call_args.kwargs['parallel'] is True
    assert job.call_args.kwargs['background_notifications'] is True
    assert json.loads((folder/'status.json').read_text())['parallelSlots']==10
@@ -29,7 +29,7 @@ def test_companion_preserves_legacy_status_and_never_kills_a_browser():
    assert work(lambda state:None)
    assert stopping()
    publish('stopped',activeApplications=0,parallelSlots=10)
-  with patch.object(background,'data_dir',return_value=folder),patch.object(background.ctypes.windll,'kernel32',kernel),patch.object(background,'protect',return_value=b'ca2.owner.'+b'a'*64),patch.object(background,'run_once',return_value=True),patch('application_agent.parallel_runner.run_pool',side_effect=pool),patch('application_agent.presence.start'),patch('application_agent.presence.stop'),patch.object(background.subprocess,'Popen') as start:
+  with patch.object(background,'data_dir',return_value=folder),patch.object(background.ctypes.windll,'kernel32',kernel),patch.object(background,'protect',return_value=b'ca2.owner.'+b'a'*64),patch.object(background,'run_once',return_value=True),patch('application_agent.parallel_runner.run_pool',side_effect=pool),patch('application_agent.presence.start'),patch('application_agent.presence.stop'),patch('application_agent.restart_recovery.RestartRecovery'),patch.object(background.subprocess,'Popen') as start:
    background.run(123);assert (folder/'status.json').read_text()==prior
    assert json.loads((folder/'parallel/status.json').read_text())['parallelSlots']==10
    assert start.call_count==1;assert start.call_args.args[0][-1]=='run';assert 'ca2.' not in str(start.call_args)

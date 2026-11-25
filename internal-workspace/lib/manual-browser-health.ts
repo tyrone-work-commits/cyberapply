@@ -1,6 +1,6 @@
 import type {ApplicationRequest} from './cyber-domain';
 import type {BrowserWindowRow} from './application-browser-window';
-import {manualSession,lostManualRecoveryEligible,ownerConfirmedUnsentEligible,type ManualBrowserHealth} from './manual-submission';
+import {manualSession,lostManualRecoveryEligible,ownerConfirmedUnsentEligible,ownerConfirmedOpenedUnsentEligible,type ManualBrowserHealth} from './manual-submission';
 export const MANUAL_BROWSER_FRESH_MS=60000,MANUAL_OPEN_ACK_MS=15000;
 /** The exact manual owner thread may wait on bounded network/browser operations. Allow a 60s reporting window; a process-wide heartbeat never substitutes for it. */
 export function manualBrowserHealth(owner:string,item:ApplicationRequest,row:BrowserWindowRow|null,now=Date.now()):ManualBrowserHealth{
@@ -8,7 +8,7 @@ export function manualBrowserHealth(owner:string,item:ApplicationRequest,row:Bro
  const fresh=scoped&&!row!.closed&&row!.seen_at>=now-MANUAL_BROWSER_FRESH_MS&&row!.seen_at<=now+1000;
  let open:ManualBrowserHealth['open']='idle';
  if(h?.openCommandId)open=h.openedCommandId===h.openCommandId?(h.openError?'failed':'opened'):Number.isFinite(Date.parse(h.openRequestedAt||''))&&now-Date.parse(h.openRequestedAt!)>MANUAL_OPEN_ACK_MS?'timed_out':'pending';
- return {state:fresh?'connected':'not_reporting',open,canRestore:!fresh&&lostManualRecoveryEligible(item),canConfirmUnsent:!fresh&&ownerConfirmedUnsentEligible(item),...(scoped?{lastSeenAt:new Date(row!.seen_at).toISOString()}:{}),...(!h?.browserHealthVersion?{legacy:true}:{})};
+ return {state:fresh?'connected':'not_reporting',open,canRestore:!fresh&&lostManualRecoveryEligible(item),canConfirmUnsent:!fresh&&(ownerConfirmedUnsentEligible(item)||ownerConfirmedOpenedUnsentEligible(item)),...(scoped?{lastSeenAt:new Date(row!.seen_at).toISOString()}:{}),...(!h?.browserHealthVersion?{legacy:true}:{})};
 }
 /** Never overwrite durable evidence of possible delivery with an older snapshot. */
 export function mergeManualReport(prior:Record<string,unknown>|undefined,next:Record<string,unknown>){

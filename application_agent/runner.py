@@ -60,7 +60,7 @@ def parse_connection(raw, site):
 
 
 _workspace_write_lock=threading.RLock()
-_workspace_posts={'claim','result','questions','manual-submit','handoff','recording-status','location-choices/claim','location-choices/result'}
+_workspace_posts={'claim','result','questions','manual-submit','handoff','recording-status','location-choices/claim','location-choices/result','restart-recovery'}
 
 def call_site(site, token, path, data=None, binary=False, site_access_token=None, timeout=40):
     from urllib.request import build_opener
