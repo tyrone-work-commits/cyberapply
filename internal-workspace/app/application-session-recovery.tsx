@@ -28,6 +28,7 @@ export function useApplicationSessionRecovery(applications:ApplicationRequest[])
 
 export function ApplicationSessionRecovery({recovery}:{recovery:ReturnType<typeof useApplicationSessionRecovery>}){
  const {snapshot,blocked,checking,open,setOpen,refresh}=recovery;
+ const [connectedNotice,setConnectedNotice]=useState(false);
  // A pending check is not evidence that the employer browser has expired.
  // Keep the safety gate independent from the status colour and warning button.
  const attention=!!snapshot?.needsRecovery||blocked&&recovery.checkFailed;
@@ -39,14 +40,22 @@ export function ApplicationSessionRecovery({recovery}:{recovery:ReturnType<typeo
   :snapshot&&total?{label:'Connected',text:`${total===1?'Your required browser session is':`All ${total} required browser sessions are`} online. Your application cards are unlocked.`}
   :snapshot?{label:'No active browser sessions',text:'No application currently needs a live browser. Your application cards are unlocked.'}
   :{label:'Checking connection',text:'Checking your browser connection status. No form is being restarted by this check.'};
+ const isConnected=status.label==='Connected';
+ useEffect(()=>{
+  if(!isConnected){setConnectedNotice(false);return;}
+  setConnectedNotice(true);setOpen(false);
+  const timer=setTimeout(()=>setConnectedNotice(false),1000);
+  return()=>clearTimeout(timer);
+ },[isConnected,setOpen]);
 
  return <>
   <button type="button" className={`button quiet application-recovery-button${attention?' needs-recovery':''}`} aria-expanded={open} aria-controls="application-session-recovery" onClick={()=>{setOpen(!open);refresh();}} title="Check and recover disconnected application browsers"><RefreshCw size={16}/>{attention?'Recover browser sessions — action needed':'Recover browser sessions'}</button>
-  <p className={`application-recovery-status${attention?' application-recovery-lock-note':status.label==='Connected'?' connected':' checking'}`} role="status" aria-atomic="true"><strong>{status.label}</strong> — {status.text}<span className="application-recovery-status-note">This reports the browser connection. Employer login, CAPTCHA or email verification can expire separately.</span></p>
+  <p className={`application-recovery-status${attention?' application-recovery-lock-note':isConnected?' connected compact':' checking'}`} role="status" aria-atomic="true"><strong>{status.label}</strong>{!isConnected&&<> — {status.text}<span className="application-recovery-status-note">This reports the browser connection. Employer login, CAPTCHA or email verification can expire separately.</span></>}</p>
+  {connectedNotice&&<div className="application-connection-toast" role="status">Browser sessions connected. Your applications are ready to open.</div>}
   {open&&<section id="application-session-recovery" className="panel application-session-recovery" aria-label="Recover application browser sessions">
    <h3>{attention?<><TriangleAlert size={18}/>Browser sessions need attention</>:'Application browser connections'}</h3>
    <p>This checks the real application browsers after a restart or connection loss. It does not renew employer CAPTCHA, email codes or login sessions. Connected browsers are left alone. Safely unsent forms can be rebuilt with their original CV and saved answers after your confirmation; possibly submitted forms are never retried here.</p>
-   <p>After Windows restarts and you sign in, the updated background agent automatically restores eligible forms that were never opened for manual submission and had no Continue or Submit action. It uses the same application record, original CV and saved answers. The replacement stays hidden until you choose Open. Sleep normally keeps the existing browser in memory. Employer verification and unsaved browser-only edits may need to be entered again after a shutdown. If a form was already opened, confirm that you never submitted it before using its recovery option; an uncertain submission is never automatically retried.</p>
+   <p>After restarting your laptop, CyberApply checks connection status without rebuilding any browser. Use this recovery button and the affected application’s confirmation below when you want to rebuild an eligible unsent form. It keeps the same application record, original CV and saved answers, and stays hidden until you choose Open. Sleep may keep an existing browser in memory. Employer verification and unsaved browser-only edits may need to be entered again after shutdown. Possibly submitted applications are never retried here.</p>
    <button className="button quiet" type="button" disabled={checking} onClick={refresh}>{checking?'Checking connections…':'Check connections again'}</button>
    {recovery.checking&&!snapshot&&<p role="status">Checking your saved application sessions…</p>}
    {recovery.checking&&attention&&<p role="status">Connection could not yet be confirmed. Keep the runner computer awake and online. Application access stays locked; no form has been restarted.</p>}

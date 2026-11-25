@@ -20,22 +20,21 @@ eq((await c.event('poll',{report:{journey:{...unsent.journey,possible_delivery:t
 const endpoint='/api/application-agent/restart-recovery';
 
 
-eq((await call(endpoint,{headers:worker,body:{version:1,computerBootAt:new Date(Date.now()+60000).toISOString(),runnerStartedAt:new Date(Date.now()+60000).toISOString()}})).data.restored,0);
-console.log('Restart HTTP fixtures prepared; simulating a cold restart after the exact-browser freshness window. No employer contacted.');
+// Startup/wake checks are read-only, including for older running workers.
+const body={version:1,computerBootAt:new Date(Date.now()-1000).toISOString(),runnerStartedAt:new Date().toISOString()};
+current=(await call('/api/workspace')).data;const before=structuredClone(current);
+for(let n=0;n<3;n++){const r=await call(endpoint,{headers:worker,body});eq(r.status,200);eq(r.data,{restored:0,manualRecoveryRequired:true});}
+current=(await call('/api/workspace')).data;eq(current.revision,before.revision);eq(current.state.applications,before.state.applications);
+eq((await call('/api/application-agent/claim',{headers:worker,body:capabilities})).data.task,null);
+console.log('Startup checks preserve every existing form and never queue or rotate a claim. Waiting for stale-session manual recovery fixture.');
 await new Promise(resolve=>setTimeout(resolve,65000));
-const bootAt=new Date(Date.now()-1000).toISOString(),body={version:1,computerBootAt:bootAt,runnerStartedAt:bootAt};
-let r=await call(endpoint,{headers:worker,body});eq(r.status,200);eq(r.data.restored,1);
-current=(await call('/api/workspace')).data;
-const restored=current.state.applications.find(item=>item.id===a.task.requestId);eq(restored.status,'queued');eq(restored.cv.fileId,a.task.cv.id);eq(restored.manualSubmission.openRequested,false);eq(restored.manualSubmission.reopenConfirmedAt,undefined);eq(restored.report.restart_recovery.previousClaimId,a.task.claimId);eq(current.state.applications.length,3);
-eq((await call(endpoint,{headers:worker,body})).data.restored,0);
-r=await call('/api/application-agent/claim',{headers:worker,body:capabilities});eq(r.data.task.requestId,a.task.requestId);assert.notEqual(r.data.task.claimId,a.task.claimId);checks++;eq(r.data.task.cv,a.task.cv);
-eq((await a.event('poll',{report:unsent})).status,409);
-const task=r.data.task;r=await call(workerPath,{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,id:randomUUID(),event:'ready',browserHealthVersion:1,browserSessionId:randomUUID(),report:unsent}});eq(r.status,200);eq(r.data.session.openRequested,false);eq((await call(endpoint,{headers:worker,body})).data.restored,0);
+let r;
 eq((await b.read()).data.health.canConfirmUnsent,true);eq((await b.command('confirm_unsent',{closedBeforeSubmitConfirmed:true})).status,409);
 r=await b.command('confirm_unsent',{neverSubmittedConfirmed:true,closedBeforeSubmitConfirmed:true});eq(r.status,200);eq(r.data.session.openRequested,false);eq(r.data.session.reopenConfirmedAt,undefined);
 eq((await c.read()).data.health.canConfirmUnsent,false);eq((await c.command('confirm_unsent',{neverSubmittedConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
-eq((await call('/api/application-agent/result',{headers:worker,body:{requestId:task.requestId,claimId:task.claimId,status:'needs_attention',message:'Fictional recovery completed; no employer contacted.',report:unsent}})).status,200);
-current=(await call('/api/workspace')).data;eq(current.state.applications.length,3);eq(current.state.applications.some(item=>item.status==='applied'),false);eq(current.state.applications.find(item=>item.id===task.requestId).report.restart_recovery.previousClaimId,a.task.claimId);
+current=(await call('/api/workspace')).data;eq(current.state.applications.length,3);eq(current.state.applications.some(item=>item.status==='applied'),false);
+eq(current.state.applications.find(item=>item.id===a.task.requestId).claim.id,a.task.claimId);
+eq(current.state.applications.find(item=>item.id===b.task.requestId).manualSubmission.state,'reopening');
 eq((await call(endpoint,{headers:worker,body:{version:1,computerBootAt:'invalid'}})).status,400);
 eq((await call(endpoint,{headers:{...auth,Connection:'close'},body:{version:1,computerBootAt:new Date().toISOString(),runnerStartedAt:new Date().toISOString()}})).status,401);
-console.log(`PASS ${checks} restart recovery HTTP checks: worker authentication, strict input, exact pre-startup evidence, original CV, same request/new claim, hidden recovery, idempotency, opened-form declaration and duplicate protection. No employer contacted.`);
+console.log(`PASS ${checks} manual-only restart HTTP checks: authenticated startup is read-only, exact claims and records remain unchanged, explicit owner recovery still works, and possible delivery blocks recovery. No employer contacted.`);

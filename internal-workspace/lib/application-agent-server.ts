@@ -17,7 +17,6 @@ import { activeClaim, claimApplication, completeApplication, assertApplicationPr
 import { runnerPresence, type PresenceRow } from './agent-presence';
 import {watchStorageKeys,VIDEO_SLOTS} from './agent-watch-storage';
 import { extractResume } from './resume-extraction';
-import {restartRecoveryCandidates,restoreAfterComputerRestart} from './application-restart-recovery';
 import type {BrowserWindowRow} from './application-browser-window';
 
 const digest=async(value:BufferSource)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',value)),x=>x.toString(16).padStart(2,'0')).join('');
@@ -241,29 +240,10 @@ export async function pair(request:Request){try{
 export async function restartRecovery(request:Request){try{
  const user=await worker(request),parsed=z.object({version:z.literal(1),computerBootAt:z.string().datetime({offset:true}),runnerStartedAt:z.string().datetime({offset:true})}).strict().safeParse(await json(request));
  if(!parsed.success)throw new DomainError('Invalid browser restart recovery metadata.',400);
- const body=parsed.data;
- for(let attempt=0;attempt<3;attempt++){
-  const current=await load(user);stillConnected(current.state,user);
-  const rows=await presenceDb().prepare('SELECT * FROM cyber_application_browser_windows WHERE owner_id=? ORDER BY seen_at DESC LIMIT 1000').bind(user.userId).all<BrowserWindowRow>();
-  const candidates=restartRecoveryCandidates(current.state,user.userId,rows.results,body.runnerStartedAt);
-  let restored=0;
-  for(const item of candidates){
-   try{
-    assertApplicationAuthorizationCurrent(current.state,item);
-    const file=current.state.attachments.find(file=>file.id===item.cv?.fileId),job=current.state.jobs.find(job=>job.id===item.jobId);
-    if(!file||!job||job.source?.availability==='closed')continue;
-    const object=await files().get(file.key);if(!object||await digest(await object.arrayBuffer())!==item.cvSha256)continue;
-    const latestRow=await getBrowserWindow(presenceDb(),user.userId,item.id);
-    if(!latestRow||!restartRecoveryCandidates(current.state,user.userId,[latestRow],body.runnerStartedAt).some(candidate=>candidate.id===item.id))continue;
-    restoreAfterComputerRestart(item,body.runnerStartedAt);restored++;
-   }catch(error){if(!(error instanceof DomainError))throw error;}
-  }
-  if(!restored)return response({restored:0});
-  record(current.state,'application_browser_restart_recovery',`Restored ${restored} verified unsent browser request(s) after a background-agent restart. Final Submit remains manual.`,'agent');
-  try{await save(user,current.revision,current.state,'application_browser_restart_recovery');return response({restored});}
-  catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
- }
- throw new DomainError('Workspace changed during restart recovery. No employer submission was attempted.',409);
+ // Compatibility for already-running older workers: startup checks may read
+ // this endpoint, but only an explicit owner recovery command may rebuild.
+ const current=await load(user);stillConnected(current.state,user);
+ return response({restored:0,manualRecoveryRequired:true});
 }catch(error){return failure(error);}}
 
 export async function claim(request:Request){try{

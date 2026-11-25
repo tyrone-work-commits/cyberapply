@@ -116,10 +116,8 @@ def run(legacy_pid=None):
         from .desktop_notifications import DesktopNotifications
         from .parallel_runner import run_pool,MAX_PARALLEL_APPLICATIONS
         from .runner import call_site,maybe_refresh_sources
-        from .restart_recovery import RestartRecovery
         from .location_choices import run_location_capture
         active_connection=[None]
-        restart_recovery=RestartRecovery(call_site) if not legacy_pid else None
         notifications=DesktopNotifications(root)
         status('checking',folder=folder)
         presence_stop=presence.start(folder,SITE,get_connection=lambda:active_connection[0],
@@ -131,7 +129,6 @@ def run(legacy_pid=None):
             return token,service
         def work(on_state):
             token,service=connected()
-            if restart_recovery:restart_recovery.check(SITE,token,service)
             return run_once(SITE,token,submit=True,browser_channel='chrome',site_access_token=service,
                             on_state=on_state,background_notifications=True,parallel=True)
         def maintenance():
