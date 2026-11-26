@@ -3,10 +3,21 @@ from unittest.mock import patch
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from application_agent.background import configure
-from application_agent.background import protect, retry_delay, status
+from application_agent.background import protect, retry_delay, status, should_stop_runner
 import json
 
 class BackgroundTests(unittest.TestCase):
+    def test_recording_update_companion_preserves_old_browser_and_honors_real_stop(self):
+        with TemporaryDirectory() as folder:
+            stop=Path(folder)/'stop'
+            self.assertFalse(should_stop_runner(stop))
+            self.assertTrue(should_stop_runner(stop,assisting=True,legacy_alive=False))
+            stop.write_text('finish-current-run-before-identity-close-return:00000000-0000-4000-8000-000000000001')
+            self.assertTrue(should_stop_runner(stop))
+            self.assertFalse(should_stop_runner(stop,assisting=True))
+            for marker in ['', 'stop', 'finish-current-run-before-identity-close-return:invalid']:
+                stop.write_text(marker);self.assertTrue(should_stop_runner(stop,assisting=True))
+
     def test_temporary_windows_status_reader_does_not_stop_the_runner(self):
         with TemporaryDirectory() as folder:
             root=Path(folder)

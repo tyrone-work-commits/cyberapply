@@ -63,7 +63,30 @@ const timeline=applicationRecordingTimeline(r.data);eq(timeline.duration,5);asse
 const buffers=[];for(const part of timeline.parts){const result=await call(view+'&attempt='+part.attempt+(part.part===null?'':'&part='+part.part));eq(result.status,200);buffers.push(result.data.buffer.slice(result.data.byteOffset,result.data.byteOffset+result.data.byteLength));}
 const combined=createFile(true);combined.appendBuffer(Object.assign(combineRecordingParts(buffers),{fileStart:0}));combined.flush();const info=combined.getInfo();eq(info.duration/info.timescale,5);eq(info.videoTracks[0].nb_samples,40);
 eq((await call(view+'&attempt='+resumed.claimId+'&part=0')).status,200);
-current=(await call('/api/workspace')).data;eq(current.state.applications.length,1);eq(current.state.applications[0].status,'uncertain');
+// A separate fictional finished application supports checkpoints beyond 60
+// and streams a full MP4 while preserving account isolation and manual outcome.
+current=(await call('/api/workspace')).data;
+await act({type:'add_job',title:'Full recording fixture',company:'Local fixture',location:'Remote',workMode:'Remote',url:'https://fixture.example/full-'+owner,description:'Isolated streaming recording test; no employer contacted.',skills:[]});
+await act({type:'decide_job',jobId:current.state.jobs[0].id,decision:'apply'});
+const longTask=(await call('/api/application-agent/claim',{method:'POST',headers:worker,body:{profileAnswersVersion:5,manualSubmitVersion:4,verificationHandoffVersion:2,coverLetterVersion:1}})).data.task;
+const longIds={requestId:longTask.requestId,claimId:longTask.claimId},longView='/api/applications/recordings?requestId='+longTask.requestId;
+eq((await call(longView+'&download=1')).status,409);
+for(const [fixturePart,part] of [[0,0],[1,61],[2,1001]]){
+ const content=await readFile(`tests/fixtures/recording-parts/part-${fixturePart}.mp4`);
+ const result=await fetch(base+'/api/application-agent/recording?'+new URLSearchParams({...longIds,part}),{method:'POST',headers:{...worker,'Content-Type':'video/mp4','Content-Length':String(content.length),'X-Recording-Duration':String([2,3,1][fixturePart]),'X-Recording-Started-At':new Date().toISOString(),'X-Recording-Partial':'false','X-Recording-SHA256':createHash('sha256').update(content).digest('hex')},body:content});eq(result.status,200);
+}
+eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:{...longIds,state:'upload_pending',code:'',parts:1002,partial:true}})).status,200);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...longIds,status:'applied',message:'Synthetic fixture confirmation; no employer contacted.',receipt:'Thank you for applying',evidence:{url:'https://fixture.example/confirmation',text:'Thank you for applying'}}})).status,200);
+eq((await call(longView+'&download=1')).status,409);
+eq((await call('/api/application-agent/recording-status',{method:'POST',headers:worker,body:{...longIds,state:'saved',code:'',parts:1002,partial:true}})).status,200);
+const longSnapshot=(await call(longView)).data;assert.deepEqual(longSnapshot.items[0].parts.map(p=>p.part),[0,61,1001]);checks++;
+eq((await call(longView+'&attempt='+longTask.claimId+'&part=1001')).status,200);
+eq((await call(longView+'&download=1',{headers:other})).status,404);eq((await call(longView+'&download=1',{headers:{}})).status,401);
+const downloaded=await call(longView+'&download=1');eq(downloaded.status,200);assert.match(downloaded.response.headers.get('content-disposition'),/attachment/);checks++;
+const streamed=createFile(true);streamed.appendBuffer(Object.assign(downloaded.data.buffer.slice(downloaded.data.byteOffset,downloaded.data.byteOffset+downloaded.data.byteLength),{fileStart:0}));streamed.flush();
+const streamedInfo=streamed.getInfo();eq(streamedInfo.duration/streamedInfo.timescale,6);eq(streamedInfo.videoTracks[0].nb_samples,48);
+eq((await call('/api/workspace')).data.state.applications.find(a=>a.id===longTask.requestId).status,'applied');
+current=(await call('/api/workspace')).data;eq(current.state.applications.length,2);eq(current.state.applications.find(a=>a.id===task.requestId).status,'uncertain');
 await act({type:'clear_applications',confirmation:'CLEAR_APPLICATIONS'});eq((await call(media)).status,200);
 r=await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'cleared',confirmation:'PERMANENTLY DELETE'}});eq(r.status,200);eq((await call(media)).status,404);eq((await call(view)).status,404);
 console.log(`PASS ${checks} recording HTTP checks: checksum/idempotency, post-outcome upload, private ownership, seeking, archive retention, permanent deletion, unchanged outcome.`);

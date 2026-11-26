@@ -5,20 +5,19 @@ import './workspace-header.css';
 import './application-recording.css';
 import {createPortal} from 'react-dom';
 import {ArrowLeft,Download,ExternalLink,Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
-import {dvrTarget,resumeVideo} from '@/lib/video-dvr';
-import {RecordingLoader} from '@/lib/recording-loader';
-import recordingWorkerUrl from '../lib/recording-remux.worker.ts?worker&url';
+import {dvrTarget} from '@/lib/video-dvr';
+import {RecordingStream} from '@/lib/recording-stream';
+import {recordingSnapshot} from '@/lib/recording-snapshot';
 import {applicationRecordingTimeline,recordingAvailability,recordingPollDelay,recordingViewMessage,liveVideoPhase,type LiveVideoInfo,type RecordingSnapshot} from '@/lib/recording-view-state';
 export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false,liveInfo}:{requestId:string;onClose?:()=>void;embedded?:boolean;dvr?:boolean;liveInfo?:LiveVideoInfo|null}){
  const [snapshot,setSnapshot]=useState<RecordingSnapshot|null>(null),[message,setMessage]=useState('Loading your private application video…'),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false),[refresh,setRefresh]=useState(0);
- const video=useRef<HTMLVideoElement>(null),blob=useRef(''),resume=useRef({requestId:'',time:0,paused:false});
+ const video=useRef<HTMLVideoElement>(null),resume=useRef({requestId:'',time:0,paused:false});
  const [media,setMedia]=useState({requestId:'',url:'',signature:'',preview:false,offset:0}),[preparing,setPreparing]=useState(false),[playbackError,setPlaybackError]=useState(''),[mediaRetry,setMediaRetry]=useState(0);
- const currentMedia=useRef(media);currentMedia.current=media;
- const follow=useRef(dvr),swapping=useRef(false),seekTarget=useRef<number|null>(null),pendingJump=useRef(false),loader=useRef<RecordingLoader|null>(null);
+ const follow=useRef(dvr),swapping=useRef(false),seekTarget=useRef<number|null>(null),pendingJump=useRef(false),stream=useRef<RecordingStream|null>(null);
  const [dvrMode,setDvrMode]=useState<'live'|'history'>(dvr?'live':'history'),[atEnd,setAtEnd]=useState(false);
  const close=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null),generation=useRef(0),snapshotRequest=useRef(''),retries=useRef(0);
  const base='/api/applications/recordings?requestId='+encodeURIComponent(requestId);
- useEffect(()=>{setSnapshot(null);retries.current=0;loader.current=new RecordingLoader();return()=>{loader.current?.close();loader.current=null;};},[requestId]);
+ useEffect(()=>{setSnapshot(null);retries.current=0;return()=>{stream.current?.close();stream.current=null;};},[requestId]);
  useEffect(()=>{if(!onClose)return;const query=matchMedia('(max-width:600px)'),update=()=>setMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[onClose]);
  useEffect(()=>{
   if(!mobile)return;const overflow=document.body.style.overflow,shell=document.querySelector<HTMLElement>('.app-shell'),inert=shell?.inert;
@@ -28,9 +27,9 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
  useEffect(()=>{
   const id=++generation.current;let timer:ReturnType<typeof setTimeout>|undefined,controller:AbortController|undefined,loading=false,delay=5000;
   async function load(){
-   if(document.hidden||loading)return;if(timer)clearTimeout(timer);loading=true;setBusy(true);controller=new AbortController();const timeout=setTimeout(()=>controller?.abort(),8000);
+   if(document.hidden||loading)return;if(timer)clearTimeout(timer);loading=true;setBusy(true);controller=new AbortController();const timeout=setTimeout(()=>controller?.abort(),30000);
    try{
-    const r=await fetch(base,{cache:'no-store',signal:controller.signal}),p=await r.json() as RecordingSnapshot&{error?:string};if(!r.ok)throw Error(p.error||'Recordings could not be loaded.');if(generation.current!==id)return;
+    const p=await recordingSnapshot(base,controller.signal);if(generation.current!==id)return;
     snapshotRequest.current=requestId;setSnapshot(p);setMessage(dvr||recordingAvailability(p).ready?recordingViewMessage(p):'');delay=recordingPollDelay(p,dvr);
    }catch(error){if(generation.current===id){setMessage((error as Error).name==='AbortError'?'Video connection is slow. Available footage stays playable; reconnecting automatically.':(error as Error).message);delay=3000;}}
    finally{clearTimeout(timeout);loading=false;if(generation.current===id){setBusy(false);if(!document.hidden)timer=setTimeout(load,delay);}}
@@ -44,56 +43,26 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
  let timeline:ReturnType<typeof applicationRecordingTimeline>=null,timelineError='';
  try{if(currentSnapshot&&showFootage)timeline=applicationRecordingTimeline(currentSnapshot);}catch(error){timelineError=(error as Error).message;}
  const signature=JSON.stringify(timeline?.parts.map(part=>[part.attempt,part.part,part.duration,part.size])||[]);
- const canDownload=!!timeline&&!timelineError&&!preparing&&!media.preview&&media.requestId===requestId&&media.signature===signature&&!!media.url;
+ const canDownload=!!timeline&&!timelineError&&availability.ready;
  const downloadName='CyberApply-'+([snapshot?.employer.company,snapshot?.employer.title].filter(Boolean).join('-')||requestId).replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,130)+'.mp4';
- useEffect(()=>()=>{if(blob.current)URL.revokeObjectURL(blob.current);},[]);
+ function partsForStream(){
+  let start=0;return (timeline?.parts||[]).map(part=>{const row={url:base+'&attempt='+encodeURIComponent(part.attempt)+(part.part===null?'':'&part='+part.part),start,duration:part.duration};start+=part.duration;return row;});
+ }
+ const hasTimeline=!!timeline;
  useEffect(()=>{
-  let disposed=false,worker:Worker|undefined;
-  if(!timeline){
-   // A continuation must not leave the previous completed video downloadable.
-   setPreparing(false);setMedia({requestId:'',url:'',signature:'',preview:false,offset:0});
-   if(blob.current){URL.revokeObjectURL(blob.current);blob.current='';}
-   return;
-  }
-  setPlaybackError('');
-  const ordered=timeline.parts;
-  const url=(part:typeof ordered[number])=>base+'&attempt='+encodeURIComponent(part.attempt)+(part.part===null?'':'&part='+part.part);
-  async function prepare(){
-   setPreparing(true);
-   try{
-    let source:string;
-    if(ordered.length===1)source=url(ordered[0]);
-    else{
-     if(timeline!.size>48_000_000)throw Error('This recording exceeds the playback limit.');
-     // Start the newest live checkpoint immediately; load the full rewindable history separately.
-     if(dvr&&(!currentMedia.current.url||currentMedia.current.requestId!==requestId)){
-      const last=ordered[ordered.length-1];swapping.current=true;
-      resume.current={requestId,time:dvrTarget('live',last.duration),paused:false};
-      setMedia({requestId,url:url(last),signature:'',preview:true,offset:timeline!.duration-last.duration});
-     }
-     const pool=loader.current!;pool.retain(ordered.map(url));
-     // Prioritize the live edge, while Promise.all retains chronological output order.
-     const downloads=new Map([...ordered].reverse().map(part=>[url(part),pool.load(url(part))]));
-     const buffers=await Promise.all(ordered.map(part=>downloads.get(url(part))!));
-     if(disposed)return;
-     const combined=await new Promise<ArrayBuffer>((resolve,reject)=>{
-      worker=new Worker(recordingWorkerUrl,{type:'module'});
-      worker.onmessage=(event:MessageEvent<{bytes?:ArrayBuffer;error?:string}>)=>event.data.bytes?resolve(event.data.bytes):reject(Error(event.data.error||'The video could not be prepared.'));
-      worker.onerror=()=>reject(Error('The video could not be prepared. Use Refresh video to try again.'));
-      const copies=buffers.map(bytes=>bytes.slice(0));worker.postMessage(copies,copies);
-     });
-     if(disposed)return;worker?.terminate();worker=undefined;
-     source=URL.createObjectURL(new Blob([combined],{type:'video/mp4'}));
-    }
-    if(disposed){if(source.startsWith('blob:'))URL.revokeObjectURL(source);return;}
-    const node=video.current,current=currentMedia.current,hadMedia=current.requestId===requestId&&!!current.url;resume.current={requestId,...resumeVideo({time:(node?.currentTime||0)+(hadMedia?current.offset:0),paused:!!node?.paused,ended:!!node?.ended,hadMedia},timeline!.duration,dvr&&follow.current)};swapping.current=true;
-    const previous=blob.current;blob.current=source.startsWith('blob:')?source:'';setMedia({requestId,url:source,signature,preview:false,offset:0});retries.current=0;if(previous)URL.revokeObjectURL(previous);
-   }catch(error){if(!disposed)setPlaybackError((error as Error).name==='AbortError'?'Video loading is slow. Reconnecting while available footage stays visible.':(error as Error).message);}finally{worker?.terminate();if(!disposed)setPreparing(false);}
-  }
-  void prepare();return()=>{disposed=true;worker?.terminate();};
- // Refreshing unchanged metadata must not reset playback or repeat downloads.
+  if(!hasTimeline){setPreparing(false);setMedia({requestId:'',url:'',signature:'',preview:false,offset:0});return;}
+  const node=video.current;if(!node)return;
+  if(typeof MediaSource==='undefined'){setPlaybackError('Use an updated browser to watch this video, or download the finished recording.');return;}
+  setPreparing(true);setPlaybackError('');swapping.current=true;
+  resume.current={requestId,time:dvr&&follow.current?dvrTarget('live',timeline!.duration):0,paused:false};
+  const player=new RecordingStream(node,message=>{setPreparing(false);setPlaybackError(message);});stream.current=player;
+  player.update(partsForStream(),timeline!.duration);
+  setMedia({requestId,url:player.url,signature:'stream',preview:false,offset:0});
+  return()=>{player.close();if(stream.current===player)stream.current=null;};
+ // The existing MediaSource stays alive as new checkpoints extend the timeline.
  // eslint-disable-next-line react-hooks/exhaustive-deps
- },[requestId,signature,base,mediaRetry,dvr]);
+ },[requestId,hasTimeline,mediaRetry,dvr]);
+ useEffect(()=>{if(timeline)stream.current?.update(partsForStream(),timeline.duration);},[signature]);
  useEffect(()=>{
   if(!playbackError||retries.current>=2)return;
   const timer=setTimeout(()=>{retries.current++;setMediaRetry(value=>value+1);},retries.current?5000:2000);
@@ -105,7 +74,7 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
   pendingJump.current=false;const target=dvrTarget('live',node.duration);seekTarget.current=target;node.currentTime=target;void node.play().catch(()=>{});
  }
  function loaded(){
-  const node=video.current,saved=resume.current;if(!node||saved.requestId!==requestId)return;swapping.current=false;
+  const node=video.current,saved=resume.current;if(!node||saved.requestId!==requestId)return;swapping.current=false;setPreparing(false);
   if(dvr&&pendingJump.current){jump();return;}
   seekTarget.current=saved.time;node.currentTime=saved.time;setAtEnd(false);
   if(saved.paused)node.pause();else void node.play().catch(()=>{});
@@ -129,10 +98,10 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
   {message&&<p role="status">{message}</p>}
   {!showFootage&&currentSnapshot&&<a className="button quiet" href={'/application-watch?request='+encodeURIComponent(requestId)} target="_blank" rel="noopener noreferrer" title="Watch live (opens in a new tab)">Watch live<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a>}
   {timelineError&&<p role="alert">{timelineError}</p>}
-  {timeline&&<>{preparing&&<p role="status">{media.preview?'Showing the newest available footage while the full rewindable timeline loads…':'Updating your continuous application video…'}</p>}{playbackError&&<p role="alert">{playbackError}</p>}<div className="agent-watch-screen">{liveBadge}<video ref={video} src={media.requestId===requestId?media.url:undefined} onLoadedMetadata={loaded} onSeeking={seeking} onSeeked={()=>{seekTarget.current=null;}} onPause={paused} onEnded={()=>setAtEnd(true)} autoPlay={!resume.current.paused} muted controls playsInline preload="auto" onError={()=>{if(!preparing)setPlaybackError('This video could not play. Refresh the video or try an updated browser.');}}/></div>{timeline.partial&&<p role="status">Some footage is missing or capture was interrupted. This video contains all available work so far; the employer outcome is separate.</p>}<p className="subtle">One application video · {Math.round(timeline.duration)} seconds · Updated {new Date(timeline.recordedAt).toLocaleString()}. Later work is added automatically. This video does not by itself prove employer submission. New runs include ordinary manual form input with control-status captions. Private sign-in, emailed-code and CAPTCHA screens are excluded and marked with a pause. Idle manual waits are shortened. Older footage may have omitted manual steps; capture limits or interruptions are reported above.</p></>}
+  {timeline&&<>{preparing&&<p role="status">{media.preview?'Showing the newest available footage while the full rewindable timeline loads…':'Updating your continuous application video…'}</p>}{playbackError&&<p role="alert">{playbackError}</p>}<div className="agent-watch-screen">{liveBadge}<video ref={video} src={media.requestId===requestId?media.url:undefined} onLoadedMetadata={loaded} onSeeking={seeking} onSeeked={()=>{seekTarget.current=null;}} onPause={paused} onEnded={()=>setAtEnd(true)} autoPlay={!resume.current.paused} muted controls playsInline preload="auto" onError={()=>{if(!preparing)setPlaybackError('This video could not play. Refresh the video or try an updated browser.');}}/></div>{timeline.partial&&<p role="status">Some footage is missing or capture was interrupted. This video contains all available work so far; the employer outcome is separate.</p>}<p className="subtle">One application video · {Math.round(timeline.duration)} seconds · Updated {new Date(timeline.recordedAt).toLocaleString()}. Later work is added automatically. This video does not by itself prove employer submission. New runs include ordinary manual form input with control-status captions. Private sign-in, emailed-code and CAPTCHA screens are excluded and marked with a pause. Ordinary manual answers, waiting and submission remain in the same timeline. Older recordings may be partial; storage or capture interruptions are reported above.</p></>}
   {dvr&&!timeline&&<div className="agent-watch-screen live-waiting-screen">{liveBadge}<p>Waiting for available footage. This viewer updates automatically.</p></div>}
-  <div className="application-overview-actions">{timeline&&(canDownload?<a className="button quiet" href={media.url} download={downloadName}><Download size={15}/>Download video</a>:<button type="button" className="button quiet" disabled><Download size={15}/>Download video</button>)}<button type="button" className="button quiet" disabled={busy} onClick={()=>{setRefresh(value=>value+1);if(playbackError){loader.current?.close();loader.current=new RecordingLoader();retries.current=0;setMediaRetry(value=>value+1);}}}><RefreshCw size={15}/>Refresh video</button></div>
-  {timeline&&<p className="subtle">Download saves the available footage as one MP4. Download again after later work is added to get the updated video.</p>}
+  <div className="application-overview-actions">{timeline&&(canDownload?<a className="button quiet" href={base+'&download=1'} download={downloadName}><Download size={15}/>Download video</a>:<button type="button" className="button quiet" disabled><Download size={15}/>Download video</button>)}<button type="button" className="button quiet" disabled={busy} onClick={()=>{setRefresh(value=>value+1);if(playbackError){retries.current=0;setMediaRetry(value=>value+1);}}}><RefreshCw size={15}/>Refresh video</button></div>
+  {timeline&&<p className="subtle">Download streams the finished recording as one MP4, without loading the entire video into browser memory.</p>}
   <p className="subtle">Recordings may contain CV and profile information entered in the form. Copies in CyberApply stay private until you permanently delete the application or your account. Downloaded copies remain on your device.</p>
  </section>;
  return mobile?createPortal(content,document.body):content;

@@ -47,7 +47,7 @@ export default function AgentWatch({requestId,embedded=false,onClose}:{requestId
   {info?.status==='processing'&&<ApplicationVerificationHandoff requestId={requestId}/>}
   {info?.control==='submit'&&<ApplicationManualSubmit requestId={requestId}/>}
   <p className="subtle">Answer ordinary employer questions in Applications, then approve and save to continue. Only when requested, take manual control in the exact agent browser for verification or final Submit. Final Submit on Greenhouse/reCAPTCHA forms remains yours. Watching, rewinding or Go live never applies, retries or submits a job.</p>
-  <p className="subtle">One private, silent video of the available process. Ordinary manual actions are included in new recorder runs; passwords, emailed codes and CAPTCHA checks stay hidden. Idle manual waits are shortened. Missing or limited footage is reported in the player and cannot be reconstructed.</p>
+  <p className="subtle">One private, silent video from the start of the application through your manual answers and final submission. New recorder runs have no fixed duration or total-size cutoff. Ordinary manual actions and waits stay in the timeline; passwords, emailed codes and CAPTCHA checks stay hidden. Recording requires the computer and runner to stay on and enough storage to remain available. Interruptions and missing older footage are reported honestly.</p>
  </section>;
  return mobile?createPortal(content,document.body):content;
 }

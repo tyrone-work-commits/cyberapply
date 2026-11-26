@@ -21,7 +21,7 @@ export function recordingAvailability(snapshot:RecordingSnapshot|null){
 
 // Parts are private source fragments of one application video, not selectable versions.
 export function applicationRecordingTimeline(snapshot:Pick<RecordingSnapshot,'items'|'nextCursor'>):RecordingTimeline|null{
- if(snapshot.nextCursor)throw Error('This application video exceeds the playback limit. Its footage has not been deleted.');
+ if(snapshot.nextCursor)throw Error('The recording index is still loading.');
  const items=[...snapshot.items].sort((a,b)=>a.startedAt.localeCompare(b.startedAt)||a.attempt.localeCompare(b.attempt));
  if(!items.length)return null;
  const parts:RecordingTimeline['parts']=[];let size=0,partial=false,recordedAt='';
@@ -34,7 +34,6 @@ export function applicationRecordingTimeline(snapshot:Pick<RecordingSnapshot,'it
   for(const part of ordered)parts.push({...part,attempt:item.attempt});
  }
  const duration=parts.reduce((sum,part)=>sum+part.duration,0);
- if(parts.length>360||size>48_000_000||duration>3600)throw Error('This application video exceeds the playback limit. Its footage has not been deleted.');
  return {parts,size,duration,recordedAt,partial};
 }
 

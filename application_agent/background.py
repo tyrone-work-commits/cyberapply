@@ -6,6 +6,7 @@ import ctypes
 from ctypes import wintypes
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -23,6 +24,19 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def data_dir():
     return Path(os.environ['LOCALAPPDATA']) / 'CyberApply' / 'application-agent'
+
+
+def should_stop_runner(stop_file,*,assisting=False,legacy_alive=True):
+    if assisting and not legacy_alive:return True
+    if not stop_file.exists():return False
+    if assisting:
+        try:marker=stop_file.read_text(encoding='utf-8')
+        except OSError:return True
+        # This update marker drains only the old runner, preserving its exact
+        # browser. A new companion can serve future authorized requests. An
+        # actual user Stop replaces the marker and still stops both runners.
+        if re.fullmatch(r'finish-current-run-before-identity-close-return:[a-f0-9-]{36}',marker):return False
+    return True
 
 
 def status(state, *, folder=None, **extra):
@@ -135,7 +149,7 @@ def run(legacy_pid=None):
             token,service=connected()
             run_location_capture(SITE,token,call_site,service,'chrome')
             maybe_refresh_sources(SITE,token,service)
-        run_pool(work,lambda:(root/'stop').exists() or bool(legacy_pid and not legacy_alive()),
+        run_pool(work,lambda:should_stop_runner(root/'stop',assisting=bool(legacy_pid),legacy_alive=legacy_alive()),
                  lambda state,**extra:status(state,folder=folder,**extra),
                  limit=MAX_PARALLEL_APPLICATIONS,maintenance=maintenance)
     finally:

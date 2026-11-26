@@ -27,12 +27,17 @@ class RecordingTests(unittest.TestCase):
    with av.open(str(info['path'])) as movie:self.assertGreaterEqual(len(list(movie.decode(video=0))),2)
    watch.cleanup_recording();self.assertFalse(info['path'].exists())
   finally:watch.close();watch.cleanup_recording()
- def test_recording_limit_is_partial_without_failing_application(self):
-  with patch('application_agent.recording.MAX_RECORDING_SECONDS',.125):
-   recording=ApplicationRecording();recording.set_active(True);recording.offer(base64.b64encode(jpeg()).decode());time.sleep(.4)
+ def test_capture_continues_after_former_duration_size_and_part_cutoffs(self):
+  with patch('application_agent.recording.CHECKPOINT_SECONDS',.125):
+   parts=[];recording=ApplicationRecording(on_part=lambda info:parts.append(info.copy()))
+   recording.frames=8*601;recording.bytes=33_000_000;recording.parts=62
+   recording.set_active(True);recording.offer(base64.b64encode(jpeg()).decode());time.sleep(.4)
    try:
-    info=recording.finish();self.assertIsNotNone(info);self.assertTrue(info['partial']);self.assertEqual(info['reason'],'recording_limit')
-   finally:recording.cleanup()
+    self.assertTrue(recording.thread.is_alive());self.assertGreater(recording.frames,8*601);self.assertTrue(parts);self.assertGreaterEqual(parts[0]['part'],62)
+    recording.finish();self.assertFalse(recording.partial);self.assertNotEqual(recording.reason,'recording_limit')
+   finally:
+    recording.finish();recording.cleanup()
+    for part in parts:part['path'].unlink(missing_ok=True)
  def test_no_browser_frames_leaves_no_recording(self):
   recording=ApplicationRecording();self.assertIsNone(recording.finish());self.assertIsNone(recording.path)
  def test_checkpoint_is_playable_before_the_run_finishes(self):
@@ -106,11 +111,21 @@ class RecordingTests(unittest.TestCase):
    for name in ['../private.mp4','a'*32+'.mp4/..','C:/private.mp4']:
     with self.assertRaises(ValueError):media_path(a,name)
 
- def test_idle_manual_wait_does_not_consume_recording_limit(self):
+ def test_backoff_entries_do_not_starve_new_recording_checkpoints(self):
+  import json
+  from application_agent.recording_delivery import flush_pending
+  with tempfile.TemporaryDirectory() as directory,patch('application_agent.recording_delivery.outbox',return_value=Path(directory)),patch('application_agent.runner.upload_recording',return_value={'saved':True}) as upload:
+   for index in range(4):
+    stem=f'{index:032x}';(Path(directory)/(stem+'.mp4')).write_bytes(b'fictional video')
+    (Path(directory)/(stem+'.media.json')).write_text(json.dumps({'task':{'requestId':'fixture','claimId':'claim'},'file':stem+'.mp4','info':{'duration':1},'nextTry':time.time()+100 if index<3 else 0}))
+   flush_pending('https://site.example','ca2.owner.secret',limit=1)
+   self.assertEqual(upload.call_count,1);self.assertEqual(upload.call_args.args[3]['path'].name,'0'*31+'3.mp4')
+
+ def test_manual_wait_and_new_manual_answers_keep_the_continuous_recording_active(self):
   recording=ApplicationRecording();recording.set_label('manual');recording.set_active(True);recording.offer(base64.b64encode(jpeg(50)).decode());time.sleep(.4)
   try:
    with recording.lock:recording.changed_at=time.monotonic()-10
-   time.sleep(.2);before=recording.frames;time.sleep(.25);self.assertEqual(recording.frames,before)
+   time.sleep(.2);before=recording.frames;time.sleep(.25);self.assertGreater(recording.frames,before)
    recording.offer(base64.b64encode(jpeg(150)).decode());time.sleep(.3);self.assertGreater(recording.frames,before)
    self.assertIsNotNone(recording.finish())
   finally:recording.finish();recording.cleanup()

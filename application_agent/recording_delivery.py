@@ -7,7 +7,6 @@ from uuid import uuid4
 LOCK=threading.Lock()
 UPLOAD_LOCK=threading.Lock()
 ACTIVE=set()
-MAX_PENDING_BYTES=256_000_000
 
 def outbox(site,token):
     owner=token.split('.')[1]
@@ -39,13 +38,16 @@ def flush_pending(site,token,service=None,limit=3):
     if not UPLOAD_LOCK.acquire(blocking=False):return
     try:
         folder=outbox(site,token)
-        for entry in sorted(folder.glob('*.media.json'),key=lambda p:p.stat().st_mtime)[:limit]:
+        attempted=0
+        for entry in sorted(folder.glob('*.media.json'),key=lambda p:p.stat().st_mtime):
             value=json.loads(entry.read_text(encoding='utf-8'))
             path=media_path(folder,value['file'])
             if not path.exists():
                 if time.time()-entry.stat().st_mtime>60:entry.unlink(missing_ok=True)
                 continue
             if value.get('nextTry',0)>time.time():continue
+            if attempted>=limit:break
+            attempted+=1
             info={**value['info'],'path':path}
             try:
                 upload_recording(site,token,value['task'],info,service)
@@ -101,7 +103,9 @@ class RecordingDelivery:
             self.stop.wait(2)
     def part(self,info):
         with LOCK:
-            if sum(p.stat().st_size for p in self.folder.glob('*.mp4'))+info['path'].stat().st_size>MAX_PENDING_BYTES:raise OSError('Private recording outbox is full.')
+            # Spool bounded checkpoints until delivered; no per-run duration or
+            # accumulated-size cutoff. Leave room for the operating system.
+            if shutil.disk_usage(self.folder).free<info['path'].stat().st_size+64_000_000:raise OSError('Not enough disk space to save the recording checkpoint.')
             name=uuid4().hex+'.mp4';destination=media_path(self.folder,name)
             write(self.folder/(name[:-4]+'.media.json'),{'task':self.task,'file':name,'info':{k:v for k,v in info.items() if k!='path'}})
             shutil.move(str(info['path']),destination)

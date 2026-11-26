@@ -74,9 +74,10 @@ test('timeline sorts checkpoints, avoids duplicate full videos and labels missin
  assert.deepEqual(applicationRecordingTimeline(snapshot({items:[split]})).parts.map(part=>part.part),[0,1]);
  assert.equal(applicationRecordingTimeline(snapshot({items:[{...split,parts:[{part:null,duration:5,size:50},...split.parts]}]})).duration,5);
  assert.equal(applicationRecordingTimeline(snapshot({items:[{...split,parts:[{part:1,duration:3}]}]})).partial,true);
- assert.throws(()=>applicationRecordingTimeline(snapshot({nextCursor:'more'})),/limit/);
- assert.throws(()=>applicationRecordingTimeline(snapshot({items:[{...old,size:48_000_001}]})),/limit/);
- assert.throws(()=>applicationRecordingTimeline(snapshot({items:[{...old,duration:3601}]})),/limit/);
+ assert.throws(()=>applicationRecordingTimeline(snapshot({nextCursor:'more'})),/index is still loading/);
+ assert.equal(applicationRecordingTimeline(snapshot({items:[{...old,size:48_000_001}]})).size,48_000_001);
+ assert.equal(applicationRecordingTimeline(snapshot({items:[{...old,duration:3601}]})).duration,3601);
+ assert.equal(applicationRecordingTimeline(snapshot({items:[{...old,parts:Array.from({length:2001},(_,part)=>({part,duration:2,size:1000}))}]})).duration,4002);
 });
 test('employer link prefers direct application, survives missing listing and rejects unsafe links',()=>{
  assert.equal(applicationEmployerLink({sourceUrl:'https://source.example/job'},{applyUrl:'https://employer.example/apply'}),'https://employer.example/apply');

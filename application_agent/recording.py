@@ -8,8 +8,6 @@ import threading
 import time
 from .video_encoder import FPS
 
-MAX_RECORDING_BYTES=32_000_000
-MAX_RECORDING_SECONDS=600
 CHECKPOINT_SECONDS=10
 
 class ApplicationRecording:
@@ -55,9 +53,7 @@ class ApplicationRecording:
     with self.lock:
      marker=self.markers.popleft() if self.markers else None
      data=marker[0] if marker else self.latest;label=marker[1] if marker else self.label
-    if not marker and (not self.active.is_set() or not data or label in {'waiting','manual','submit'} and time.monotonic()-self.changed_at>2):self.stop.wait(.05);next_frame=time.monotonic();continue
-    if self.frames>=FPS*MAX_RECORDING_SECONDS or self.bytes+(self.path.stat().st_size if encoder and self.path else 0)>MAX_RECORDING_BYTES:
-     self.partial=True;self.reason='recording_limit';break
+    if not marker and (not self.active.is_set() or not data):self.stop.wait(.05);next_frame=time.monotonic();continue
     if encoder is None:
      from .video_encoder import RecordingEncoder
      file=tempfile.NamedTemporaryFile(prefix='cyberapply-run-',suffix='.mp4',delete=False);self.path=Path(file.name);file.close()

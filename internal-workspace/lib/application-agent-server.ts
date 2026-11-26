@@ -10,6 +10,7 @@ import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
 import {recordingPrefix,recordingKey,recordingStatusKey,recordingRange,recordingClaimValid,MAX_RECORDING_SIZE} from './application-recordings';
 import {applicationEmployerLink} from './application-employer-link';
+import {downloadApplicationRecording} from './recording-download';
 import {currentHandoff,handoffCommand,requestCloseReturn,isHumanAgentQuestion,inputHandoffQuestions,RECAPTCHA_HOSTS,RECAPTCHA_QUESTION} from './verification-handoff';
 import { env } from 'cloudflare:workers';
 import { z } from 'zod';
@@ -406,7 +407,7 @@ export async function saveRecording(request:Request){
   const user=await worker(request),url=new URL(request.url),ids=claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
   const current=await load(user);stillConnected(current.state,user);const item=recordingOwnerItem(current.state,ids.requestId);
   if(!recordingClaimValid(item,ids.claimId))throw new DomainError('This recording does not match a recent application run.',409);
-  const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(60).parse(partValue);
+  const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).parse(partValue);
   if(request.method==='GET'){const stored=await files().head(recordingKey(user.userId,ids.requestId,ids.claimId,part));return response({saved:!!stored,...(stored?{sha256:stored.customMetadata?.sha256}:{})});}
   if(request.headers.get('content-type')!=='video/mp4')throw new DomainError('Send an MP4 recording.',415);
   const size=Number(request.headers.get('content-length')),duration=Number(request.headers.get('x-recording-duration')),checksum=request.headers.get('x-recording-sha256')||'',started=request.headers.get('x-recording-started-at')||'',partial=request.headers.get('x-recording-partial'),reason=request.headers.get('x-recording-reason')||'';
@@ -433,6 +434,7 @@ export async function saveRecording(request:Request){
 }
 export async function recordingViewer(request:Request){try{
  const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId')),current=await load(user);recordingOwnerItem(current.state,id);
+ if(url.searchParams.get('download')==='1')return await downloadApplicationRecording(request,user,id);
  const attempt=url.searchParams.get('attempt');
  if(!attempt){
   const cursor=url.searchParams.get('cursor')||undefined;if(cursor&&cursor.length>2000)throw new DomainError('Invalid recording cursor.');
@@ -443,14 +445,14 @@ export async function recordingViewer(request:Request){try{
   const latestOptions={...options,prefix:prefix+(currentItem.claim?.id||''),limit:100,cursor:undefined};
   const [page,latestPage,statusObject]=await Promise.all([files().list(options),currentItem.claim?files().list(latestOptions):null,currentItem.claim?files().get(recordingStatusKey(user.userId,id,currentItem.claim.id)):null]);
   const objects=[...new Map([...page.objects,...(latestPage?.objects||[])].map(object=>[object.key,object])).values()];
-  const media=objects.filter((object):object is NonNullable<typeof object>=>!!object).filter(object=>object.key.startsWith(prefix)&&/^[0-9a-f-]{36}(?:-part-\d{3})?\.mp4$/.test(object.key.slice(prefix.length))).map(object=>({attempt:object.customMetadata?.claimId,duration:Number(object.customMetadata?.duration||0),startedAt:object.customMetadata?.startedAt,recordedAt:object.customMetadata?.recordedAt,partial:object.customMetadata?.partial==='true',reason:object.customMetadata?.reason||'',size:object.size,part:object.customMetadata?.part===undefined?null:Number(object.customMetadata.part)})).filter(item=>item.attempt);
+  const media=objects.filter((object):object is NonNullable<typeof object>=>!!object).filter(object=>object.key.startsWith(prefix)&&/^[0-9a-f-]{36}(?:-part-\d{3,16})?\.mp4$/.test(object.key.slice(prefix.length))).map(object=>({attempt:object.customMetadata?.claimId,duration:Number(object.customMetadata?.duration||0),startedAt:object.customMetadata?.startedAt,recordedAt:object.customMetadata?.recordedAt,partial:object.customMetadata?.partial==='true',reason:object.customMetadata?.reason||'',size:object.size,part:object.customMetadata?.part===undefined?null:Number(object.customMetadata.part)})).filter(item=>item.attempt);
   const groups=new Map<string,typeof media>();for(const item of media){const group=groups.get(item.attempt!)||[];group.push(item);groups.set(item.attempt!,group);}
   const items=[...groups].map(([attempt,parts])=>{parts.sort((a,b)=>(a.part??-1)-(b.part??-1));return {attempt,duration:parts.reduce((n,p)=>n+p.duration,0),startedAt:parts[0].startedAt,recordedAt:parts[parts.length-1].recordedAt,partial:parts.some(p=>p.partial),reason:parts.find(p=>p.reason)?.reason||'',size:parts.reduce((n,p)=>n+p.size,0),parts};}).sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt)));
   const status=statusObject?await statusObject.json<Record<string,unknown>>():null;
   const job=current.state.jobs.find(job=>job.id===currentItem.jobId);
   return response({items,nextCursor:page.truncated?page.cursor:null,status,applicationStatus:currentItem.status,currentAttempt:currentItem.claim?.id||null,applicationUpdatedAt:currentItem.result?.at||currentItem.claim?.at||currentItem.agentAuthorizedAt||currentItem.at,employer:{title:job?.title||'Job listing unavailable',company:job?.company||'Employer',url:applicationEmployerLink(currentItem,job)}});
  }
- z.string().uuid().parse(attempt);const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(60).parse(partValue);const key=recordingKey(user.userId,id,attempt,part),head=await files().head(key);if(!head)throw new DomainError('No saved recording was found for this run.',404);
+ z.string().uuid().parse(attempt);const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).parse(partValue);const key=recordingKey(user.userId,id,attempt,part),head=await files().head(key);if(!head)throw new DomainError('No saved recording was found for this run.',404);
  const range=recordingRange(request.headers.get('range'),head.size);
  if(range==='invalid')return new Response(null,{status:416,headers:{'Content-Range':`bytes */${head.size}`,'Cache-Control':'private, no-store'}});
  const object=await files().get(key,range?{range}:undefined);if(!object)throw new DomainError('This recording is no longer available.',404);
@@ -463,7 +465,7 @@ export async function recordingViewer(request:Request){try{
 
 // Recording-only progress survives an expired form lease; it cannot alter the job outcome.
 export async function recordingStatus(request:Request){try{
- const user=await worker(request),body=claimBody.extend({state:z.enum(['capturing','upload_pending','saved','failed','interrupted']),code:z.enum(['','recording_limit','capture_interrupted','no_frames','runner_interrupted','upload_retrying']),parts:z.number().int().min(0).max(61),partial:z.boolean()}).strict().parse(await json(request));
+ const user=await worker(request),body=claimBody.extend({state:z.enum(['capturing','upload_pending','saved','failed','interrupted']),code:z.enum(['','recording_limit','capture_interrupted','no_frames','runner_interrupted','upload_retrying']),parts:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),partial:z.boolean()}).strict().parse(await json(request));
  const current=await load(user);stillConnected(current.state,user);const item=recordingOwnerItem(current.state,body.requestId);
  if(!recordingClaimValid(item,body.claimId))throw new DomainError('This recording does not match an owned application run.',409);
  const key=recordingStatusKey(user.userId,body.requestId,body.claimId);
