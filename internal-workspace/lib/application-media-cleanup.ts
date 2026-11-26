@@ -14,14 +14,8 @@ export async function cleanApplicationMedia(owner:string,store:CleanupStore,buck
   const keys=watchStorageKeys(owner,row.request_id).all;
   if(row.cover_key?.startsWith(`owners/${encodeURIComponent(owner)}/career/application-letter-`))keys.push(row.cover_key);
   await bucket.delete(keys);remaining--;
-  let done=false;
-  while(remaining>0){
-   const page=await bucket.list({prefix:recordingPrefix(owner,row.request_id),limit:1000});remaining--;
-   if(!page.objects.length){done=true;break;}
-   if(!remaining)break;
-   await bucket.delete(page.objects.map(object=>object.key));remaining--;
-  }
-  if(!done)break;
+  // Application deletion keeps recordings. Only disposable live-buffer keys
+  // and the former cover-letter attachment are cleaned here.
   await store.complete(row.request_id);
  }}catch{/* Keep the committed records deleted and the cleanup row recoverable. */}
  return {cleanupPending:await store.count()};

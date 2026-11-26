@@ -50,6 +50,13 @@
       "when": 1795615200000,
       "tag": "0006_application_media_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795709774633,
+      "tag": "0007_cheerful_tarot",
+      "breakpoints": true
     }
   ]
 }

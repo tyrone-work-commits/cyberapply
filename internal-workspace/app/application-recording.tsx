@@ -9,14 +9,14 @@ import {dvrTarget} from '@/lib/video-dvr';
 import {RecordingStream} from '@/lib/recording-stream';
 import {recordingSnapshot} from '@/lib/recording-snapshot';
 import {applicationRecordingTimeline,recordingAvailability,recordingPollDelay,recordingViewMessage,liveVideoPhase,type LiveVideoInfo,type RecordingSnapshot} from '@/lib/recording-view-state';
-export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false,liveInfo}:{requestId:string;onClose?:()=>void;embedded?:boolean;dvr?:boolean;liveInfo?:LiveVideoInfo|null}){
+export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false,liveInfo,library=false}:{library?:boolean;requestId:string;onClose?:()=>void;embedded?:boolean;dvr?:boolean;liveInfo?:LiveVideoInfo|null}){
  const [snapshot,setSnapshot]=useState<RecordingSnapshot|null>(null),[message,setMessage]=useState('Loading your private application video…'),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false),[refresh,setRefresh]=useState(0);
  const video=useRef<HTMLVideoElement>(null),resume=useRef({requestId:'',time:0,paused:false});
  const [media,setMedia]=useState({requestId:'',url:'',signature:'',preview:false,offset:0}),[preparing,setPreparing]=useState(false),[playbackError,setPlaybackError]=useState(''),[mediaRetry,setMediaRetry]=useState(0);
  const follow=useRef(dvr),swapping=useRef(false),seekTarget=useRef<number|null>(null),pendingJump=useRef(false),stream=useRef<RecordingStream|null>(null);
  const [dvrMode,setDvrMode]=useState<'live'|'history'>(dvr?'live':'history'),[atEnd,setAtEnd]=useState(false);
  const close=useRef<HTMLButtonElement>(null),panel=useRef<HTMLElement>(null),generation=useRef(0),snapshotRequest=useRef(''),retries=useRef(0);
- const base='/api/applications/recordings?requestId='+encodeURIComponent(requestId);
+ const base=(library?'/api/private-videos/media':'/api/applications/recordings')+'?requestId='+encodeURIComponent(requestId);
  useEffect(()=>{setSnapshot(null);retries.current=0;return()=>{stream.current?.close();stream.current=null;};},[requestId]);
  useEffect(()=>{if(!onClose)return;const query=matchMedia('(max-width:600px)'),update=()=>setMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[onClose]);
  useEffect(()=>{
@@ -30,7 +30,7 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
    if(document.hidden||loading)return;if(timer)clearTimeout(timer);loading=true;setBusy(true);controller=new AbortController();const timeout=setTimeout(()=>controller?.abort(),30000);
    try{
     const p=await recordingSnapshot(base,controller.signal);if(generation.current!==id)return;
-    snapshotRequest.current=requestId;setSnapshot(p);setMessage(dvr||recordingAvailability(p).ready?recordingViewMessage(p):'');delay=recordingPollDelay(p,dvr);
+    snapshotRequest.current=requestId;setSnapshot(p);setMessage(library?(p.items.length?'Showing all uploaded footage so far. A running application may add more video; downloading saves the footage currently available.':'No saved footage is available for this video yet.'):dvr||recordingAvailability(p).ready?recordingViewMessage(p):'');delay=recordingPollDelay(p,dvr);
    }catch(error){if(generation.current===id){setMessage((error as Error).name==='AbortError'?'Video connection is slow. Available footage stays playable; reconnecting automatically.':(error as Error).message);delay=3000;}}
    finally{clearTimeout(timeout);loading=false;if(generation.current===id){setBusy(false);if(!document.hidden)timer=setTimeout(load,delay);}}
   }
@@ -39,11 +39,11 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
   return()=>{generation.current++;controller?.abort();if(timer)clearTimeout(timer);document.removeEventListener('visibilitychange',visible);window.removeEventListener('focus',visible);};
  },[requestId,refresh,base,dvr]);
  const currentSnapshot=snapshotRequest.current===requestId?snapshot:null;
- const availability=recordingAvailability(currentSnapshot),showFootage=dvr||availability.ready;
+ const availability=recordingAvailability(currentSnapshot),showFootage=dvr||library||availability.ready;
  let timeline:ReturnType<typeof applicationRecordingTimeline>=null,timelineError='';
  try{if(currentSnapshot&&showFootage)timeline=applicationRecordingTimeline(currentSnapshot);}catch(error){timelineError=(error as Error).message;}
  const signature=JSON.stringify(timeline?.parts.map(part=>[part.attempt,part.part,part.duration,part.size])||[]);
- const canDownload=!!timeline&&!timelineError&&availability.ready;
+ const canDownload=!!timeline&&!timelineError&&(library||availability.ready);
  const downloadName='CyberApply-'+([snapshot?.employer.company,snapshot?.employer.title].filter(Boolean).join('-')||requestId).replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,130)+'.mp4';
  function partsForStream(){
   let start=0;return (timeline?.parts||[]).map(part=>{const row={url:base+'&attempt='+encodeURIComponent(part.attempt)+(part.part===null?'':'&part='+part.part),start,duration:part.duration};start+=part.duration;return row;});
@@ -91,18 +91,18 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
  const content=<section ref={panel} className={onClose||embedded?'application-live-view'+(mobile?' mobile-live-video':''):'agent-watch-page'} role={mobile?'dialog':'region'} aria-modal={mobile||undefined} aria-label={dvr?"Live application DVR":"Saved application recordings"} onKeyDown={keyboard}>
   {!embedded&&<header className="agent-watch-header signed-in-page-header">{!onClose&&<a className="brand" href="/workspace">CyberApply</a>}<strong><Film size={19}/>Application recording</strong><>{onClose?<button ref={close} type="button" className="button quiet" onClick={onClose}><X size={17}/>{mobile?'Close':'Hide'}</button>:<a className="button quiet" href="/workspace"><ArrowLeft size={16}/>Back to workspace</a>}</></header>}
   <p className="subtle"><LockKeyhole size={15}/>Private to your account. Replaying never applies, submits or retries a job.</p>
-  {snapshot&&<div className="application-detail-section"><h2>{snapshot.employer.title}</h2><p>{snapshot.employer.company}</p>{snapshot.employer.url&&<ApplicationBrowserButton url={snapshot.employer.url}/>}<p className="subtle">{snapshot.applicationStatus==='uncertain'?'Employer receipt remains unconfirmed. Do not submit again until its outcome is checked.':snapshot.applicationStatus==='applied'?'Employer confirmation is recorded in Applications.':'See Applications for the employer outcome.'}</p></div>}
+  {snapshot&&<div className="application-detail-section"><h2>{snapshot.employer.title}</h2><p>{snapshot.employer.company}</p>{snapshot.employer.url&&<ApplicationBrowserButton url={snapshot.employer.url}/>}<p className="subtle">{snapshot.applicationStatus==='archived'?'The application record was deleted. Its private uploaded footage is retained here.':snapshot.applicationStatus==='uncertain'?'Employer receipt remains unconfirmed. Do not submit again until its outcome is checked.':snapshot.applicationStatus==='applied'?'Employer confirmation is recorded in Applications.':'See Applications for the employer outcome.'}</p></div>}
   {dvr&&<div className="watch-process-modes" role="group" aria-label="Live timeline controls"><button type="button" className="button quiet" aria-pressed={dvrMode==='live'} onClick={jump}>Go live</button><span className="dvr-playback-status" role="status">{livePhase.label}</span></div>}
   {dvr&&<p className="subtle">Drag the video timeline to rewind. New uploaded footage extends this same player without skipping unwatched work. Go live jumps to the newest available footage; playback has an upload buffer.</p>}
-  {!dvr&&!availability.ready&&<div className="agent-watch-screen recording-process-pending" role="status"><Film size={32} aria-hidden="true"/><h3>{availability.heading}</h3><p>{availability.message}</p></div>}
+  {!library&&!dvr&&!availability.ready&&<div className="agent-watch-screen recording-process-pending" role="status"><Film size={32} aria-hidden="true"/><h3>{availability.heading}</h3><p>{availability.message}</p></div>}
   {message&&<p role="status">{message}</p>}
   {!showFootage&&currentSnapshot&&<a className="button quiet" href={'/application-watch?request='+encodeURIComponent(requestId)} target="_blank" rel="noopener noreferrer" title="Watch live (opens in a new tab)">Watch live<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a>}
   {timelineError&&<p role="alert">{timelineError}</p>}
   {timeline&&<>{preparing&&<p role="status">{media.preview?'Showing the newest available footage while the full rewindable timeline loads…':'Updating your continuous application video…'}</p>}{playbackError&&<p role="alert">{playbackError}</p>}<div className="agent-watch-screen">{liveBadge}<video ref={video} src={media.requestId===requestId?media.url:undefined} onLoadedMetadata={loaded} onSeeking={seeking} onSeeked={()=>{seekTarget.current=null;}} onPause={paused} onEnded={()=>setAtEnd(true)} autoPlay={!resume.current.paused} muted controls playsInline preload="auto" onError={()=>{if(!preparing)setPlaybackError('This video could not play. Refresh the video or try an updated browser.');}}/></div>{timeline.partial&&<p role="status">Some footage is missing or capture was interrupted. This video contains all available work so far; the employer outcome is separate.</p>}<p className="subtle">One application video · {Math.round(timeline.duration)} seconds · Updated {new Date(timeline.recordedAt).toLocaleString()}. Later work is added automatically. This video does not by itself prove employer submission. New runs include ordinary manual form input with control-status captions. Private sign-in, emailed-code and CAPTCHA screens are excluded and marked with a pause. Ordinary manual answers, waiting and submission remain in the same timeline. Older recordings may be partial; storage or capture interruptions are reported above.</p></>}
   {dvr&&!timeline&&<div className="agent-watch-screen live-waiting-screen">{liveBadge}<p>Waiting for available footage. This viewer updates automatically.</p></div>}
   <div className="application-overview-actions">{timeline&&(canDownload?<a className="button quiet" href={base+'&download=1'} download={downloadName}><Download size={15}/>Download video</a>:<button type="button" className="button quiet" disabled><Download size={15}/>Download video</button>)}<button type="button" className="button quiet" disabled={busy} onClick={()=>{setRefresh(value=>value+1);if(playbackError){retries.current=0;setMediaRetry(value=>value+1);}}}><RefreshCw size={15}/>Refresh video</button></div>
-  {timeline&&<p className="subtle">Download streams the finished recording as one MP4, without loading the entire video into browser memory.</p>}
-  <p className="subtle">Recordings may contain CV and profile information entered in the form. Copies in CyberApply stay private until you permanently delete the application or your account. Downloaded copies remain on your device.</p>
+  {timeline&&<p className="subtle">Download saves the available footage as one MP4, without loading the entire video into browser memory.</p>}
+  <p className="subtle">Recordings may contain CV and profile information entered in the form. Copies remain in Settings → Private videos after application deletion. Delete them there, or delete your CyberApply account to remove all private videos. Downloaded copies remain on your device.</p>
  </section>;
  return mobile?createPortal(content,document.body):content;
 }

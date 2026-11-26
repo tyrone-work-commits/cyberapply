@@ -1,3 +1,4 @@
+import {assertPrivateVideoAvailable,privateVideoContext,privateVideoWorkerItem} from './private-videos';
 import {applicationSyncInfo,synchronizeApplicationProfile,acknowledgeApplicationSync,applicationSyncAllowed} from './application-profile-sync';
 import {recoverExpiredBrowserSessions} from './application-browser-recovery-server';
 import {canAutomaticallyRecoverBrowser} from './automatic-browser-recovery';
@@ -374,7 +375,7 @@ async function watchLease(owner:string,id:string){
 export async function watchViewer(request:Request){try{
  if(request.method==='POST')z.object({}).strict().parse(await json(request));
  const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId'));
- const {current,item}=await watchItem(user,id),keys=watchStorageKeys(user.userId,id);
+ const {current,item}=await watchItem(user,id),keys=watchStorageKeys(user.userId,id);await assertPrivateVideoAvailable(user.userId,id);
  const live=applicationLiveState(item),active=live.active;
  if(request.method==='GET'&&url.searchParams.get('part')==='status'){
   const job=current.state.jobs.find(job=>job.id===item.jobId);
@@ -402,6 +403,7 @@ export async function watchViewer(request:Request){try{
  if(!object||meta?.claimId!==item.claim?.id||meta.streamId!==manifest.streamId||part==='segment'&&meta.sequence!==String(sequence))return empty();
  const latest=await watchItem(user,id),leaseNow=await watchLease(user.userId,id);
  if(latest.item.status!=='processing'||latest.item.claim?.id!==manifest.claimId||!applicationLiveState(latest.item).active||applicationLiveState(latest.item).privateCheck||!leaseNow||leaseNow.expiresAt<=Date.now()||leaseNow.claimId!==manifest.claimId)return empty();
+ await assertPrivateVideoAvailable(user.userId,id);
  return new Response(object.body,{headers:{'Content-Type':'video/mp4','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'}});
 }catch(error){return failure(error);}}
 export async function watchWorker(request:Request){try{
@@ -410,7 +412,7 @@ export async function watchWorker(request:Request){try{
  const raw=await request.text();if(raw.length>710000)throw new DomainError('Video segment is too large.',413);
  const user=await worker(request);let input;try{input=JSON.parse(raw);}catch{throw new DomainError('Invalid JSON.');}
  const body=claimBody.extend({protocol:z.number().optional(),video:z.object({streamId:z.string().uuid(),kind:z.enum(['init','segment']),sequence:z.number().int().min(0).max(10000),mimeCodec:codec,data:z.string().min(1).max(700000)}).strict().optional(),stop:z.boolean().optional(),frame:z.string().max(320000).optional()}).strict().parse(input);
- const {current}=await watchItem(user,body.requestId);stillConnected(current.state,user);activeClaim(current.state,body.requestId,body.claimId);
+ const {current}=await watchItem(user,body.requestId);await assertPrivateVideoAvailable(user.userId,body.requestId);stillConnected(current.state,user);activeClaim(current.state,body.requestId,body.claimId);
  const keys=watchStorageKeys(user.userId,body.requestId);
  if(body.stop){await files().delete(keys.all);return response({watching:false});}
  if(body.protocol!==2)return response({watching:false,upgradeRequired:true});
@@ -437,6 +439,7 @@ export async function watchWorker(request:Request){try{
    await files().put(keys.manifest,JSON.stringify({...manifest,latest:video.sequence,oldest:Math.max(0,video.sequence-VIDEO_SLOTS+1),at:now}));
   }
  }
+ try{const final=await watchItem(user,body.requestId);stillConnected(final.current.state,user);activeClaim(final.current.state,body.requestId,body.claimId);await assertPrivateVideoAvailable(user.userId,body.requestId);}catch(error){await files().delete(keys.all);throw error;}
  return response({watching:true});
 }catch(error){return failure(error);}}
 
@@ -448,7 +451,7 @@ export async function saveRecording(request:Request){
  let writtenKey:string|undefined;
  try{
   const user=await worker(request),url=new URL(request.url),ids=claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
-  const current=await load(user);stillConnected(current.state,user);const item=recordingOwnerItem(current.state,ids.requestId);
+  const current=await load(user);stillConnected(current.state,user);const item=await privateVideoWorkerItem(user,ids.requestId,current);
   if(!recordingClaimValid(item,ids.claimId))throw new DomainError('This recording does not match a recent application run.',409);
   const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).parse(partValue);
   if(request.method==='GET'){const stored=await files().head(recordingKey(user.userId,ids.requestId,ids.claimId,part));return response({saved:!!stored,...(stored?{sha256:stored.customMetadata?.sha256}:{})});}
@@ -468,38 +471,37 @@ export async function saveRecording(request:Request){
   const result=settled[1];if(result.status==='fulfilled'&&!result.value){const same=await files().head(key);if(same?.customMetadata?.sha256!==checksum)throw new DomainError('A different recording is already saved for this run.',409);return response({saved:true,alreadySaved:true});}
   writtenKey=key;
   // Do not leave a video behind if its owner/application was deleted during upload.
-  const latest=await load(user);stillConnected(latest.state,user);recordingOwnerItem(latest.state,ids.requestId);
+  const latest=await load(user);stillConnected(latest.state,user);await privateVideoWorkerItem(user,ids.requestId,latest);
   writtenKey=undefined;return response({saved:true,attempt:ids.claimId});
  }catch(error){
   if(writtenKey)try{await files().delete(writtenKey);}catch{}
   return failure(error);
  }
 }
-export async function recordingViewer(request:Request){try{
- const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId')),current=await load(user);recordingOwnerItem(current.state,id);
- if(url.searchParams.get('download')==='1')return await downloadApplicationRecording(request,user,id);
+export async function recordingViewer(request:Request,library=false){try{
+ const user=await identity(request),url=new URL(request.url),id=watchId.parse(url.searchParams.get('requestId')),context=await privateVideoContext(user,id,library),current=context.current;
+ if(url.searchParams.get('download')==='1')return await downloadApplicationRecording(request,user,id,library);
  const attempt=url.searchParams.get('attempt');
  if(!attempt){
   const cursor=url.searchParams.get('cursor')||undefined;if(cursor&&cursor.length>2000)throw new DomainError('Invalid recording cursor.');
   const prefix=recordingPrefix(user.userId,id),options={prefix,limit:1000,cursor,include:['customMetadata']};
   // R2 paginates by key, not recording date. Always include the current claim,
   // even when older history fills the first page.
-  const currentItem=recordingOwnerItem(current.state,id);
-  const latestOptions={...options,prefix:prefix+(currentItem.claim?.id||''),limit:100,cursor:undefined};
-  const [page,latestPage,statusObject]=await Promise.all([files().list(options),currentItem.claim?files().list(latestOptions):null,currentItem.claim?files().get(recordingStatusKey(user.userId,id,currentItem.claim.id)):null]);
+  const currentItem=context;
+  const latestOptions={...options,prefix:prefix+(currentItem.claimId||''),limit:100,cursor:undefined};
+  const [page,latestPage,statusObject]=await Promise.all([files().list(options),currentItem.claimId?files().list(latestOptions):null,currentItem.claimId?files().get(recordingStatusKey(user.userId,id,currentItem.claimId)):null]);
   const objects=[...new Map([...page.objects,...(latestPage?.objects||[])].map(object=>[object.key,object])).values()];
   const media=objects.filter((object):object is NonNullable<typeof object>=>!!object).filter(object=>object.key.startsWith(prefix)&&/^[0-9a-f-]{36}(?:-part-\d{3,16})?\.mp4$/.test(object.key.slice(prefix.length))).map(object=>({attempt:object.customMetadata?.claimId,duration:Number(object.customMetadata?.duration||0),startedAt:object.customMetadata?.startedAt,recordedAt:object.customMetadata?.recordedAt,partial:object.customMetadata?.partial==='true',reason:object.customMetadata?.reason||'',size:object.size,part:object.customMetadata?.part===undefined?null:Number(object.customMetadata.part)})).filter(item=>item.attempt);
   const groups=new Map<string,typeof media>();for(const item of media){const group=groups.get(item.attempt!)||[];group.push(item);groups.set(item.attempt!,group);}
   const items=[...groups].map(([attempt,parts])=>{parts.sort((a,b)=>(a.part??-1)-(b.part??-1));return {attempt,duration:parts.reduce((n,p)=>n+p.duration,0),startedAt:parts[0].startedAt,recordedAt:parts[parts.length-1].recordedAt,partial:parts.some(p=>p.partial),reason:parts.find(p=>p.reason)?.reason||'',size:parts.reduce((n,p)=>n+p.size,0),parts};}).sort((a,b)=>String(b.startedAt).localeCompare(String(a.startedAt)));
   const status=statusObject?await statusObject.json<Record<string,unknown>>():null;
-  const job=current.state.jobs.find(job=>job.id===currentItem.jobId);
-  return response({items,nextCursor:page.truncated?page.cursor:null,status,applicationStatus:currentItem.status,currentAttempt:currentItem.claim?.id||null,applicationUpdatedAt:currentItem.result?.at||currentItem.claim?.at||currentItem.agentAuthorizedAt||currentItem.at,employer:{title:job?.title||'Job listing unavailable',company:job?.company||'Employer',url:applicationEmployerLink(currentItem,job)}});
+  return response({items,nextCursor:page.truncated?page.cursor:null,status,applicationStatus:currentItem.status,currentAttempt:currentItem.claimId,applicationUpdatedAt:currentItem.updatedAt,employer:currentItem.employer});
  }
  z.string().uuid().parse(attempt);const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).parse(partValue);const key=recordingKey(user.userId,id,attempt,part),head=await files().head(key);if(!head)throw new DomainError('No saved recording was found for this run.',404);
  const range=recordingRange(request.headers.get('range'),head.size);
  if(range==='invalid')return new Response(null,{status:416,headers:{'Content-Range':`bytes */${head.size}`,'Cache-Control':'private, no-store'}});
  const object=await files().get(key,range?{range}:undefined);if(!object)throw new DomainError('This recording is no longer available.',404);
- const latest=await load(user);recordingOwnerItem(latest.state,id);
+ await privateVideoContext(user,id,library);
  const headers=new Headers({'Content-Type':'video/mp4','Content-Length':String(range?range.length:head.size),'Accept-Ranges':'bytes','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin','Content-Disposition':'inline; filename="application-recording.mp4"'});
  if(range)headers.set('Content-Range',`bytes ${range.offset}-${range.offset+range.length-1}/${head.size}`);
  return new Response(request.method==='HEAD'?null:object.body,{status:range?206:200,headers});
@@ -509,11 +511,11 @@ export async function recordingViewer(request:Request){try{
 // Recording-only progress survives an expired form lease; it cannot alter the job outcome.
 export async function recordingStatus(request:Request){try{
  const user=await worker(request),body=claimBody.extend({state:z.enum(['capturing','upload_pending','saved','failed','interrupted']),code:z.enum(['','recording_limit','capture_interrupted','no_frames','runner_interrupted','upload_retrying']),parts:z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),partial:z.boolean()}).strict().parse(await json(request));
- const current=await load(user);stillConnected(current.state,user);const item=recordingOwnerItem(current.state,body.requestId);
+ const current=await load(user);stillConnected(current.state,user);const item=await privateVideoWorkerItem(user,body.requestId,current);
  if(!recordingClaimValid(item,body.claimId))throw new DomainError('This recording does not match an owned application run.',409);
  const key=recordingStatusKey(user.userId,body.requestId,body.claimId);
  await files().put(key,JSON.stringify({state:body.state,code:body.code,parts:body.parts,partial:body.partial,at:new Date().toISOString(),attempt:body.claimId}));
- try{const latest=await load(user);stillConnected(latest.state,user);recordingOwnerItem(latest.state,body.requestId);}catch(error){await files().delete(key);throw error;}
+ try{const latest=await load(user);stillConnected(latest.state,user);await privateVideoWorkerItem(user,body.requestId,latest);}catch(error){await files().delete(key);throw error;}
  return response({saved:true});
 }catch(error){return failure(error);}}
 

@@ -1,3 +1,4 @@
+import {privateVideoContext} from './private-videos';
 import {files,load,type Identity} from './cyber-store';
 import {DomainError} from './cyber-domain';
 import {recordingPrefix,recordingStatusKey} from './application-recordings';
@@ -5,13 +6,15 @@ import {recordingFragment,type RecordingFormat} from './recording-fragments';
 
 // Stream one MP4 to the browser/download manager, retaining only one bounded
 // checkpoint at a time. No complete-video Blob or accumulated-size cutoff.
-export async function downloadApplicationRecording(request:Request,user:Identity,id:string){
- const owned=async()=>{const current=await load(user),item=[...(current.state.applications||[]),...(current.state.applicationArchive?.applications||[])].find(item=>item.id===id&&item.agentVersion===2);if(!item)throw new DomainError('This application is not in your workspace.',404);return {current,item};};
- const {current,item}=await owned();
- if(!['applied','failed'].includes(item.status))throw new DomainError('The application process has not finished. Use Watch Live for work in progress.',409);
- const capture=item.claim?await files().get(recordingStatusKey(user.userId,id,item.claim.id)):null;
- const status=capture?await capture.json<{state:string}>():null;
- if(status&&['capturing','upload_pending'].includes(status.state))throw new DomainError('The recording is still being saved. Try again after the upload finishes.',409);
+export async function downloadApplicationRecording(request:Request,user:Identity,id:string,library=false){
+ const owned=()=>privateVideoContext(user,id,library);
+ const context=await owned();
+ if(!library){
+  if(!['applied','failed'].includes(context.status))throw new DomainError('The application process has not finished. Use Watch Live for work in progress.',409);
+  const capture=context.claimId?await files().get(recordingStatusKey(user.userId,id,context.claimId)):null;
+  const status=capture?await capture.json<{state:string}>():null;
+  if(status&&['capturing','upload_pending'].includes(status.state))throw new DomainError('The recording is still being saved. Try again after the upload finishes.',409);
+ }
  const prefix=recordingPrefix(user.userId,id),groups=new Map<string,Array<{key:string;part:number|null;duration:number;started:string;size:number}>>();
  let cursor:string|undefined;const cursors=new Set<string>();
  do{
@@ -27,8 +30,8 @@ export async function downloadApplicationRecording(request:Request,user:Identity
  const attempts=[...groups.values()].sort((a,b)=>a[0].started.localeCompare(b[0].started));
  const parts=attempts.flatMap(group=>{const full=group.find(p=>p.part===null);return full?[full]:group.sort((a,b)=>a.part!-b.part!);});
  if(!parts.length)throw new DomainError('No recording was captured for this application.',404);
- const total=parts.reduce((n,p)=>n+p.duration,0),job=current.state.jobs.find(job=>job.id===item.jobId);
- const name=('CyberApply-'+[job?.company,job?.title].filter(Boolean).join('-')).replace(/[^a-zA-Z0-9_-]+/g,'-').slice(0,140)+'.mp4';
+ const total=parts.reduce((n,p)=>n+p.duration,0);
+ const name=('CyberApply-'+[context.employer.company,context.employer.title].filter(Boolean).join('-')).replace(/[^a-zA-Z0-9_-]+/g,'-').slice(0,140)+'.mp4';
  const headers={'Content-Type':'video/mp4','Content-Disposition':'attachment; filename="'+name+'"','Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Cross-Origin-Resource-Policy':'same-origin'};
  if(request.method==='HEAD')return new Response(null,{headers});
  async function* chunks(){

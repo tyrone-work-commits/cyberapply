@@ -16,7 +16,7 @@ A configured writing or address provider can receive the content of an explicit 
 
 ## Recordings
 
-Application recordings stay with the application evidence until removed. Interview-practice recordings expire for playback after 30 days; physical deletion runs when your practice tools are next active. Microphone, camera and geolocation start only through your explicit action and browser permission. No device permission is required for text practice or manual address entry.
+Application videos stay private in Settings → Private videos. Deleting an application keeps its uploaded videos and minimal identifying video labels in that library. You can watch and download saved footage, permanently delete individual videos or a selection, or remove all private files by deleting your CyberApply account. Deleting a library video also stops further cloud media uploads for that application; it does not cancel or withdraw the application. Downloaded copies on your device are separate. Interview-practice recordings expire for playback after 30 days; physical deletion runs when your practice tools are next active. Microphone, camera and geolocation start only through your explicit action and browser permission. No device permission is required for text practice or manual address entry.
 
 ## Your controls
 

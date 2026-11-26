@@ -49,3 +49,7 @@ export const applicationBrowserWindows=sqliteTable('cyber_application_browser_wi
 export const applicationMediaCleanup=sqliteTable('cyber_application_media_cleanup',{
  ownerId:text('owner_id').notNull(),requestId:text('request_id').notNull(),coverKey:text('cover_key'),createdAt:text('created_at').notNull(),
 },table=>[primaryKey({columns:[table.ownerId,table.requestId]})]);
+
+export const privateVideos=sqliteTable('cyber_private_videos',{
+ ownerId:text('owner_id').notNull(),requestId:text('request_id').notNull(),title:text('title').notNull(),company:text('company').notNull(),lastClaim:text('last_claim'),claimAt:text('claim_at'),createdAt:text('created_at').notNull(),updatedAt:text('updated_at').notNull(),applicationDeleted:integer('application_deleted').notNull().default(0),state:text('state',{enum:['saved','deleting','deleted']}).notNull().default('saved'),
+},table=>[primaryKey({columns:[table.ownerId,table.requestId]})]);
