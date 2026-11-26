@@ -64,7 +64,9 @@ def flush_pending(site,token,service=None,limit=3):
             active=str(entry) in ACTIVE
             pending=[json.loads(p.read_text(encoding='utf-8')) for p in folder.glob('*.media.json')]
             pending=[p for p in pending if p['task']==value['task']]
-            if not active and not pending and value.get('published')==value.get('version') and (value.get('finished') or value.get('publishedState')=='interrupted'):continue
+            # Upload completion does not change the capture version. Publish its
+            # final state even if upload_pending already used that same version.
+            if not active and not pending and value.get('published')==value.get('version') and value.get('publishedState') in {'saved','failed','interrupted'}:continue
             if time.time()-value.get('lastPublish',0)<10:continue
             state='upload_pending' if pending else 'capturing' if active and not value.get('finished') else 'saved' if value.get('parts') else 'failed'
             code=value.get('code','')

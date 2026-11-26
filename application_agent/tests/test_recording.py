@@ -76,6 +76,19 @@ class RecordingTests(unittest.TestCase):
    self.assertTrue(run_once('https://site.example','ca2.owner.secret'));self.assertEqual(execute.call_count,1);self.assertEqual(delivery.return_value.finish.call_count,1)
   results=[body for path,body in calls if path.endswith('/result')];self.assertEqual(len(results),1);self.assertEqual(results[0]['status'],'needs_attention')
 
+ def test_finished_upload_pending_version_is_reconciled_after_last_media_upload(self):
+  import json
+  from application_agent.recording_delivery import flush_pending
+  with tempfile.TemporaryDirectory() as directory,patch('application_agent.recording_delivery.outbox',return_value=Path(directory)),patch('application_agent.runner.call_site',return_value={}) as call,patch('application_agent.runner.upload_recording') as upload:
+   entry=Path(directory)/'fixture.session.json'
+   entry.write_text(json.dumps({'task':{'requestId':'fixture','claimId':'claim'},'version':63,'published':63,'publishedState':'upload_pending','finished':True,'parts':61,'code':'recording_limit','lastPublish':0}))
+   flush_pending('https://site.example','ca2.owner.secret')
+   upload.assert_not_called();self.assertEqual(call.call_count,1)
+   self.assertEqual(call.call_args.args[2],'/api/application-agent/recording-status')
+   self.assertEqual(call.call_args.args[3]['state'],'saved');self.assertTrue(call.call_args.args[3]['partial'])
+   self.assertEqual(json.loads(entry.read_text())['publishedState'],'saved')
+   flush_pending('https://site.example','ca2.owner.secret');self.assertEqual(call.call_count,1,'terminal status is not posted repeatedly')
+
  def test_restart_recovers_saved_parts_and_marks_unfinished_capture_interrupted(self):
   from application_agent.recording_delivery import RecordingDelivery,flush_pending,ACTIVE
   with tempfile.TemporaryDirectory() as directory,patch('application_agent.recording_delivery.outbox',return_value=Path(directory)),patch.object(RecordingDelivery,'_pump'),patch('application_agent.runner.call_site',return_value={}) as call,patch('application_agent.runner.upload_recording',return_value={'saved':True}) as upload:
