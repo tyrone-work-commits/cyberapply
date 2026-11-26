@@ -2,12 +2,13 @@
 import {ApplicationBrowserButton} from './application-browser-button';
 import {useEffect,useRef,useState} from 'react';
 import './workspace-header.css';
+import './application-recording.css';
 import {createPortal} from 'react-dom';
 import {ArrowLeft,Download,ExternalLink,Film,LockKeyhole,RefreshCw,X} from 'lucide-react';
 import {dvrTarget,resumeVideo} from '@/lib/video-dvr';
 import {RecordingLoader} from '@/lib/recording-loader';
 import recordingWorkerUrl from '../lib/recording-remux.worker.ts?worker&url';
-import {applicationRecordingTimeline,recordingPollDelay,recordingViewMessage,liveVideoPhase,type LiveVideoInfo,type RecordingSnapshot} from '@/lib/recording-view-state';
+import {applicationRecordingTimeline,recordingAvailability,recordingPollDelay,recordingViewMessage,liveVideoPhase,type LiveVideoInfo,type RecordingSnapshot} from '@/lib/recording-view-state';
 export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false,liveInfo}:{requestId:string;onClose?:()=>void;embedded?:boolean;dvr?:boolean;liveInfo?:LiveVideoInfo|null}){
  const [snapshot,setSnapshot]=useState<RecordingSnapshot|null>(null),[message,setMessage]=useState('Loading your private application video…'),[busy,setBusy]=useState(false),[mobile,setMobile]=useState(false),[refresh,setRefresh]=useState(0);
  const video=useRef<HTMLVideoElement>(null),blob=useRef(''),resume=useRef({requestId:'',time:0,paused:false});
@@ -30,7 +31,7 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
    if(document.hidden||loading)return;if(timer)clearTimeout(timer);loading=true;setBusy(true);controller=new AbortController();const timeout=setTimeout(()=>controller?.abort(),8000);
    try{
     const r=await fetch(base,{cache:'no-store',signal:controller.signal}),p=await r.json() as RecordingSnapshot&{error?:string};if(!r.ok)throw Error(p.error||'Recordings could not be loaded.');if(generation.current!==id)return;
-    snapshotRequest.current=requestId;setSnapshot(p);setMessage(recordingViewMessage(p));delay=recordingPollDelay(p,dvr);
+    snapshotRequest.current=requestId;setSnapshot(p);setMessage(dvr||recordingAvailability(p).ready?recordingViewMessage(p):'');delay=recordingPollDelay(p,dvr);
    }catch(error){if(generation.current===id){setMessage((error as Error).name==='AbortError'?'Video connection is slow. Available footage stays playable; reconnecting automatically.':(error as Error).message);delay=3000;}}
    finally{clearTimeout(timeout);loading=false;if(generation.current===id){setBusy(false);if(!document.hidden)timer=setTimeout(load,delay);}}
   }
@@ -38,15 +39,22 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
   document.addEventListener('visibilitychange',visible);window.addEventListener('focus',visible);void load();
   return()=>{generation.current++;controller?.abort();if(timer)clearTimeout(timer);document.removeEventListener('visibilitychange',visible);window.removeEventListener('focus',visible);};
  },[requestId,refresh,base,dvr]);
+ const currentSnapshot=snapshotRequest.current===requestId?snapshot:null;
+ const availability=recordingAvailability(currentSnapshot),showFootage=dvr||availability.ready;
  let timeline:ReturnType<typeof applicationRecordingTimeline>=null,timelineError='';
- try{if(snapshot&&snapshotRequest.current===requestId)timeline=applicationRecordingTimeline(snapshot);}catch(error){timelineError=(error as Error).message;}
+ try{if(currentSnapshot&&showFootage)timeline=applicationRecordingTimeline(currentSnapshot);}catch(error){timelineError=(error as Error).message;}
  const signature=JSON.stringify(timeline?.parts.map(part=>[part.attempt,part.part,part.duration,part.size])||[]);
  const canDownload=!!timeline&&!timelineError&&!preparing&&!media.preview&&media.requestId===requestId&&media.signature===signature&&!!media.url;
  const downloadName='CyberApply-'+([snapshot?.employer.company,snapshot?.employer.title].filter(Boolean).join('-')||requestId).replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,130)+'.mp4';
  useEffect(()=>()=>{if(blob.current)URL.revokeObjectURL(blob.current);},[]);
  useEffect(()=>{
   let disposed=false,worker:Worker|undefined;
-  if(!timeline)return;
+  if(!timeline){
+   // A continuation must not leave the previous completed video downloadable.
+   setPreparing(false);setMedia({requestId:'',url:'',signature:'',preview:false,offset:0});
+   if(blob.current){URL.revokeObjectURL(blob.current);blob.current='';}
+   return;
+  }
   setPlaybackError('');
   const ordered=timeline.parts;
   const url=(part:typeof ordered[number])=>base+'&attempt='+encodeURIComponent(part.attempt)+(part.part===null?'':'&part='+part.part);
@@ -117,7 +125,9 @@ export function ApplicationRecording({requestId,onClose,embedded=false,dvr=false
   {snapshot&&<div className="application-detail-section"><h2>{snapshot.employer.title}</h2><p>{snapshot.employer.company}</p>{snapshot.employer.url&&<ApplicationBrowserButton url={snapshot.employer.url}/>}<p className="subtle">{snapshot.applicationStatus==='uncertain'?'Employer receipt remains unconfirmed. Do not submit again until its outcome is checked.':snapshot.applicationStatus==='applied'?'Employer confirmation is recorded in Applications.':'See Applications for the employer outcome.'}</p></div>}
   {dvr&&<div className="watch-process-modes" role="group" aria-label="Live timeline controls"><button type="button" className="button quiet" aria-pressed={dvrMode==='live'} onClick={jump}>Go live</button><span className="dvr-playback-status" role="status">{livePhase.label}</span></div>}
   {dvr&&<p className="subtle">Drag the video timeline to rewind. New uploaded footage extends this same player without skipping unwatched work. Go live jumps to the newest available footage; playback has an upload buffer.</p>}
+  {!dvr&&!availability.ready&&<div className="agent-watch-screen recording-process-pending" role="status"><Film size={32} aria-hidden="true"/><h3>{availability.heading}</h3><p>{availability.message}</p></div>}
   {message&&<p role="status">{message}</p>}
+  {!showFootage&&currentSnapshot&&<a className="button quiet" href={'/application-watch?request='+encodeURIComponent(requestId)} target="_blank" rel="noopener noreferrer" title="Watch live (opens in a new tab)">Watch live<ExternalLink size={13}/><span className="sr-only"> (opens in a new tab)</span></a>}
   {timelineError&&<p role="alert">{timelineError}</p>}
   {timeline&&<>{preparing&&<p role="status">{media.preview?'Showing the newest available footage while the full rewindable timeline loads…':'Updating your continuous application video…'}</p>}{playbackError&&<p role="alert">{playbackError}</p>}<div className="agent-watch-screen">{liveBadge}<video ref={video} src={media.requestId===requestId?media.url:undefined} onLoadedMetadata={loaded} onSeeking={seeking} onSeeked={()=>{seekTarget.current=null;}} onPause={paused} onEnded={()=>setAtEnd(true)} autoPlay={!resume.current.paused} muted controls playsInline preload="auto" onError={()=>{if(!preparing)setPlaybackError('This video could not play. Refresh the video or try an updated browser.');}}/></div>{timeline.partial&&<p role="status">Some footage is missing or capture was interrupted. This video contains all available work so far; the employer outcome is separate.</p>}<p className="subtle">One application video · {Math.round(timeline.duration)} seconds · Updated {new Date(timeline.recordedAt).toLocaleString()}. Later work is added automatically. This video does not by itself prove employer submission. New runs include ordinary manual form input with control-status captions. Private sign-in, emailed-code and CAPTCHA screens are excluded and marked with a pause. Idle manual waits are shortened. Older footage may have omitted manual steps; capture limits or interruptions are reported above.</p></>}
   {dvr&&!timeline&&<div className="agent-watch-screen live-waiting-screen">{liveBadge}<p>Waiting for available footage. This viewer updates automatically.</p></div>}

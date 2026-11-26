@@ -1,9 +1,30 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import ts from 'typescript';import {readFile} from 'node:fs/promises';
 async function module(name){const code=ts.transpileModule(await readFile(`lib/${name}.ts`,'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ES2022}}).outputText;return import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));}
-const {applicationRecordingTimeline,recordingPollDelay,recordingViewMessage,liveVideoPhase}=await module('recording-view-state');
+const {applicationRecordingTimeline,recordingAvailability,recordingPollDelay,recordingViewMessage,liveVideoPhase}=await module('recording-view-state');
 const {applicationEmployerLink}=await module('application-employer-link');
 const at='2026-11-13T12:00:00Z',old={attempt:'old',duration:2,startedAt:at,recordedAt:at,partial:false,reason:'',size:100};
 const snapshot=overrides=>({items:[old],nextCursor:null,status:{state:'saved',attempt:'old',at,parts:1,partial:false,code:''},applicationStatus:'needs_attention',currentAttempt:'old',applicationUpdatedAt:at,employer:{title:'Fictional role',company:'Fixture',url:'https://employer.example/apply'},...overrides});
+
+test('saved playback waits through questions, manual submission and unresolved outcomes even with uploaded footage',()=>{
+ assert.equal(recordingAvailability(null).ready,false);
+ for(const applicationStatus of ['needs_action','queued','processing','needs_attention','uncertain','unknown']){
+  const s=snapshot({applicationStatus});const state=recordingAvailability(s);
+  assert.equal(state.ready,false,applicationStatus);assert.equal(state.heading,'Application process has not finished');
+  assert.ok(applicationRecordingTimeline(s),'Watch Live still has its continuous footage');
+ }
+ assert.match(recordingAvailability(snapshot({applicationStatus:'uncertain'})).message,/unverified.*before any retry/);
+});
+
+test('finished processes expose recordings only after the current upload settles and hide them again on continuation',()=>{
+ for(const applicationStatus of ['applied','failed']){
+  for(const state of ['capturing','upload_pending'])assert.equal(recordingAvailability(snapshot({applicationStatus,status:{state,attempt:'old'}})).ready,false);
+  for(const state of ['saved','failed','interrupted'])assert.equal(recordingAvailability(snapshot({applicationStatus,status:{state,attempt:'old'}})).ready,true);
+  assert.equal(recordingAvailability(snapshot({applicationStatus,status:null})).ready,true,'legacy footage remains available');
+  assert.equal(recordingAvailability(snapshot({applicationStatus,status:{state:'capturing',attempt:'unrelated'}})).ready,true,'old capture metadata is not the current upload');
+ }
+ assert.equal(recordingAvailability(snapshot({applicationStatus:'applied'})).ready,true);
+ assert.equal(recordingAvailability(snapshot({applicationStatus:'queued',currentAttempt:null})).ready,false);
+});
 
 test('one video retains work so far and grows after answers are saved and the agent continues',()=>{
  const initial=applicationRecordingTimeline(snapshot());assert.equal(initial.duration,2);assert.equal(initial.parts.length,1);

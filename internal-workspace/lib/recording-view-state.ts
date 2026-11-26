@@ -4,6 +4,21 @@ export type CaptureStatus={state:string;code:string;parts:number;partial:boolean
 export type RecordingSnapshot={items:Recording[];nextCursor:string|null;status:CaptureStatus|null;applicationStatus:string;currentAttempt:string|null;applicationUpdatedAt:string;employer:{title:string;company:string;url:string|null}};
 export type RecordingTimeline={duration:number;recordedAt:string;partial:boolean;size:number;parts:(VideoPart&{attempt:string})[]};
 
+// Watch Live may replay checkpoints; Watch Recording waits for a finished process.
+// An ended browser or an uploaded checkpoint does not establish completion.
+export function recordingAvailability(snapshot:RecordingSnapshot|null){
+ if(!snapshot)return {ready:false,heading:'Checking application progress',message:'Checking whether the application process has finished.'};
+ if(!['applied','failed'].includes(snapshot.applicationStatus))return {
+  ready:false,heading:'Application process has not finished',
+  message:snapshot.applicationStatus==='uncertain'
+   ?'The employer outcome is still unverified. Check the outcome in Applications before any retry. The recording will appear here after the process is resolved.'
+   :'The recording will appear here automatically after the application process finishes. You can use Watch Live to see the available work so far, including while the agent waits for your input or final submission.',
+ };
+ const status=snapshot.status?.attempt===snapshot.currentAttempt?snapshot.status:null;
+ if(status&&['capturing','upload_pending'].includes(status.state))return {ready:false,heading:'Finishing your recording',message:'The application process has ended. Its recording is still being saved or uploaded and will appear here automatically.'};
+ return {ready:true,heading:'',message:''};
+}
+
 // Parts are private source fragments of one application video, not selectable versions.
 export function applicationRecordingTimeline(snapshot:Pick<RecordingSnapshot,'items'|'nextCursor'>):RecordingTimeline|null{
  if(snapshot.nextCursor)throw Error('This application video exceeds the playback limit. Its footage has not been deleted.');
