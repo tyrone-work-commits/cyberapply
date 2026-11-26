@@ -3,7 +3,7 @@ import {isHumanAgentQuestion} from './verification-question';
 export {isHumanAgentQuestion} from './verification-question';
 export const RECAPTCHA_HOSTS=['www.google.com','www.recaptcha.net','www.gstatic.com','recaptcha.google.com'];
 export const RECAPTCHA_QUESTION='Complete the employer reCAPTCHA in this browser.';
-export type VerificationHandoff={persistent?:true;closeReturnsControl?:true;id:string;claimId:string;turn:number;state:'waiting'|'opening'|'opened'|'resuming'|'resumed'|'cancelled'|'expired'|'failed';kind:'question'|'input'|'recaptcha'|'challenge';phase?:'before_submit'|'after_submit';questions:string[];challengeHosts:string[];approvedHosts:string[];at:string;expiresAt:string;code?:'incomplete'|'window_unavailable'|'session_changed'|'connection_lost'};
+export type VerificationHandoff={profileSyncVersion?:1;persistent?:true;closeReturnsControl?:true;id:string;claimId:string;turn:number;state:'waiting'|'opening'|'opened'|'resuming'|'resumed'|'cancelled'|'expired'|'failed';kind:'question'|'input'|'recaptcha'|'challenge';phase?:'before_submit'|'after_submit';questions:string[];challengeHosts:string[];approvedHosts:string[];at:string;expiresAt:string;code?:'incomplete'|'window_unavailable'|'session_changed'|'connection_lost'};
 export function requestCloseReturn(item:ApplicationRequest,id:string,now=Date.now()){
  const h=currentHandoff(item,now);
  if(!h||h.id!==id||h.kind!=='question'||!h.persistent||!h.closeReturnsControl||!['opened','resuming'].includes(h.state))throw new DomainError('Close-and-return is unavailable for this exact human or AI handoff.',409);

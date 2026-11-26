@@ -12,6 +12,7 @@ import re
 import socket
 import sys
 import time
+from urllib.error import HTTPError
 from urllib.parse import urlsplit, parse_qsl
 from .combobox import DropdownAttention, select_combobox, selected_display, has_unreviewed_selection
 from .form_choices import capture_application_choices, choice_limit
@@ -189,6 +190,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
     context = None
     session_active = False
     human_proofs={}
+    sync_attachments={}
     manual_interaction=False
     def finish(*args,**kwargs):
         journey.data['possible_delivery'] = submitted or bool(manual_submit_handler and manual_submit_handler.delivery)
@@ -400,7 +402,7 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                 # The existing form budget excludes bounded human waiting time.
                 journey.started+=time.monotonic()-started
                 reason=getattr(verification_handler,'failure_reason','') if kind in {'question','input'} else ''
-                report.setdefault('verification_handoffs',[]).append({'same_browser':True,**({'user_returned_control':bool(success)} if kind=='recaptcha' else {'completed_by_user':bool(success)}),'kind':kind,**({'reason':reason} if reason else {})})
+                report.setdefault('verification_handoffs',[]).append({'same_browser':True,**({'user_returned_control':bool(success)} if kind=='recaptcha' else {'completed_by_user':bool(success) and not getattr(verification_handler,'refresh_requested',False)}),'kind':kind,**({'reason':reason} if reason else {})})
                 if not success:raise ApplicationAttention(reason or 'The same-browser verification was cancelled, expired or lost its session. No action will be replayed automatically.')
                 manual_interaction=True
                 validate_public_url(page.url,hosts,resolver)
@@ -640,6 +642,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             if control.evaluate(CONTROL_IDENTITY)!=identity:
                                 raise ApplicationAttention('The employer changed this question during preparation. The old answer was not replayed; inspect the changed form before continuing.')
                             return operation()
+                        if kind == "file" and field['id'] in sync_attachments:
+                            retained,checksum=sync_attachments[field['id']]
+                            actual=control.evaluate("""async e=>{const f=e.files?.[0];if(!f)return '';const b=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');}""")
+                            if actual!=checksum:raise ApplicationAttention('The original attachment changed during synchronization. No attachment or submission was replayed.')
+                            expected_values[field['id']]=retained;attachment_hashes[field['id']]=checksum
+                            continue
                         if kind == "file":
                             if re.search(r"cover.?letter", label):
                                 if not answer or not (answer.get('source')=='user_confirmed' or answer.get('source')=='cv_and_job' and answer.get('automatic') is True):
@@ -818,8 +826,14 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             checksum=control.evaluate("""async e=>{const f=e.files?.[0];if(!f)return '';const b=await crypto.subtle.digest('SHA-256',await f.arrayBuffer());return [...new Uint8Array(b)].map(v=>v.toString(16).padStart(2,'0')).join('');}""")
                             if checksum!=attachment_hashes.get(field_id):raise ApplicationAttention('The chosen attachment bytes changed during verification. No submit was attempted.')
                 report["unresolved"] = list({x["field_id"]:x for x in unresolved if x['field_id'] not in handled_confirmed and not any(f["id"]==x["field_id"] and f["type"]=="file" and re.search(r"resume|résumé|\bcv\b|cover.?letter", f["label"],re.I) for f in fields)}.values())
-                if report['unresolved'] and all(item.get('source')=='verification' for item in report['unresolved']):
-                    manual_fields=[f for f in fields if f['id'] in {item['field_id'] for item in report['unresolved']}]
+                profile_sync=getattr(verification_handler,'profile_sync',None)
+                if profile_sync and profile_sync.pending:
+                    ordinary=[item for item in report['unresolved'] if item.get('source')!='verification']
+                    verify_expected()
+                    try:profile_sync.acknowledge(report,'form_needs_answers' if ordinary else None)
+                    except (HTTPError,OSError):profile_sync.failed=True  # Keep this page alive; only the acknowledgement may retry.
+                if report['unresolved'] and (all(item.get('source')=='verification' for item in report['unresolved']) or profile_sync and profile_sync.failed and any(item.get('source')=='verification' for item in report['unresolved'])):
+                    manual_fields=[f for f in fields if f['id'] in {item['field_id'] for item in report['unresolved'] if item.get('source')=='verification'}]
                     if not manual_fields or not all(identity_dropdown(f) for f in manual_fields):
                         raise ApplicationAttention('This verification is not the human-versus-AI dropdown. The agent paused without opening a handoff or submitting.')
                     def completed_manually():
@@ -830,6 +844,12 @@ def execute_application(payload, cv_bytes, *, submit=False, allowed_hosts=(), pl
                             observed[control.evaluate(CONTROL_IDENTITY)]=value
                         human_proofs.update(observed);return True
                     human_pause([f['label'] for f in manual_fields],completed_manually)
+                    if getattr(verification_handler,'refresh_requested',False):
+                        verification_handler.refresh_requested=False
+                        sync_attachments={key:(value,attachment_hashes[key]) for key,value in expected_values.items() if value[0]=='file'}
+                        seen_steps.discard(step_identity)
+                        report['answers']=[]
+                        continue  # Replan/refill the same page, CV, claim and paused handoff.
                     for field in manual_fields:
                         proof=human_proofs.get(controls[field['id']].evaluate(CONTROL_IDENTITY))
                         if not proof:raise ApplicationAttention('The employer changed its verification control. No old answer was replayed.')

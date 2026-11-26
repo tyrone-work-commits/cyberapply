@@ -1,3 +1,4 @@
+import {preparedProfileKey} from './prepared-profile';
 import {persistentQuestionHandoff} from './verification-handoff';
 import {manualSession} from './manual-submission';
 import {rememberEmployerQuestions} from './employer-questions';
@@ -41,6 +42,6 @@ export function completeApplication(state:State,input:{requestId:string;claimId:
   return request;
 }
 
-export function assertApplicationProfileCurrent(state:State,request:NonNullable<State['applications']>[number]){if(!request.applicantProfile||JSON.stringify(request.applicantProfile)!==JSON.stringify(applicationProfile(state)))throw new DomainError('Edit Profile changed or an Answers library response was updated during this application. Stop and update the application before submitting.',409);}
+export function assertApplicationProfileCurrent(state:State,request:NonNullable<State['applications']>[number]){if(request.profileSync?.state==='pending'||request.profileSync?.state==='failed'||preparedProfileKey(request.applicantProfile)!==preparedProfileKey(applicationProfile(state)))throw new DomainError('Prepared answers are not in sync with your current Account Profile or Answers library. Use Synchronize prepared answers on this application before continuing.',409);}
 
 export function assertApplicationAuthorizationCurrent(state:State,request:NonNullable<State['applications']>[number]){if(!getApplySettings(state).autoConsentAt&&!request.reviewedForSubmissionAt)throw new DomainError('Authorize Automatic Apply in application settings before submitting this request.',409);}

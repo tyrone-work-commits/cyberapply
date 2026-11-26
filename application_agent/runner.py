@@ -164,6 +164,9 @@ def run_once(site, token, submit=False, allowed_hosts=(), browser_channel='chrom
         from .manual_submit import ManualSubmit
         from .browser_window import BrowserWindow
         handoff=BrowserHandoff(lambda path,body:call_site(site,token,path,body,site_access_token=site_access_token,timeout=8),task) if submit else None
+        if handoff:
+            from .profile_sync import ProfileSync
+            handoff.profile_sync=ProfileSync(handoff.call,task)
         try:
             delivery=RecordingDelivery(site,token,task,site_access_token)
             watch=LiveWatch(lambda body:call_site(site,token,'/api/application-agent/watch',body,site_access_token=site_access_token,timeout=4),task['requestId'],task['claimId'],record=True,on_part=delivery.part)

@@ -25,6 +25,7 @@ class BrowserHandoff:
         self.kind='question';self.phase='before_submit';self.recaptcha=None
         self.blocked_navigation=False
         self.protected_frames=set();self.failure_reason=''
+        self.profile_sync=None;self.refresh_requested=False;self.retained_pause_id=None
     def window(self,context,page,state):
         visibility=getattr(context,'_cyberapply_visibility',None)
         if visibility and state=='minimized':visibility.hide();return
@@ -103,7 +104,8 @@ class BrowserHandoff:
         Only status messages are retried after network failures. No page, form,
         answer selection, Continue or Submit is ever replayed by this loop.
         """
-        self.turns+=1;pause_id=str(uuid4());self.active=True;self.kind=kind;self.phase='before_submit';self.blocked_navigation=False
+        if not self.retained_pause_id:self.turns+=1
+        pause_id=self.retained_pause_id or str(uuid4());self.retained_pause_id=None;self.active=True;self.kind=kind;self.phase='before_submit';self.blocked_navigation=False
         self.failure_reason='';self.protected_frames={page.main_frame}
         endpoint='/api/application-agent/handoff';opened=False;success=False;close_return=None;close_requested=False
         def event(name,**extra):return self.call(endpoint,{**self.ids,'id':pause_id,'event':name,**extra})['handoff']
@@ -135,7 +137,7 @@ class BrowserHandoff:
                     from .identity_close_return import IdentityCloseReturn
                     close_return=IdentityCloseReturn(context,page)
                 except Exception:pass  # Older/unsupported browsers retain explicit Return control.
-            send('begin',persistent=True,kind=kind,phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[],**({'closeReturnsControl':True} if close_return else {}))
+            send('begin',persistent=True,kind=kind,phase='before_submit',questions=[str(q)[:300] for q in questions[:10]],challengeHosts=[],**({'profileSyncVersion':1} if self.profile_sync else {}),**({'closeReturnsControl':True} if close_return else {}))
             while True:
                 if close_return and close_return.navigation_requested:self.blocked_navigation=True
                 if page.is_closed() or self.blocked_navigation:
@@ -149,6 +151,15 @@ class BrowserHandoff:
                 if not h or h['id']!=pause_id:return False
                 if h['state'] in {'cancelled','expired','failed'}:
                     self.failure_reason='The verification handoff was cancelled or is no longer active. No employer action was replayed.';return False
+                if self.profile_sync:
+                    try:refresh=self.profile_sync.poll()
+                    except Exception:wait();continue
+                    if refresh:
+                        # Preserve any answer the person already selected, then refill
+                        # ordinary fields on this page. No navigation or final action.
+                        if opened:self.window(context,page,'minimized')
+                        self.refresh_requested=True;self.retained_pause_id=pause_id
+                        return True
                 if h['state']=='opening':
                     try:authorized=authorize() is True
                     except Exception:wait();continue

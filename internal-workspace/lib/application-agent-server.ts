@@ -1,3 +1,4 @@
+import {applicationSyncInfo,synchronizeApplicationProfile,acknowledgeApplicationSync,applicationSyncAllowed} from './application-profile-sync';
 import {recoverExpiredBrowserSessions} from './application-browser-recovery-server';
 import {canAutomaticallyRecoverBrowser} from './automatic-browser-recovery';
 import {manualBrowserHealth,mergeManualReport} from './manual-browser-health';
@@ -49,14 +50,14 @@ function stillConnected(state:State,user:Identity&{agentHash:string}){
   if(!config?.enabled||config.tokenHash!==user.agentHash||Date.parse(config.expiresAt)<=Date.now())throw new DomainError('Agent connection expired or was revoked.',401);
 }
 export async function applicationWorkerIdentity(request:Request){const user=await worker(request),current=await load(user);stillConnected(current.state,user);return user;}
-async function original(user:Identity&{agentHash:string},requestId:string,claimId:string){
+async function original(user:Identity&{agentHash:string},requestId:string,claimId:string,allowInspect=false){
   const current=await load(user);stillConnected(current.state,user);
   const item=activeClaim(current.state,requestId,claimId),file=current.state.attachments.find(file=>file.id===item.cv!.fileId)!;
-  assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
+  if(!allowInspect)assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
   const object=await files().get(file.key);if(!object)throw new DomainError('The chosen CV file is unavailable.',409);
   const bytes=new Uint8Array(await object.arrayBuffer());if(await digest(bytes)!==item.cvSha256)throw new DomainError('The selected CV content changed.',409);
   let coverBytes:Uint8Array<ArrayBuffer>|undefined;if(item.coverLetter){if(!item.coverLetter.key.startsWith(`owners/${encodeURIComponent(user.userId)}/career/application-letter-`))throw new DomainError('The reviewed cover letter is unavailable.',409);const object=await files().get(item.coverLetter.key);if(!object)throw new DomainError('The reviewed cover letter is unavailable.',409);coverBytes=new Uint8Array(await object.arrayBuffer());if(await digest(coverBytes)!==item.coverLetter.sha256)throw new DomainError('The reviewed cover letter changed. Stop before submitting.',409);}
-  const latest=await load(user);stillConnected(latest.state,user);const latestRequest=activeClaim(latest.state,requestId,claimId);assertApplicationProfileCurrent(latest.state,latestRequest);assertApplicationAuthorizationCurrent(latest.state,latestRequest);
+  const latest=await load(user);stillConnected(latest.state,user);const latestRequest=activeClaim(latest.state,requestId,claimId);if(!allowInspect)assertApplicationProfileCurrent(latest.state,latestRequest);assertApplicationAuthorizationCurrent(latest.state,latestRequest);
   return {current,item,file,bytes,coverBytes};
 }
 const claimBody=z.object({requestId:z.string().max(300),claimId:z.string().uuid()}).strict();
@@ -169,6 +170,42 @@ export async function manualSubmitWorker(request:Request){try{
  throw new DomainError('Browser status changed. No employer action was replayed.',409);
 }catch(error){return failure(error);}}
 
+export async function profileSyncOwner(request:Request){try{
+ const user=await identity(request),url=new URL(request.url);
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),claimId:z.string().uuid().optional()}).strict().parse(await json(request)):null;
+ if(body)sameOrigin(request);
+ const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await load(user),item=current.state.applications?.find(a=>a.id===id);
+  if(!item)throw new DomainError('This application is not in your workspace.',404);
+  if(!body)return response({sync:applicationSyncInfo(current.state,item)});
+  if(body.claimId!==item.claim?.id)throw new DomainError('The application browser changed. Reload this card before synchronizing.',409);
+  const sync=synchronizeApplicationProfile(current.state,item);
+  record(current.state,'synchronize_application_profile','Synchronized saved information for an existing application; no application was restarted.','interface');
+  try{await save(user,current.revision,current.state,'application_profile_sync');return response({sync:applicationSyncInfo(current.state,item),id:sync.id});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
+ }
+ throw new DomainError('Saved information changed while synchronizing. Try again on this card.',409);
+}catch(error){return failure(error);}}
+
+export async function profileSyncWorker(request:Request){try{
+ const user=await worker(request),url=new URL(request.url);
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),profileSyncVersion:z.literal(1),code:z.enum(['form_needs_answers','form_changed']).optional(),report:z.object({questions:z.array(z.record(z.string(),z.unknown())).max(100),answers:z.array(z.record(z.string(),z.unknown())).max(100),unresolved:z.array(z.record(z.string(),z.unknown())).max(100)}).strict().optional()}).strict().parse(await json(request)):null;
+ const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
+ for(let attempt=0;attempt<3;attempt++){
+  const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,ids.requestId,ids.claimId);
+  const h=currentHandoff(item);
+  if(!applicationSyncAllowed(item)||!h||h.profileSyncVersion!==1)throw new DomainError('In-place synchronization is unavailable for this exact browser.',409);
+  assertApplicationAuthorizationCurrent(current.state,item);
+  if(!body)return response({sync:item.profileSync?.state==='pending'?item.profileSync:null,...(item.profileSync?.state==='pending'?{applicantProfile:item.applicantProfile,confirmedAnswers:item.confirmedAnswers||[]}:{})});
+  const {applicationProfileChanged}=await import('./application-profile-sync');
+  if(applicationProfileChanged(current.state,item))throw new DomainError('Saved answers changed again. Synchronize the newer information before continuing.',409);
+  acknowledgeApplicationSync(item,body.id,ids.claimId,body.code);
+  if(body.report)item.report={...item.report,...body.report};
+  try{await save(user,current.revision,current.state,'application_profile_sync_ack');return response({sync:item.profileSync});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
+ }
+ throw new DomainError('Synchronization changed. No employer action was replayed.',409);
+}catch(error){return failure(error);}}
+
 // Same-claim commands contain no cookies, passwords, verification tokens or remote controls.
 export async function verificationOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
@@ -178,7 +215,8 @@ export async function verificationOwner(request:Request){try{
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user),item=current.state.applications?.find(item=>item.id===id);if(!item)throw new DomainError('This application is not in your workspace.',404);
   if(!body){const h=currentHandoff(item);return response({active:!!h&&['waiting','opening','opened','resuming'].includes(h.state),handoff:h||null});}
-  if(body.command!=='cancel'){assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);}
+  if(body.command!=='cancel')assertApplicationAuthorizationCurrent(current.state,item);
+  if(body.command==='resume')assertApplicationProfileCurrent(current.state,item);
   const handoff=handoffCommand(item,body.id,body.command,body.approvedHosts);
   try{await save(user,current.revision,current.state,'verification_handoff_'+body.command);return response({active:!['cancelled'].includes(handoff.state),handoff});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
  }
@@ -186,12 +224,13 @@ export async function verificationOwner(request:Request){try{
 }catch(error){return failure(error);}}
 export async function verificationWorker(request:Request){try{
  const user=await worker(request),url=new URL(request.url);
- const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['begin','opened','return_requested','resumed','cancelled','expired','failed']),persistent:z.literal(true).optional(),closeReturnsControl:z.literal(true).optional(),kind:z.enum(['question','input','recaptcha','challenge']).optional(),phase:z.enum(['before_submit','after_submit']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),profileSyncVersion:z.literal(1).optional(),event:z.enum(['begin','opened','return_requested','resumed','cancelled','expired','failed']),persistent:z.literal(true).optional(),closeReturnsControl:z.literal(true).optional(),kind:z.enum(['question','input','recaptcha','challenge']).optional(),phase:z.enum(['before_submit','after_submit']).optional(),questions:z.array(z.string().trim().min(1).max(300)).max(10).optional(),challengeHosts:z.array(z.string().max(100)).max(7).optional(),code:z.enum(['incomplete','window_unavailable','session_changed','connection_lost']).optional()}).strict().parse(await json(request)):null;
  const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);const item=activeClaim(current.state,ids.requestId,ids.claimId);
   if(!body)return response({handoff:currentHandoff(item)});
-  if(!['failed','cancelled','expired'].includes(body.event)){assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);}
+  if(!['failed','cancelled','expired'].includes(body.event))assertApplicationAuthorizationCurrent(current.state,item);
+  if(['resumed','return_requested'].includes(body.event)||body.event==='begin'&&item.verificationHandoff?.id!==body.id)assertApplicationProfileCurrent(current.state,item);
   if(body.event==='begin'){
    const kind=body.kind||'question',hosts=[...new Set(body.challengeHosts||[])].sort(),phase=body.phase||'before_submit';
    const valid=kind==='input'?phase==='before_submit'&&!hosts.length&&inputHandoffQuestions(body.questions||[]):kind==='question'?phase==='before_submit'&&!hosts.length&&!!body.questions?.length&&body.questions.every(isHumanAgentQuestion):kind==='recaptcha'&&body.questions?.length===1&&body.questions[0]===RECAPTCHA_QUESTION&&hosts.every(host=>RECAPTCHA_HOSTS.includes(host));
@@ -201,7 +240,7 @@ export async function verificationWorker(request:Request){try{
    if(currentHandoff(item)&&['waiting','opening','opened','resuming'].includes(item.verificationHandoff!.state))throw new DomainError('Another handoff is active for this exact browser.',409);
    const turn=item.verificationHandoff?.claimId===ids.claimId?item.verificationHandoff.turn+1:1;if(turn>8)throw new DomainError('This application reached its bounded verification handoff limit.',409);
    const now=Date.now(),expiresAt=body.persistent?Date.parse(item.claim!.expiresAt):Math.min(Date.parse(item.claim!.expiresAt)-90000,now+240000);if(expiresAt<=now)throw new DomainError('Not enough time remains in this exact claim. No new browser was started.',409);
-   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',...(body.persistent?{persistent:true as const}:{}),...(body.closeReturnsControl?{closeReturnsControl:true as const}:{}),kind:kind as 'question'|'input'|'recaptcha',phase,questions:body.questions!,challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
+   item.verificationHandoff={id:body.id,claimId:ids.claimId,turn,state:'waiting',...(body.profileSyncVersion===1?{profileSyncVersion:1 as const}:{}),...(body.persistent?{persistent:true as const}:{}),...(body.closeReturnsControl?{closeReturnsControl:true as const}:{}),kind:kind as 'question'|'input'|'recaptcha',phase,questions:body.questions!,challengeHosts:hosts,approvedHosts:[],at:new Date(now).toISOString(),expiresAt:new Date(expiresAt).toISOString()};
   }else{
    const h=item.verificationHandoff;if(!h||h.id!==body.id||h.claimId!==ids.claimId)throw new DomainError('This handoff does not belong to the current browser claim.',409);
    if(['resumed','cancelled','expired','failed'].includes(h.state))return response({handoff:h});
@@ -277,7 +316,11 @@ export async function cv(request:Request){try{
   return new Response(new Uint8Array(document==='cover_letter'?coverBytes!:bytes).buffer,{headers:{'Content-Type':document==='cover_letter'?item.coverLetter!.type:file.type,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});
 }catch(error){return failure(error);}}
 export async function authorize(request:Request){try{
-  const user=await worker(request),body=claimBody.parse(await json(request));await original(user,body.requestId,body.claimId);return response({authorized:true});
+  const user=await worker(request),body=claimBody.parse(await json(request));
+  const current=await load(user),item=activeClaim(current.state,body.requestId,body.claimId);
+  // Opening an existing paused form is inspection, not permission to resume or submit.
+  const inspect=currentHandoff(item)?.state==='opening';
+  await original(user,body.requestId,body.claimId,inspect);return response({authorized:true});
 }catch(error){return failure(error);}}
 export async function result(request:Request){try{
   const user=await worker(request),body=resultBody.parse(await json(request));
