@@ -21,7 +21,12 @@ class IdentityCloseReturn:
                 state.before=before;window.addEventListener('beforeunload',before);
                 const shadow=host.attachShadow({mode:'open'});
                 shadow.innerHTML=`<style>:host{position:fixed;right:16px;bottom:16px;z-index:2147483647;max-width:calc(100vw - 32px);font:15px/1.4 system-ui;color:#173c30}section{background:#fff;border:1px solid #b7cbbf;border-radius:12px;padding:14px;box-shadow:0 6px 30px #0003;max-width:320px}p{margin:0 0 10px}button{font:inherit;padding:10px 14px;border:0;border-radius:8px;background:#21644f;color:white;cursor:pointer}</style><section aria-label="CyberApply manual answer"><p role="status">Choose your answer, then close and return to the agent. This keeps the same form and CV in memory.</p><button type="button">Close and return to agent</button></section>`;
-                shadow.querySelector('button').addEventListener('click',e=>{if(e.isTrusted)state.requested=true;});
+                shadow.querySelector('button').addEventListener('click',e=>{
+                    if(!e.isTrusted||state.requested)return;
+                    state.requested=true;
+                    const button=shadow.querySelector('button');button.disabled=true;button.textContent='Returning to agent…';button.setAttribute('aria-busy','true');
+                    shadow.querySelector('[role=status]').textContent='Return requested. Checking your selection and handing back this same form. Nothing is being submitted.';
+                });
                 document.documentElement.appendChild(host);
             }""")
         except Exception:
@@ -40,9 +45,16 @@ class IdentityCloseReturn:
     def wants_return(self):
         return self.requested or self.page.evaluate('()=>window.__cyberapplyIdentityReturn?.requested===true')
 
+    def wait_for_return(self,timeout=1000):
+        """Wake on a trusted click instead of always sleeping the full poll interval."""
+        if self.requested:return
+        from playwright.sync_api import TimeoutError as PlaywrightTimeout
+        try:self.page.wait_for_function('()=>window.__cyberapplyIdentityReturn?.requested===true',timeout=timeout,polling=50)
+        except PlaywrightTimeout:pass
+
     def incomplete(self):
         self.requested=False
-        self.page.evaluate("""()=>{const s=window.__cyberapplyIdentityReturn;if(s)s.requested=false;const p=document.querySelector('#cyberapply-identity-return')?.shadowRoot?.querySelector('[role=status]');if(p)p.textContent='Choose a valid answer from the dropdown first. Your form is still open; nothing was submitted.';}""")
+        self.page.evaluate("""()=>{const s=window.__cyberapplyIdentityReturn;if(s)s.requested=false;const shadow=document.querySelector('#cyberapply-identity-return')?.shadowRoot;const p=shadow?.querySelector('[role=status]');if(p)p.textContent='Choose a valid answer from the dropdown first. Your form is still open; nothing was submitted.';const button=shadow?.querySelector('button');if(button){button.disabled=false;button.textContent='Close and return to agent';button.removeAttribute('aria-busy');}}""")
 
     def dispose(self):
         try:

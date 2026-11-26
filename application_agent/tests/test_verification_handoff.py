@@ -283,3 +283,37 @@ def test_selection_becoming_incomplete_before_return_keeps_window_visible_and_pa
     assert result['status']=='needs_attention' and not posts,result
     assert 'resumed' not in h.events and h.incomplete==1
     assert h.windows==['normal'] and result['report']['journey']['submit_click_attempts']==0
+
+
+def test_close_return_shows_immediate_feedback_and_authorizes_only_once_before_ack():
+    """Trusted clicks get local feedback before any server reply, with no repeated auth read."""
+    trace=[]
+    class ResponsiveHandoff(CloseReturnHandoff):
+        def api(self,path,body):
+            reply=super().api(path,body)
+            if body:
+                trace.append(body['event'])
+                if body['event']=='opened' and not body.get('code'):
+                    button=self.page.get_by_role('button',name='Returning to agent…',exact=True)
+                    assert button.is_disabled() and button.get_attribute('aria-busy')=='true'
+                    assert 'Nothing is being submitted' in self.page.locator('#cyberapply-identity-return').get_by_role('status').inner_text()
+            return reply
+    h=ResponsiveHandoff();posts=[]
+    def authorize():trace.append('authorize');return True
+    html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>')
+    result=execute_application(PAYLOAD,CV,submit=True,planner=manual_plan,research_fn=lambda _: {},resolver=dns,timeout=500,before_submit=authorize,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert trace[trace.index('opened')+1:trace.index('resumed')].count('authorize')==1
+    assert h.windows==['minimized','normal','minimized']
+
+
+def test_missing_selection_restores_return_button_instead_of_leaving_it_busy():
+    class MissingSelection(CloseReturnHandoff):
+        def api(self,path,body):
+            reply=super().api(path,body)
+            if body and body.get('code')=='incomplete':
+                button=self.page.get_by_role('button',name='Close and return to agent',exact=True)
+                assert button.is_enabled() and button.get_attribute('aria-busy') is None
+            return reply
+    result,posts=run_fixture(MissingSelection(mutate=False))
+    assert result['status']=='needs_attention' and not posts

@@ -113,7 +113,8 @@ class BrowserHandoff:
             if getattr(self,'window_control',None):self.window_control.check()
             try:
                 if watch:watch.capture()
-                page.wait_for_timeout(1000)
+                if opened and close_return and not close_return.wants_return():close_return.wait_for_return()
+                else:page.wait_for_timeout(1000)
             except Exception:time.sleep(1)
         def send(name,**extra):
             while True:
@@ -143,11 +144,15 @@ class BrowserHandoff:
                 if page.is_closed() or self.blocked_navigation:
                     self.failure_reason='The employer browser was closed. No employer action was replayed.' if page.is_closed() else 'The employer tried to navigate the actual application form during verification. The request paused without replaying any action.'
                     send('failed',code='session_changed');return False
-                try:h=self.call(endpoint+'?'+urlencode(self.ids),None)['handoff']
-                except Exception as error:
-                    if isinstance(error,HTTPError) and error.code not in {408,429} and error.code<500:raise
-                    if not isinstance(error,(OSError,URLError)):raise
-                    wait();continue
+                # A trusted local return can go straight to the owner-scoped
+                # transition. Its server write rejects a cancelled/stale handoff;
+                # an extra preliminary poll adds no authorization.
+                if not (opened and close_return and close_return.wants_return()):
+                    try:h=self.call(endpoint+'?'+urlencode(self.ids),None)['handoff']
+                    except Exception as error:
+                        if isinstance(error,HTTPError) and error.code not in {408,429} and error.code<500:raise
+                        if not isinstance(error,(OSError,URLError)):raise
+                        wait();continue
                 if not h or h['id']!=pause_id:return False
                 if h['state'] in {'cancelled','expired','failed'}:
                     self.failure_reason='The verification handoff was cancelled or is no longer active. No employer action was replayed.';return False
@@ -167,7 +172,7 @@ class BrowserHandoff:
                         self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
                     try:self.window(context,page,'normal')
                     except Exception:send('failed',code='window_unavailable');return False
-                    send('opened');opened=True
+                    h=send('opened');opened=True
                     if watch:watch.set_control('manual')
                 if opened and h['state']=='opened' and close_return and close_return.wants_return():
                     try:authorized=authorize() is True
@@ -181,7 +186,10 @@ class BrowserHandoff:
                         h=send('return_requested')
                         close_requested=h['state']=='resuming'
                 if h['state']=='resuming' and opened:
-                    try:authorized=authorize() is True
+                    # A close-return transition was just authorized above. The
+                    # server rechecks current saved information on both status
+                    # writes; final advancement retains its separate check.
+                    try:authorized=close_requested or authorize() is True
                     except Exception:wait();continue
                     if not authorized:
                         self.failure_reason='The application no longer has current authorization. No employer action was replayed.';send('failed',code='session_changed');return False
