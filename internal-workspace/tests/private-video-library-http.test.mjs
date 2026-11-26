@@ -17,11 +17,17 @@ async function erase(videos,extra={}){return call('/api/private-videos',{method:
 function mp4(bytes){const f=createFile(true);f.appendBuffer(Object.assign(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),{fileStart:0}));f.flush();return f.getInfo();}
 const retained=await task('Retained');eq(await part(retained,0,0),200);eq(await part(retained,1,1),200);await saved(retained,2);await result(retained);
 let listing=await call('/api/private-videos');eq(listing.status,200);eq(listing.data.recorded.some(v=>v.id===retained.requestId),true);
+const details={action:'save_details',id:retained.requestId,title:'Fictional Video Retained',company:'Local video fixture'};
+eq((await call('/api/private-videos',{method:'POST',headers:other,body:details})).status,404);
+eq((await call('/api/private-videos',{method:'POST',body:{...details,title:''}})).status,400);
 eq((await call('/api/private-videos',{headers:{}})).status,401);eq((await call(libraryMedia(retained),{headers:other})).status,404);eq((await call(libraryMedia(retained),{headers:{}})).status,401);
 current=(await call('/api/workspace')).data;const fileId=current.state.attachments[0].id,profile=structuredClone(current.state.accountProfile);
 const removed=await call('/api/applications/delete',{method:'POST',body:{revision:current.revision,scope:'application',applicationId:retained.requestId,confirmation:'PERMANENTLY DELETE'}});eq(removed.status,200);eq(removed.data.cleanupPending,0);assert.match(removed.data.message,/Private videos/);checks++;
 eq((await call('/api/applications/recordings?requestId='+retained.requestId)).status,404);
 listing=await call('/api/private-videos');const retainedEntry=listing.data.recorded.find(v=>v.id===retained.requestId);eq(retainedEntry.applicationDeleted,true);eq(retainedEntry.title,'Fictional Video Retained');
+eq((await call('/api/private-videos',{method:'POST',body:{...details,title:'Fictional Original Security Analyst',company:'Fictional original employer'}})).status,200);
+listing=await call('/api/private-videos');eq(listing.data.recorded.find(v=>v.id===retained.requestId).title,'Fictional Original Security Analyst');
+eq((await call(libraryMedia(retained))).data.employer.company,'Fictional original employer');
 eq((await call(libraryMedia(retained))).status,200);eq((await call(libraryMedia(retained)+'&attempt='+retained.claimId+'&part=0',{headers:{...auth,Range:'bytes=0-31'}})).status,206);
 let download=await call(libraryMedia(retained)+'&download=1');eq(download.status,200);assert.match(download.headers.get('content-disposition'),/attachment/);checks++;eq(mp4(download.data).duration/mp4(download.data).timescale,5);eq(mp4(download.data).videoTracks[0].nb_samples,40);
 // Original-claim media may finish after the application record has been removed.

@@ -1,4 +1,4 @@
-import {assertPrivateVideoAvailable,privateVideoContext,privateVideoWorkerItem} from './private-videos';
+import {assertPrivateVideoAvailable,privateVideoContext,privateVideoWorkerItem,rememberPrivateVideoTitle} from './private-videos';
 import {applicationSyncInfo,synchronizeApplicationProfile,acknowledgeApplicationSync,applicationSyncAllowed} from './application-profile-sync';
 import {recoverExpiredBrowserSessions} from './application-browser-recovery-server';
 import {canAutomaticallyRecoverBrowser} from './automatic-browser-recovery';
@@ -453,6 +453,7 @@ export async function saveRecording(request:Request){
   const user=await worker(request),url=new URL(request.url),ids=claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
   const current=await load(user);stillConnected(current.state,user);const item=await privateVideoWorkerItem(user,ids.requestId,current);
   if(!recordingClaimValid(item,ids.claimId))throw new DomainError('This recording does not match a recent application run.',409);
+  await rememberPrivateVideoTitle(user,ids.requestId,current);
   const partValue=url.searchParams.get('part'),part=partValue===null?undefined:z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER).parse(partValue);
   if(request.method==='GET'){const stored=await files().head(recordingKey(user.userId,ids.requestId,ids.claimId,part));return response({saved:!!stored,...(stored?{sha256:stored.customMetadata?.sha256}:{})});}
   if(request.headers.get('content-type')!=='video/mp4')throw new DomainError('Send an MP4 recording.',415);
