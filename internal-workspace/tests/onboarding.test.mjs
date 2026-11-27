@@ -26,7 +26,7 @@ r=await req('/api/workspace',{body:{revision:beforeTheme.revision,action:{type:'
 const afterTheme=(await req('/api/workspace')).data;ok(afterTheme.revision===beforeTheme.revision&&JSON.stringify(afterTheme.state)===JSON.stringify(beforeTheme.state),'rejected customization leaves candidate records and revision unchanged');
 r=await req('/api/workspace?mode=personal',{who:other});ok(!r.data.state.accountProfile,'account profile is isolated by authenticated owner');
 r=await req('/api/history?mode=personal&revision=1');ok(r.status===200&&r.data.action==='complete_onboarding','profile completion is retained in immutable history');
-const details={zipCode:'100001',location:'Lagos, Nigeria',address:'12 Fictional Street',state:'Lagos',city:'Lagos',country:'Nigeria',phone:'+234 801 234 5678',yearsExperience:3,expectedSalary:{amount:1200,currency:'USD',period:'month'},ukVisaRequired:true,usaVisaRequired:false,canadaVisaRequired:null};
+const details={zipCode:'100001',location:'Lagos, Nigeria',address:'12 Fictional Street',state:'Lagos',city:'Lagos',country:'Nigeria',phone:'+234 801 234 5678',expectedSalary:{amount:1200,currency:'USD',period:'month'},ukVisaRequired:true,usaVisaRequired:false,canadaVisaRequired:null};
 current=(await req('/api/workspace')).data;
 r=await req('/api/workspace',{body:{revision:current.revision,action:{type:'complete_onboarding',fullName:'QA Reviewer',headline:'Updated QA profile',targetRole:'SOC Analyst',...details}}});ok(r.status===200&&r.data.state.accountProfile.phone==='+2348012345678','extended profile saves and normalizes international phone');
 r=await req('/account');ok(r.status===200&&r.data.includes('/onboarding?edit=1'),'Account Settings links directly to the editor');

@@ -1,5 +1,9 @@
 # CV application agent — 29 October 2026
 
+## Experience answers belong in Applications and Answers library — 27 November 2026
+
+Years of experience is no longer an Account Profile field in setup or Edit Profile. Current reads strip the retired profile total; historical application evidence is retained. A newly encountered experience-duration question (including required text/number fields and offered choices) pauses in the existing **Answer this employer’s questions** section, even if dated CV work could produce an estimate. The applicant supplies and approves the exact answer. Saving retains that question/answer in the application and Answers library for future matching questions and compatible employer choices. Previously confirmed application answers and user-saved library answers remain usable. Ordinary experience prose, original CV files, security checks and manual final Submit retain their existing behavior.
+
 ## Unlimited daily application runs — 17 November 2026
 
 Application runs have no daily cap. The header shows Unlimited runs, and application settings retain CV selection, authorization and minimum keyword match without a daily-limit input. Historical run counts remain metadata only. Stored numeric caps and old client cap fields are accepted for compatibility but ignored; unlimited is represented by null plus an explicit API flag, never a JSON Infinity value. Existing queued work can be claimed immediately regardless of its old quota marker or today's run count. No paused, uncertain or confirmed application is restarted merely by loading/saving settings. Original CV/profile authorization, duplicate protection, bounded repairs, manual verification/Submit, one active browser and genuine employer confirmation remain required. Other API/file/storage/optional AI protections are separate and unchanged.

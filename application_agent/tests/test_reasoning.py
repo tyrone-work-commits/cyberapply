@@ -79,10 +79,11 @@ class PlanningTests(unittest.TestCase):
         self.assertIn("Splunk", result["cover_letter"])
         self.assertNotIn("three years", result["cover_letter"])
 
-    def test_numeric_years_answer_is_traceable(self):
+    def test_numeric_years_question_needs_user_answer_even_with_dated_cv(self):
         result = self.plan([field("Years of cybersecurity experience", "number")])
-        self.assertEqual(result["answers"][0]["value"], "2.0")
-        self.assertIn("SOC Analyst", result["answers"][0]["evidence"])
+        self.assertEqual(result["answers"], [])
+        self.assertEqual(result["unresolved"][0]["source"], "user_input")
+        self.assertTrue(result["experience"]["established"])
 
     def test_research_salary_is_never_an_answer_without_edit_profile(self):
         evidence = {"kind": "employer_posted", "low": 1000, "high": 2000, "currency": "USD", "period": "month", "location": JOB["location"], "source_url": JOB["url"]}

@@ -4,6 +4,12 @@ Source: the user's 28-page Cyber Apply Upgrade Plan PDF. It describes the retire
 
 ## Ordered checkpoints
 
+### 27 November 2026 — Remove the profile experience total
+
+Removed Years of experience from shared profile setup/Edit Profile, its onboarding payload/schema and the profile-based builder import. Current workspace reads omit the retired value without rewriting historical application evidence. Employer experience-duration answers now come from the applicant's exact confirmation or a matching user-saved Answers library entry, rather than a profile total or CV-duration estimate. New questions remain in the established in-app employer question controls; saving learns them through the existing library workflow. Other profile fields, CV analysis, verification and submission boundaries are unchanged.
+
+Focused checks passed: 48 web/domain workflow tests, 49 native tests with 19 subtests, and TypeScript. These include legacy-field removal, no estimated prefill, saving an experience answer into the owned library and reuse on a later matching application. Production build, responsive UI and publication are recorded in the project update after verification. No real employer application was started or submitted for these checks.
+
 ### 25 November 2026 — Safe restart recovery for application browsers
 
 The existing normal Windows startup runner now periodically checks for eligible unsent forms from before its current process started. A fixed runner-start marker distinguishes restart/sign-in from ordinary sleep, including when the Windows kernel survives Fast Startup. Its existing singleton guard remains in place; legacy companions never perform this recovery. The authenticated, owner-scoped endpoint requires exact old request/claim/browser evidence, stale pre-startup reporting, a never-exposed protected manual form, strict zero Continue/Submit/delivery evidence, current authorization, and the unchanged original CV hash. It rechecks the browser before saving and uses the existing revision guard. Eligible forms reuse the same request/CV/saved answers under a new claim, stay hidden until Open, retain verification-host scope and preserve recovery audit metadata through later results. No possibly delivered form is automatically retried.

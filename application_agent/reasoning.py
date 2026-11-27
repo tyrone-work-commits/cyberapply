@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from .profile_answers import profile_field, saved_profile_answer
 from .answer_drafts import experience_answer, narrative_draft
 from .answer_memory import remembered_answer, automation_check, authorship_check
+from .experience_answers import experience_duration_question
 from .choice_matching import unique_option
 from html import unescape
 import re
@@ -196,6 +197,9 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
         linkedin_field=bool(re.fullmatch(r'(?:(?:please )?(?:provide|enter|share|add)\s+)?(?:your\s+)?linked\s*in(?: profile)?(?: website| link| url| address)?',normalized))
         profile_reason=""
         remembered=remembered_answer(payload,question,field) if sum(_question_key(str(f.get('label','')))==_question_key(question) and f.get('type','text')==kind for f in fields)==1 else None
+        if experience_duration_question(question) and not user_supplied and not remembered:
+            unresolved.append({'field_id':field.get('id'),'question':question,'field_type':kind,'source':'user_input','reason':'Enter your experience answer in Answer this employer’s questions. Approve and save adds it to Answers library for matching questions; no profile total or CV estimate is used.'})
+            continue
         if field.get('multiple'):
             if user_supplied:value,source,proof=confirmed_value,'user_confirmed',confirmed_proof
             elif remembered:value,proof=remembered;source='saved_profile'
@@ -221,8 +225,6 @@ def build_plan(payload: dict, fields: list[dict], research: dict | None = None) 
             source="cv_and_job" if generated else "cv"
         elif _UNSUPPORTED.search(question) or kind in {"checkbox", "radio", "password", "hidden"}:
             pass
-        elif re.search(r"years? .*(?:cyber\s*security|information security)|(?:cyber\s*security|information security).*years?", normalized) and experience["established"]:
-            value, proof = str(experience["years"]), "; ".join(experience["evidence"])
         elif re.fullmatch(r"(?:your )?(?:email|e-mail)(?: address)?", normalized):
             value = facts["email"]
         elif re.fullmatch(r"(?:your )?github(?: repository| profile| link| url)?", normalized):

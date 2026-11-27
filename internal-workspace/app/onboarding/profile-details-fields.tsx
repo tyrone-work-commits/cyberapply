@@ -13,8 +13,7 @@ export default function ProfileDetailsFields({value,onChange}:{value:AccountDeta
    <div className="form-pair"><label htmlFor="setup-zip">Zip code / postal code<input id="setup-zip" maxLength={30} autoComplete="postal-code" value={value.zipCode||''} onChange={e=>onChange({zipCode:e.target.value})}/></label></div><InternationalPhone value={value.phone||''} onChange={phone=>onChange({phone})}/><div></div>
    <p className="subtle">Include the international calling code: +234, +44, +1, or your country’s code.</p>
   </section>
-  <section aria-labelledby="profile-experience-title"><h2 id="profile-experience-title">Experience & salary</h2>
-   <label htmlFor="setup-experience">Years of experience<input id="setup-experience" type="number" min="0" max="80" step="0.1" value={value.yearsExperience??''} onChange={e=>onChange({yearsExperience:e.target.value===''?null:Number(e.target.value)})}/><span className="label-hint">Your total professional experience. This is not automatically treated as cybersecurity experience.</span></label>
+  <section aria-labelledby="profile-salary-title"><h2 id="profile-salary-title">Expected salary</h2>
    <ExpectedSalaryFields salary={value.expectedSalary} onChange={expectedSalary=>onChange({expectedSalary})}/>
   </section>
   <section aria-labelledby="profile-visa-title"><h2 id="profile-visa-title">Visa requirements</h2><p className="subtle">Would you require a work visa or employer visa sponsorship to work in each country? Choose Yes or No for each. Leave unanswered if you are unsure.</p>

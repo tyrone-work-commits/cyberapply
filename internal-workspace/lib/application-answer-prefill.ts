@@ -1,5 +1,5 @@
 import type {AccountProfile,ApplicantProfile,ApplicationRequest} from './cyber-domain';
-import {parseMultipleAnswer,answerControlGroup,authorshipCheck,employerQuestionKey,isAutomationCheck,manualAnswerOnly,type EmployerQuestion} from './employer-questions';
+import {parseMultipleAnswer,answerControlGroup,authorshipCheck,employerQuestionKey,isAutomationCheck,manualAnswerOnly,experienceDurationQuestion,type EmployerQuestion} from './employer-questions';
 import {canEditApplicationQuestions} from './application-form-questions';
 import {extractCandidateFacts} from './candidate-facts';
 import {convertUsdSalary} from './expected-salary';
@@ -42,9 +42,6 @@ function profileValue(question:string,entry:Record<string,unknown>,profile?:Acco
  if(/^(?:middle name|middle names|middlename)$/.test(name))return {matched:true,value:parts.slice(1,-1).join(' ')};
  const fields:[RegExp,keyof ApplicantProfile][]=[[/^(?:(?:legal |preferred )?(?:full|first|last|given|family) name|name|surname|first and last name|firstname|lastname|fullname)$/,'fullName'],[/^(?:zip(?: code)?|zipcode|postal(?: code)?|postcode|post code)$/,'zipCode'],[/^(?:(?:street |mailing |residential |home |full )?address(?: line 1| 1)?)$/,'address'],[/^(?:city|town|city\s*[/|]\s*town|location\s*\(?\s*city\)?|city\s*[/|]\s*location)$/,'city'],[/^(?:state|province|state\s*[/|]\s*province|state or province)$/,'state'],[/^(?:country|country of residence|country of residency|country where you reside)$/,'country'],[/^(?:location|where are you located|where do you live|where do you reside)$/,'location'],[/^(?:phone|telephone|mobile|cell)(?: phone)?(?: number| no\.?)?$/,'phone']];
  for(const [pattern,key] of fields)if(pattern.test(label)&&entry.phoneCountry!==true){const value=profile?.[key];return {matched:true,value:typeof value==='string'?value.trim():''};}
- if(/^(?:total )?years? (?:of )?(?:work |professional )?experience$/.test(label)){
-  const value=profile&&'yearsExperience' in profile?profile.yearsExperience:null;return {matched:true,value:typeof value==='number'&&Number.isFinite(value)&&value>=0?String(value):''};
- }
  if(/\b(?:salary|compensation|remuneration|wage|pay expectation|expected pay|desired pay)\b/.test(q)){
   const salary=profile?.expectedSalary;
   if(/\b(?:current|previous|last|past|minimum|lowest|history|hour\w*|week\w*|daily)\b|£|€|₦|\b(?:GBP|EUR|NGN|CAD|AUD)\b/i.test(q)||!salary)return {matched:true,value:''};
@@ -76,12 +73,13 @@ export function applicationAnswerPrefill(application:ApplicationRequest,entry:Re
  };
  const confirmed=application.confirmedAnswers?.find(answer=>employerQuestionKey(answer.question)===key);
  if(confirmed)return fit(confirmed.value,'confirmed',true);
+ const duration=experienceDurationQuestion(question);
  const recorded=(Array.isArray(application.report?.answers)?application.report.answers:[]).filter((row):row is Record<string,unknown>=>!!row&&typeof row==='object'&&employerQuestionKey(String((row as Record<string,unknown>).question||''))===key).at(-1);
  const recordedSource:AnswerPrefill['source']=recorded?.source==='cv'?'cv':recorded?.source==='edit_profile'?'profile':recorded?.source==='saved_profile'?'library':recorded?.source==='cv_and_job'||recorded?.source==='generated'?'suggestion':'recorded';
  // Reference-only applications show what was actually used, never newer profile proposals.
  if(!canEditApplicationQuestions(application))return recorded?fit(recorded.value,recordedSource,true):blank;
  if(manualAnswerOnly(question,choices.options))return blank;
- if(recorded){const answer=fit(recorded.value,recordedSource);if(answer.value)return answer;}
+ if(recorded&&(!duration||['saved_profile','user_confirmed'].includes(String(recorded.source)))){const answer=fit(recorded.value,recordedSource);if(answer.value)return answer;}
  if(entry.phoneCountry===true){
   const phone=(profile||application.applicantProfile)?.phone||'';if(!/^\+[1-9]\d{7,14}$/.test(phone))return blank;
   const matches=choices.options.map(option=>({option,code:/\+(\d{1,4})\b/.exec(option)?.[1]})).filter(item=>item.code&&phone.startsWith('+'+item.code));
@@ -93,8 +91,9 @@ export function applicationAnswerPrefill(application:ApplicationRequest,entry:Re
  const cvKey=/^(?:your )?(?:e-?mail(?: address)?)\s*\*?$/i.test(question.trim())?'email':/\blinkedin\b/i.test(question)?'linkedInUrl':/\bgithub\b/i.test(question)?'githubRepositoryUrl':/\b(?:portfolio|personal website)\b/i.test(question)?'portfolioWebsiteUrl':null;
  if(cvKey){const facts=extractCandidateFacts(application.candidate.resumeText),answer=fit(facts[cvKey],'cv');if(answer.value)return answer;}
  const kind=choices.isCheckbox?'checkbox':choices.isDropdown?'select':String(entry.field_type||'text');
- const saved=memory.filter(item=>employerQuestionKey(item.question)===key&&answerControlGroup(item.fieldType)===answerControlGroup(kind)&&item.status==='answered'&&item.answer.trim()&&item.reusePolicy!=='manual_only'&&(!item.jobSpecific&&item.reusePolicy!=='job_only'||item.reusePolicy==='exact_question'||item.jobId===application.jobId)&&(!['cv','cv_and_job'].includes(item.source)||!!application.cvSha256&&item.cvSha256===application.cvSha256)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
+ const saved=memory.filter(item=>employerQuestionKey(item.question)===key&&answerControlGroup(item.fieldType)===answerControlGroup(kind)&&item.status==='answered'&&item.answer.trim()&&(!duration||item.source==='user')&&item.reusePolicy!=='manual_only'&&(!item.jobSpecific&&item.reusePolicy!=='job_only'||item.reusePolicy==='exact_question'||item.jobId===application.jobId)&&(!['cv','cv_and_job'].includes(item.source)||!!application.cvSha256&&item.cvSha256===application.cvSha256)).sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt));
  for(const item of saved){const answer=fit(item.answer,'library');if(answer.value)return answer;}
  // Drafts remain visible proposals requiring the existing explicit review/save action.
+ if(duration)return blank;
  const suggestion=fit(entry.suggested_value,'suggestion');return suggestion.value?suggestion:recorded?fit(recorded.value,recordedSource,true):blank;
 }

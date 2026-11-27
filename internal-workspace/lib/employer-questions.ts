@@ -7,6 +7,8 @@ export const authorshipCheck=(question:string)=>{const text=question.replace(/\s
 export const manualAnswerOnly=(question:string,choices:string[]=[])=>authorshipCheck(question)||isAutomationCheck(question,choices)||/\b(?:consent|agree|accept|acknowledg|attest|certify|privacy|terms|permission|password|captcha|verification|security code)\w*\b/i.test(question)||/\bauthori[sz]\w*\b.*\b(?:process|store|share|collect|retain|contact|personal data)\b/i.test(question);
 export const jobBoundAnswer=(question:string)=>/\b(?:salary|compensation|remuneration|wage|pay|this (?:role|position|job|company|country)|country (?:in )?which|country.*(?:applying|posted))\b/i.test(question);
 export const employerQuestionKey=(q:string)=>q.replace(/\s+/g,' ').trim().replace(/[\s*]+$/,'').toLowerCase();
+/** Experience duration is a user answer, not a profile total or a CV estimate. */
+export const experienceDurationQuestion=(question:string)=>/\b(?:years?|months?)\b/i.test(question)&&/\b(?:experience|work|worked|working|used|using|professional|cybersecurity|security)\b/i.test(question);
 /** Exact offered labels only; JSON arrays preserve multiple selections without delimiter ambiguity. */
 export function parseMultipleAnswer(value:string,options:string[]):string[]|null{
  let parsed:unknown;try{parsed=JSON.parse(value);}catch{parsed=options.includes(value)?[value]:null;}
@@ -58,8 +60,9 @@ export function rememberEmployerQuestions(state:State,request:ApplicationRequest
    bank[bank.indexOf(old)]=refreshed;used=size;saved++;continue;
   }
   const answer=answers.find(a=>key(String(a.question||''))===key(question));
-  const source=answer&&['cv','cv_and_job','edit_profile'].includes(String(answer.source))?answer.source as EmployerQuestion['source']:'missing';
-  const value=answer&&typeof answer.value==='string'?answer.value.slice(0,2000):'';
+  const userDuration=experienceDurationQuestion(question);
+  const source=!userDuration&&answer&&['cv','cv_and_job','edit_profile'].includes(String(answer.source))?answer.source as EmployerQuestion['source']:'missing';
+  const value=!userDuration&&answer&&typeof answer.value==='string'?answer.value.slice(0,2000):'';
   const item:EmployerQuestion={id:old?.id||crypto.randomUUID(),question,fieldType,answer:value,source,evidence:answer?String(answer.evidence||'').slice(0,600):'Not established by the chosen CV or Account Profile.',status:value?'answered':'needs_details',aiDraft:source==='cv_and_job',jobSpecific:scoped,jobId:request.jobId,jobTitle:job?.title,company:job?.company,originRequestId:request.id,cvSha256:request.cvSha256,updatedAt:at,options:old?.options||[],...choiceMetadata};
   if(manualAnswerOnly(question,item.options))item.reusePolicy='manual_only';
   const size=used-(old?bytes(old):0)+bytes(item)+(!old&&bank.length?1:0);
