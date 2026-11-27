@@ -1,0 +1,11 @@
+.live-control-badge{position:absolute;z-index:2;top:12px;left:12px;right:12px;width:fit-content;max-width:calc(100% - 24px);padding:9px 13px;border:1px solid #a6d7b7;border-radius:12px;background:#eaf8ef;color:#153b27;font-size:.875rem;font-weight:650;line-height:1.4;pointer-events:none}
+.live-control-badge[data-control="needs_input"],.live-control-badge[data-control="manual"],.live-control-badge[data-control="submit"]{background:#fff3ce;border-color:#dac476;color:#46350b}
+.live-handoff-message{padding:14px 16px;border:1px solid var(--line);border-radius:12px;line-height:1.6}
+.agent-watch-page .agent-watch-header{flex-wrap:wrap}
+.agent-watch-page .agent-watch-screen{margin-top:16px}
+@media(max-width:600px){.live-control-badge{top:8px;left:8px;right:8px;max-width:calc(100% - 16px);padding:7px 10px}.agent-watch-page .account-actions{flex-wrap:wrap}.agent-watch-page .account-actions .button{white-space:normal}.agent-watch-page .application-detail-section{min-width:0;overflow-wrap:anywhere}}
+
+.watch-process-modes{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.watch-process-modes .button{min-height:44px}.watch-process-modes .button[aria-pressed=true]{background:var(--accent);color:#fff;border-color:var(--accent)}
+.agent-watch-page .application-live-view .agent-watch-screen{min-width:0;min-height:0;width:100%}.agent-watch-page .application-live-view video{min-width:0;max-width:100%}
+.dvr-playback-status{display:flex;align-items:center;min-height:44px;font-size:13px;font-weight:600;color:var(--accent)}
+.live-waiting-screen{min-height:220px!important;padding:70px 20px 24px;color:#fff;text-align:center}.live-waiting-screen p{max-width:36ch;line-height:1.6}

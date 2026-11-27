@@ -1,0 +1,319 @@
+"""Synthetic local forms only. No real employer or CAPTCHA is contacted/solved."""
+from contextlib import contextmanager
+import pytest
+from application_agent.browser import execute_application
+from application_agent.verification_handoff import BrowserHandoff,identity_dropdown
+from application_agent.tests.test_browser import FORM,PAYLOAD,CV,dns,plan,browser_factory
+
+@contextmanager
+def hidden_factory(html,posts,success=True):
+    with browser_factory(html,posts,success) as runtime:
+        original=runtime.chromium.launch
+        runtime.chromium.launch=lambda **kw:original(**{**kw,'headless':True})
+        yield runtime
+
+class FixtureHandoff(BrowserHandoff):
+    def __init__(self,mutate=True,cancel=False,tamper=False,attempt_submit=False,replace_cv=False):
+        self.page=None;self.context=None;self.windows=[];self.events=[];self.current=None;self.mutate=mutate;self.cancel=cancel
+        super().__init__(self.api,{'requestId':'one','claimId':'fixture-claim'})
+        self.tamper=tamper;self.attempt_submit=attempt_submit
+        self.replace_cv=replace_cv;self.incomplete=0
+    def window(self,context,page,state):
+        if self.context is not None:assert context is self.context and page is self.page
+        self.context,self.page=context,page;self.windows.append(state)
+    def api(self,path,body):
+        if body:
+            self.events.append(body['event']);
+            if body.get('code')=='incomplete':self.incomplete+=1
+            self.current={**(self.current or {}),**body,'state':'waiting' if body['event']=='begin' else body['event'],'approvedHosts':[]}
+            if body['event']=='opened' and self.mutate:
+                # Simulated human actor on this isolated fixture; production never selects it.
+                assert self.page.locator('input[type=file]').evaluate('e=>e.files[0].name')=='chosen.pdf'
+                self.page.get_by_label('Which of the following best describes you?').select_option(label='I am a human')
+                if self.tamper:self.page.get_by_label('Email').fill('changed@example.test')
+                if self.attempt_submit:self.page.get_by_role('button',name='Submit application').click()
+                if self.replace_cv:self.page.locator('input[type=file]').set_input_files({'name':'chosen.pdf','mimeType':'application/pdf','buffer':b'X'*len(CV)})
+        else:
+            self.current['state']='cancelled' if self.cancel or self.incomplete>=2 else 'opening' if self.current['state']=='waiting' else 'resuming'
+        return {'handoff':self.current}
+
+def manual_plan(payload,fields,research):
+    result=plan(payload,fields,research)
+    result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label']=='Which of the following best describes you?']
+    return result
+
+def run_fixture(handoff,success=True,planner=manual_plan,payload=PAYLOAD,manual_submit_handler=None,agent_option='I am an AI agent'):
+    html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>'.replace('I am an AI agent',agent_option))
+    posts=[]
+    result=execute_application(payload,CV,submit=True,planner=planner,research_fn=lambda _: {},resolver=dns,timeout=500,
+      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts,success),verification_handler=handoff,manual_submit_handler=manual_submit_handler)
+    return result,posts
+
+def test_exact_page_context_and_cv_survive_manual_handoff_then_one_submit_confirms():
+    handoff=FixtureHandoff();result,posts=run_fixture(handoff)
+    assert result['status']=='applied',result
+    assert len(posts)==1 and CV in posts[0] and b'I am a human' not in posts[0] and b'done' in posts[0]
+    assert handoff.events==['begin','opened','resumed']
+    assert handoff.windows==['minimized','normal']
+    assert result['report']['journey']['submit_click_attempts']==1
+    assert result['report']['verification_handoffs'][0]['same_browser'] is True
+    assert not any(a.get('question')=='Which of the following best describes you?' for a in result['report']['answers'])
+
+@pytest.mark.parametrize('agent_option',['I am an AI agent','I am an AI, bot or automated program.','I am an AI, bot, or automated program.'])
+def test_production_planner_leaves_identity_dropdown_for_the_person_then_resumes_once(agent_option):
+    from application_agent.reasoning import build_plan
+    h=FixtureHandoff();result,posts=run_fixture(h,planner=build_plan,agent_option=agent_option)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert h.events==['begin','opened','resumed']
+    assert result['report']['journey']['submit_click_attempts']==1
+
+def test_cancelled_handoff_never_submits_or_launches_another_window():
+    h=FixtureHandoff(cancel=True);result,posts=run_fixture(h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.windows==['minimized']
+
+def test_missing_manual_selection_does_not_resume_or_submit(monkeypatch):
+    h=FixtureHandoff(mutate=False)
+    h.clock=lambda:1000000  # No four-minute expiration; fixture cancels explicitly.
+    result,posts=run_fixture(h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'resumed' not in h.events
+
+def test_no_receipt_stays_uncertain_after_exactly_one_submission():
+    h=FixtureHandoff();result,posts=run_fixture(h,success=False)
+    assert result['status']=='uncertain' and len(posts)==1,result
+    assert result['report']['journey']['submit_click_attempts']==1
+    assert h.events.count('begin')==1
+
+def test_other_field_changes_during_handoff_stop_instead_of_overwriting_or_submitting():
+    result,posts=run_fixture(FixtureHandoff(tamper=True))
+    assert result['status']=='needs_attention' and not posts,result
+    assert result['report']['journey']['submit_click_attempts']==0
+
+def test_accidental_manual_submit_is_blocked_then_agent_submits_only_once():
+    result,posts=run_fixture(FixtureHandoff(attempt_submit=True))
+    assert result['status']=='applied' and len(posts)==1,result
+    assert result['report']['journey']['submit_click_attempts']==1
+
+def test_same_name_and_size_cannot_hide_a_changed_cv_during_manual_control():
+    result,posts=run_fixture(FixtureHandoff(replace_cv=True))
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'attachment bytes changed' in result['message']
+
+def test_custom_dropdown_keeps_the_humans_committed_selection_without_agent_selection():
+    from application_agent.tests.test_combobox import dropdowns
+    class CustomHandoff(FixtureHandoff):
+        def __init__(self):super().__init__(mutate=False)
+        def api(self,path,body):
+            result=super().api(path,body)
+            if body and body['event']=='opened':
+                self.page.get_by_role('combobox').click()
+                self.page.get_by_role('option',name='I am a human',exact=True).click()
+            return result
+    h=CustomHandoff();posts=[];html=dropdowns([{'label':'Which of the following best describes you?','options':['I am a human','I am an AI agent']}])
+    result=execute_application(PAYLOAD,CV,submit=True,planner=manual_plan,research_fn=lambda _: {},resolver=dns,timeout=1000,
+      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert result['report']['journey']['submit_click_attempts']==1
+
+def test_only_the_requested_dropdown_with_both_identity_options_is_eligible():
+    question='Which of the following best describes you?'
+    options=['Please select','I am a human','I am an AI agent']
+    for kind in ['select','combobox']:
+        assert identity_dropdown({'label':question,'type':kind,'options':options})
+    for field in [
+        {'label':'Are you a human?','type':'select','options':options},
+        {'label':question,'type':'radio','options':options},
+        {'label':question,'type':'text','options':options},
+        {'label':question,'type':'select','options':['I am a human']},
+        {'label':question,'type':'select','options':['Human Resources','AI Engineer']},
+        {'label':'Salary expectations','type':'select','options':options},
+    ]:assert not identity_dropdown(field)
+
+@pytest.mark.parametrize('extra',[
+    '<label>Are you a human?<select name="manual" required><option value="">Choose</option><option>Yes</option><option>No</option></select></label>',
+    '<label>Which of the following best describes you?<input name="manual" required></label>',
+    '<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option>I am a human</option></select></label>',
+    '<div data-sitekey="isolated-fixture-only">Unrelated verification challenge</div>',
+])
+def test_other_verifications_do_not_open_a_handoff_or_submit(extra):
+    h=FixtureHandoff();posts=[]
+    def verification_plan(payload,fields,research):
+        result=plan(payload,fields,research)
+        result['unresolved']=[{'field_id':f['id'],'question':f['label'],'source':'verification'} for f in fields if f['label'] not in {'Email','Resume'}]
+        return result
+    result=execute_application(PAYLOAD,CV,submit=True,planner=verification_plan,research_fn=lambda _: {},resolver=dns,timeout=500,
+      before_submit=lambda:True,playwright_factory=lambda:hidden_factory(FORM.replace('{extra}',extra),posts),verification_handler=h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert not h.events and 'normal' not in h.windows
+    assert result['report']['journey']['submit_click_attempts']==0
+
+
+def test_identity_network_outages_retry_only_metadata_in_same_browser():
+    from urllib.error import URLError
+    class Outage(FixtureHandoff):
+        def __init__(self):super().__init__();self.once=set();self.read_failed=False
+        def api(self,path,body):
+            if body:
+                response=super().api(path,body)
+                if body['event'] in {'begin','opened','resumed'} and body['event'] not in self.once:
+                    self.once.add(body['event']);raise URLError('Synthetic response lost after status saved')
+                return response
+            if not self.read_failed:self.read_failed=True;raise URLError('Synthetic poll outage')
+            return super().api(path,body)
+    h=Outage();h.clock=lambda:999999999
+    result,posts=run_fixture(h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert result['report']['journey']['submit_click_attempts']==1
+    assert h.turns==1 and h.current['persistent'] is True
+    assert all(h.events.count(e)==2 for e in ['begin','opened','resumed'])
+    assert h.windows==['minimized','normal']
+
+
+def test_identity_return_then_greenhouse_manual_submit_uses_same_page_context_and_cv():
+    from application_agent.tests.test_manual_submit import Actor
+    h=FixtureHandoff();human_submit=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=human_submit)
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert h.page is human_submit.page and h.context is human_submit.context
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.events==['begin','opened','resumed']
+    assert h.current['persistent'] is True
+
+
+@pytest.mark.parametrize('agent_option',['I am an AI, bot or Automated Program.','I am an AI, bot, or automated program.'])
+def test_current_employer_ai_bot_or_automated_program_wording_gets_personal_handoff(agent_option):
+    from application_agent.tests.test_manual_submit import Actor
+    h=FixtureHandoff();actor=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor,agent_option=agent_option)
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert h.page is actor.page and h.context is actor.context
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.events==['begin','opened','resumed']
+
+
+def test_background_helper_iframe_cannot_end_or_navigate_the_prepared_form():
+    class BackgroundFrame(FixtureHandoff):
+        def api(self,path,body):
+            response=super().api(path,body)
+            if body and body['event']=='opened':
+                self.page.evaluate("()=>{const f=document.createElement('iframe');f.src='https://unapproved-widget.example/frame';document.body.appendChild(f);}")
+                self.page.wait_for_timeout(200)
+            return response
+    h=BackgroundFrame();result,posts=run_fixture(h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert not h.blocked_navigation and h.events==['begin','opened','resumed']
+    assert h.page.url.startswith('https://employer.example/')
+
+
+def test_actual_form_navigation_still_stops_personal_handoff_without_replay():
+    class ChangedForm(FixtureHandoff):
+        def api(self,path,body):
+            response=super().api(path,body)
+            if body and body['event']=='opened':
+                self.page.evaluate("()=>{location.href='https://employer.example/another-form';}")
+                self.page.wait_for_timeout(200)
+            return response
+    h=ChangedForm();result,posts=run_fixture(h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert h.blocked_navigation and 'actual application form' in result['message']
+    assert result['report']['journey']['submit_click_attempts']==0
+
+
+class CloseReturnHandoff(FixtureHandoff):
+    def __init__(self, *, native_close=False, mutate=True, answer='done'):
+        super().__init__(mutate=mutate)
+        self.native_close=native_close;self.answer=answer;self.closed_attempts=0
+    def api(self,path,body):
+        if body:
+            reply=super().api(path,body)
+            if body['event']=='return_requested':self.current['state']='resuming'
+            if body['event']=='opened' and not body.get('code'):
+                assert self.current['closeReturnsControl'] is True
+                if self.mutate:self.page.get_by_label('Which of the following best describes you?').select_option(self.answer)
+                if self.native_close:
+                    # A trusted manual click supplies Chrome's required user activation.
+                    self.page.get_by_label('Which of the following best describes you?').click()
+                    self.page.close(run_before_unload=True)
+                    self.page.wait_for_timeout(100)
+                    assert not self.page.is_closed()
+                    self.closed_attempts+=1
+                else:self.page.get_by_role('button',name='Close and return to agent').click()
+            return reply
+        if self.current['state']=='waiting':self.current['state']='opening'
+        elif self.incomplete:self.current['state']='cancelled'
+        return {'handoff':self.current}
+
+@pytest.mark.parametrize('native_close',[False,True])
+@pytest.mark.parametrize('answer',['done','agent'])
+def test_person_closes_identity_handoff_and_same_form_cv_selection_return_to_agent(native_close,answer):
+    from application_agent.tests.test_manual_submit import Actor
+    h=CloseReturnHandoff(native_close=native_close,answer=answer);actor=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor)
+    assert result['status']=='applied' and len(posts)==1 and CV in posts[0],result
+    assert h.page is actor.page and h.context is actor.context
+    assert ('name="manual"\r\n\r\n'+answer+'\r\n').encode() in posts[0]
+    assert h.events==['begin','opened','return_requested','resumed']
+    assert h.windows==['normal','minimized']  # Initial hiding belongs to the final-submit controller.
+    assert result['report']['journey']['submit_click_attempts']==0
+    assert h.closed_attempts==int(native_close)
+
+def test_close_without_selection_keeps_form_and_does_not_resume_or_submit():
+    h=CloseReturnHandoff(mutate=False);result,posts=run_fixture(h)
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'return_requested' not in h.events and 'resumed' not in h.events
+    assert h.incomplete==1 and result['report']['journey']['submit_click_attempts']==0
+    assert h.windows==['minimized','normal']
+
+
+def test_selection_becoming_incomplete_before_return_keeps_window_visible_and_paused():
+    from application_agent.tests.test_manual_submit import Actor
+    class ResetOnReturn(CloseReturnHandoff):
+        def api(self,path,body):
+            reply=super().api(path,body)
+            if body and body['event']=='return_requested':self.page.get_by_label('Which of the following best describes you?').select_option('')
+            return reply
+    h=ResetOnReturn();actor=Actor([])
+    payload={**PAYLOAD,'job':{**PAYLOAD['job'],'applyUrl':'https://job-boards.greenhouse.io/fixture/jobs/123'}}
+    result,posts=run_fixture(h,payload=payload,manual_submit_handler=actor)
+    assert result['status']=='needs_attention' and not posts,result
+    assert 'resumed' not in h.events and h.incomplete==1
+    assert h.windows==['normal'] and result['report']['journey']['submit_click_attempts']==0
+
+
+def test_close_return_shows_immediate_feedback_and_authorizes_only_once_before_ack():
+    """Trusted clicks get local feedback before any server reply, with no repeated auth read."""
+    trace=[]
+    class ResponsiveHandoff(CloseReturnHandoff):
+        def api(self,path,body):
+            reply=super().api(path,body)
+            if body:
+                trace.append(body['event'])
+                if body['event']=='opened' and not body.get('code'):
+                    button=self.page.get_by_role('button',name='Returning to agent…',exact=True)
+                    assert button.is_disabled() and button.get_attribute('aria-busy')=='true'
+                    assert 'Nothing is being submitted' in self.page.locator('#cyberapply-identity-return').get_by_role('status').inner_text()
+            return reply
+    h=ResponsiveHandoff();posts=[]
+    def authorize():trace.append('authorize');return True
+    html=FORM.replace('{extra}','<label>Which of the following best describes you?<select name="manual" required><option value="">Choose</option><option value="done">I am a human</option><option value="agent">I am an AI agent</option></select></label>')
+    result=execute_application(PAYLOAD,CV,submit=True,planner=manual_plan,research_fn=lambda _: {},resolver=dns,timeout=500,before_submit=authorize,playwright_factory=lambda:hidden_factory(html,posts),verification_handler=h)
+    assert result['status']=='applied' and len(posts)==1,result
+    assert trace[trace.index('opened')+1:trace.index('resumed')].count('authorize')==1
+    assert h.windows==['minimized','normal','minimized']
+
+
+def test_missing_selection_restores_return_button_instead_of_leaving_it_busy():
+    class MissingSelection(CloseReturnHandoff):
+        def api(self,path,body):
+            reply=super().api(path,body)
+            if body and body.get('code')=='incomplete':
+                button=self.page.get_by_role('button',name='Close and return to agent',exact=True)
+                assert button.is_enabled() and button.get_attribute('aria-busy') is None
+            return reply
+    result,posts=run_fixture(MissingSelection(mutate=False))
+    assert result['status']=='needs_attention' and not posts

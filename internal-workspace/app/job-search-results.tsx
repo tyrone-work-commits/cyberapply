@@ -1,0 +1,7 @@
+'use client';
+import {useState} from 'react';
+import type {Job} from '@/lib/cyber-domain';
+export default function JobSearchResults({jobs,onSelect}:{jobs:Job[];onSelect:(job:Job)=>void}){
+ const [limit,setLimit]=useState(20);
+ return <section className="reference-vacancy-list" aria-label="Search results"><p className="reference-sr-only" role="status">{jobs.length} matching {jobs.length===1?'vacancy':'vacancies'}</p>{jobs.slice(0,limit).map(j=><button key={j.id} className="reference-vacancy-row" aria-label={j.title+' at '+j.company} aria-haspopup="dialog" onClick={()=>onSelect(j)}><span className="reference-employer-mark" aria-hidden="true">{j.company.charAt(0).toUpperCase()}</span><span className="reference-vacancy-copy"><strong>{j.title}</strong><span>{j.company}</span><small>{j.workMode} · {j.location||'Location not supplied'}</small></span>{j.salary&&(j.salary.min!==undefined||j.salary.max!==undefined)&&<span className="reference-vacancy-pay">{j.salary.currency} {j.salary.min?.toLocaleString()??'—'}{j.salary.max!==undefined?'–'+j.salary.max.toLocaleString():''}<small>/ {j.salary.period==='year'?'year':j.salary.period==='month'?'month':'hour'}</small></span>}</button>)}{jobs.length>limit&&<button className="button quiet" onClick={()=>setLimit(limit+20)}>Load more results</button>}{!jobs.length&&<p className="reference-empty">No matching vacancies. Try another search or adjust your filters.</p>}</section>;
+}

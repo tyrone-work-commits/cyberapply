@@ -1,0 +1,44 @@
+{
+  "capturedAt": "2026-11-04",
+  "sourceUrl": "https://api.smartrecruiters.com/v1/companies/SmartRecruiters/postings?destination=PUBLIC&limit=1&offset=0 (detail by returned ID)",
+  "redactions": "Single public vacancy retained; descriptions replaced with fictional test requirements. Pagination metadata adjusted to this one-record fixture. No recruiter contact data retained.",
+  "response": {
+    "id": "744000158320111",
+    "name": "Senior / Lead Engineering Operations Manager",
+    "company": {
+      "name": "SmartRecruiters Inc"
+    },
+    "location": {
+      "city": "Poland",
+      "region": "Remote",
+      "country": "pl",
+      "remote": true,
+      "hybrid": false,
+      "fullLocation": "Poland, Remote, Poland"
+    },
+    "releasedDate": "2026-10-28T15:14:43.941Z",
+    "postingUrl": "https://jobs.smartrecruiters.com/smartrecruiters/744000158320111-senior-lead-engineering-operations-manager",
+    "applyUrl": "https://jobs.smartrecruiters.com/smartrecruiters/744000158320111-senior-lead-engineering-operations-manager?oga=true",
+    "active": true,
+    "visibility": "PUBLIC",
+    "industry": {
+      "id": "computer_software",
+      "label": "Computer Software"
+    },
+    "department": {
+      "id": 5408693,
+      "label": "Engineering"
+    },
+    "typeOfEmployment": {
+      "id": "permanent",
+      "label": "Full-time"
+    },
+    "jobAd": {
+      "sections": {
+        "jobDescription": {
+          "text": "<p>Requirements</p><p>Python, Linux and incident response.</p><p>3 years of security experience.</p><p>Professional communication. CISSP preferred.</p><p>Visa sponsorship is available.</p><p>USD 80000 - 100000 per year.</p>"
+        }
+      }
+    }
+  }
+}

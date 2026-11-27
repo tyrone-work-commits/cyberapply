@@ -1,0 +1,1 @@
+Synthetic silent H.264 video from the existing RecordingEncoder. Three solid-tone clips of 2, 3 and 1 seconds (8 fps). No screen, employer, CV or applicant data. Used to verify continuous remuxing, exact frame ordering and one six-second timeline.

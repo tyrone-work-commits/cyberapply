@@ -1,0 +1,8 @@
+import {identity,load,response,failure} from '@/lib/cyber-store';
+import {DomainError} from '@/lib/cyber-domain';
+import {createCareer,getCareer,updateCareer,privateJson} from '@/lib/career-store';
+export const dynamic='force-dynamic';
+async function calendar(user:Awaited<ReturnType<typeof identity>>){try{return await getCareer<{secret:string}>(user,'settings','calendar');}catch(e){if(!(e instanceof DomainError&&e.status===404))throw e;try{return await createCareer(user,'settings',{secret:crypto.randomUUID()+crypto.randomUUID()},'calendar');}catch{return getCareer<{secret:string}>(user,'settings','calendar');}}}
+function details(request:Request,secret:string){return{url:new URL('/calendar/'+secret+'.ics',request.url).href,downloadUrl:'/calendar/'+secret+'.ics',privateHost:true,message:'Download and import the ICS file. This private Site requires sign-in, so external Google/Apple/Outlook calendar subscriptions cannot fetch it unattended.'};}
+export async function GET(request:Request){try{const user=await identity(request);await load(user);return response(details(request,(await calendar(user)).data.secret));}catch(e){return failure(e);}}
+export async function POST(request:Request){try{const user=await identity(request);await load(user);const body=await privateJson(request);if(body.confirmation!=='REGENERATE_CALENDAR')throw new DomainError('Confirm regenerating your calendar link.');const old=await calendar(user),record=await updateCareer(user,old,old.version,{secret:crypto.randomUUID()+crypto.randomUUID()});return response(details(request,record.data.secret));}catch(e){return failure(e);}}

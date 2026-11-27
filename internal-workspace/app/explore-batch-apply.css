@@ -1,0 +1,37 @@
+.explore-batch-apply{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 16px;max-width:760px;margin:0 auto 14px;padding:12px 15px;border:1px solid #e5e6e9;border-radius:18px;background:#fff;color:#202123}
+.explore-batch-apply strong{display:flex;align-items:center;gap:7px;font-size:14px}
+.explore-batch-apply small{display:block;margin-top:4px;color:#666d79;font-size:12px}
+.explore-batch-buttons{display:flex;gap:8px}
+.explore-batch-buttons .button{min-height:44px;padding:10px 14px;white-space:nowrap}
+.explore-batch-apply p{flex-basis:100%;font-size:12px;color:#666d79;margin:0;line-height:1.6}
+.explore-batch-preview{max-width:760px;max-height:85svh;overflow-y:auto;overflow-wrap:anywhere}
+.batch-match-filters{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}
+.batch-match-filters .button{font-size:13px;padding:8px 11px}
+.batch-match-filters .button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+.batch-selection-count{font-weight:600;font-size:14px}
+.batch-job-list{list-style:none;padding:0;margin:15px 0}
+.batch-job-option{border:1px solid #e5e6e9;border-radius:16px;padding:14px;margin:0 0 12px}
+.batch-job-option.is-selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.batch-job-choice{display:flex;gap:12px;align-items:flex-start;min-height:44px;cursor:pointer;margin:0}
+.batch-job-choice input{flex:0 0 auto;width:20px;height:20px;margin:4px 0 0;accent-color:var(--accent)}
+.batch-job-choice>span{min-width:0;flex:1}
+.batch-job-choice strong{font-size:16px;line-height:1.45;display:block}
+.batch-job-company{display:block;margin-top:5px;font-size:13px;color:#666d79;font-weight:400;line-height:1.6}
+.batch-job-fit{display:inline-block;margin:10px 0;color:#666d79;font-size:12px;border-radius:99px;background:#f5f5f6;padding:5px 9px}
+.batch-job-fit.is-closer{background:#edf9f2;color:#267545}
+.batch-job-details summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;cursor:pointer;color:var(--accent);font-size:14px;font-weight:600;list-style:none}
+.batch-job-details summary::-webkit-details-marker{display:none}
+.batch-job-details[open] summary svg{transform:rotate(180deg)}
+.batch-job-detail-content{border-top:1px solid #e5e6e9;margin-top:6px;padding-top:8px}
+.batch-job-detail-content p{font-size:13px;line-height:1.7}
+.batch-job-detail-content h3{font-size:15px;margin-top:18px}
+.batch-job-description{white-space:pre-wrap}
+.batch-job-detail-content a{max-width:100%;font-size:13px;min-height:44px}
+.batch-match-explanation{font-size:13px}
+.batch-random-selection{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin:16px 0}
+.batch-random-selection .button{flex-shrink:0}
+.batch-random-selection p{flex:1 1 220px;margin:0;font-size:13px;line-height:1.6;color:#666d79}
+.batch-picker-footer{position:sticky;bottom:-1px;background:#fff;padding:12px 0 0;border-top:1px solid #e5e6e9}
+.explore-batch-preview .form-foot{gap:10px;flex-wrap:wrap}
+.explore-batch-preview button{min-height:44px}
+@media(max-width:600px){.explore-batch-apply{padding:11px 12px;gap:9px}.explore-batch-buttons{width:100%}.explore-batch-buttons .button{flex:1}.explore-batch-preview .form-foot .button{flex:1}.explore-batch-preview .modal-head h2{font-size:20px}}

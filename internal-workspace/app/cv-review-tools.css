@@ -1,0 +1,4 @@
+.cv-review-tools{min-width:0;display:grid;grid-template-columns:minmax(0,1fr);gap:24px}
+.cv-review-tools>*{min-width:0}
+.cv-review-sections{padding-bottom:18px;border-bottom:1px solid var(--line)}
+.cv-review-sections h2{margin:0}

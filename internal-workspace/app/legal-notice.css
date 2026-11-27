@@ -1,0 +1,45 @@
+.legal-notice-page {
+  display: grid;
+  gap: 20px;
+}
+
+.legal-notice-back {
+  justify-self: start;
+  min-height: 44px;
+}
+
+.legal-notice-content {
+  display: grid;
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+
+.legal-notice-content h1 {
+  font-size: 28px;
+  line-height: 1.25;
+  letter-spacing: -0.5px;
+}
+
+.legal-notice-content h2 {
+  margin-top: 8px;
+  font-size: 18px;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+
+.legal-notice-content p {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.7;
+  letter-spacing: normal;
+}
+
+@media (max-width: 640px) {
+  .legal-notice-content {
+    padding: 20px;
+  }
+
+  .legal-notice-content h1 {
+    font-size: 24px;
+  }
+}
