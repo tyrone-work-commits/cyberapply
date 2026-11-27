@@ -8,7 +8,7 @@ export function manualBrowserHealth(owner:string,item:ApplicationRequest,row:Bro
  const fresh=scoped&&!row!.closed&&row!.seen_at>=now-MANUAL_BROWSER_FRESH_MS&&row!.seen_at<=now+1000;
  let open:ManualBrowserHealth['open']='idle';
  if(h?.openCommandId)open=h.openedCommandId===h.openCommandId?(h.openError?'failed':'opened'):Number.isFinite(Date.parse(h.openRequestedAt||''))&&now-Date.parse(h.openRequestedAt!)>MANUAL_OPEN_ACK_MS?'timed_out':'pending';
- return {state:fresh?'connected':'not_reporting',open,canRestore:!fresh&&lostManualRecoveryEligible(item),canConfirmUnsent:!fresh&&(ownerConfirmedUnsentEligible(item)||ownerConfirmedOpenedUnsentEligible(item)),...(scoped?{lastSeenAt:new Date(row!.seen_at).toISOString()}:{}),...(!h?.browserHealthVersion?{legacy:true}:{})};
+ return {state:fresh?'connected':'not_reporting',open,canRestore:!fresh&&lostManualRecoveryEligible(item),canConfirmUnsent:!fresh&&(ownerConfirmedUnsentEligible(item)||ownerConfirmedOpenedUnsentEligible(item)),...(scoped?{lastSeenAt:new Date(row!.seen_at).toISOString()}:{}),...(!h?.browserHealthVersion?{legacy:true}:{}),...(item.manualSubmission?.state==='reopening'&&['queued','processing'].includes(item.status)?{recoveryPhase:item.status==='queued'?'queued' as const:'working' as const}:{})};
 }
 /** Never overwrite durable evidence of possible delivery with an older snapshot. */
 export function mergeManualReport(prior:Record<string,unknown>|undefined,next:Record<string,unknown>){

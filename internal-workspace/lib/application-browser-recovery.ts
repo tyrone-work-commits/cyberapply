@@ -4,7 +4,7 @@ import {browserWindowState,type BrowserWindowRow} from './application-browser-wi
 import {manualBrowserHealth} from './manual-browser-health';
 import {manualDisplaySession,manualSession} from './manual-submission';
 
-export type RecoveryEntry={requestId:string;title:string;company:string;state:'connected'|'starting'|'lost'|'restoring'|'closed_unsent';manual:boolean;canRecover:boolean;autoRecoverable?:boolean;message:string};
+export type RecoveryEntry={requestId:string;title:string;company:string;state:'connected'|'starting'|'lost'|'restoring'|'waiting_for_runner'|'closed_unsent';manual:boolean;canRecover:boolean;autoRecoverable?:boolean;message:string};
 export type RecoverySnapshot={checkedAt:string;entries:RecoveryEntry[];blocked:boolean;needsRecovery:boolean};
 /** Aggregate browser readiness only. This never restricts access to saved records or ordinary employer answers. */
 export function browserRecoverySnapshot(owner:string,applications:ApplicationRequest[],jobs:Job[],rows:BrowserWindowRow[],now=Date.now()):RecoverySnapshot{
@@ -14,7 +14,7 @@ export function browserRecoverySnapshot(owner:string,applications:ApplicationReq
   const manual=manualDisplaySession(item);
   if(item.status!=='processing'&&!manual)continue;
   const job=jobs.find(job=>job.id===item.jobId),base={requestId:item.id,title:job?.title||'Application',company:job?.company||'Employer',manual:!!manual,canRecover:false,autoRecoverable:canAutomaticallyRecoverBrowser(owner,item,ownRows.get(item.id)||null,now)};
-  if(manual?.state==='reopening'){entries.push({...base,state:'restoring',message:'Rebuilding this same unsent form. Waiting for its new browser connection.'});continue;}
+  if(manual?.state==='reopening'){entries.push({...base,state:item.status==='queued'?'waiting_for_runner':'restoring',message:item.status==='queued'?'Recovery is queued. The background runner has not picked up this request yet. Keep the runner computer awake and connected; check agent setup if it is stopped.':'The background runner picked up this same unsent form and is preparing its replacement browser.'});continue;}
   if(manual?.state==='closed_before_submit'){entries.push({...base,state:'closed_unsent',canRecover:true,message:base.autoRecoverable?'The browser closed with verified unsent evidence. Automatic recovery is preparing the replacement.':'The browser closed before any recorded submission. Check safe recovery below.'});continue;}
   if(manualSession(item)){
    const health=manualBrowserHealth(owner,item,ownRows.get(item.id)||null,now);

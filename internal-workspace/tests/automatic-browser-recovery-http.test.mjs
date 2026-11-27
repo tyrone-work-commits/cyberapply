@@ -28,7 +28,7 @@ const foreign={'oai-authenticated-user-id':owner+'-other','oai-authenticated-use
 eq((await call(gate,{headers:foreign,body:action})).data.restored,0);
 eq((await call(gate,{headers:{...auth,Origin:'https://untrusted.example'},body:action})).status,403);
 eq((await call(gate,{body:{...action,requestId:a.task.requestId}})).status,400);
-let r=await call(gate,{body:action});eq(r.status,200);eq(r.data.restored,1);eq(r.data.entries.find(e=>e.requestId===a.task.requestId).state,'restoring');
+let r=await call(gate,{body:action});eq(r.status,200);eq(r.data.restored,1);eq(r.data.entries.find(e=>e.requestId===a.task.requestId).state,'waiting_for_runner');
 eq((await call(gate,{body:action})).data.restored,0);
 current=(await call('/api/workspace')).data;eq(current.state.applications.length,3);
 const restored=current.state.applications.find(e=>e.id===a.task.requestId),original=before.state.applications.find(e=>e.id===a.task.requestId);
