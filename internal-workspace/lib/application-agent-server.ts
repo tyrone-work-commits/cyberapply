@@ -6,7 +6,7 @@ import {manualBrowserHealth,mergeManualReport} from './manual-browser-health';
 import {getBrowserWindow,updateBrowserWindow} from './application-browser-window';
 import {applicationLiveState} from './application-live-state';
 import {desktopNotices} from './desktop-notices';
-import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,restoreLostManualSubmission,restoreOwnerConfirmedUnsent,manualCommand,recordManualProcessingError} from './manual-submission';
+import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,restoreLostManualSubmission,restoreOwnerConfirmedUnsent,manualCommand,recordManualProcessingError,retryClosedSubmissionError} from './manual-submission';
 import {claimLocationCapture,completeLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
@@ -66,7 +66,7 @@ const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','u
 
 export async function manualSubmitOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
- const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent','report_processing_error']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),keepHidden:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent','report_processing_error','retry_after_error']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),retryAfterErrorConfirmed:z.boolean().optional(),keepHidden:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
  if(body)sameOrigin(request);
  const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
  for(let attempt=0;attempt<3;attempt++){
@@ -74,7 +74,13 @@ export async function manualSubmitOwner(request:Request){try{
   const health=manualBrowserHealth(user.userId,item,await getBrowserWindow(presenceDb(),user.userId,item.id));
   if(!body)return response({session:manualDisplaySession(item),health});
   let session;
-  if(body.command==='report_processing_error'){
+  if(body.command==='retry_after_error'){
+   assertApplicationAuthorizationCurrent(current.state,item);
+   const file=current.state.attachments.find(f=>f.id===item.cv?.fileId),job=current.state.jobs.find(j=>j.id===item.jobId);
+   if(!file||!item.cvSha256||!job||job.source?.availability==='closed')throw new DomainError('The original CV or vacancy is unavailable.',409);
+   const object=await files().get(file.key);if(!object||await digest(await object.arrayBuffer())!==item.cvSha256)throw new DomainError('The original CV changed or is unavailable. No new attempt was prepared.',409);
+   session=retryClosedSubmissionError(item,body.id,body.retryAfterErrorConfirmed===true);
+  }else if(body.command==='report_processing_error'){
    if(health.state!=='connected')throw new DomainError('The exact employer browser must be connected to report this error.',409);
    session=recordManualProcessingError(item,body.id,'owner');
   }else if(body.command==='restore'||body.command==='confirm_unsent'){
@@ -125,7 +131,7 @@ export async function manualSubmitWorker(request:Request){try{
    assertApplicationProfileCurrent(current.state,item);assertApplicationAuthorizationCurrent(current.state,item);
    const recovery=item.manualSubmission?.state==='reopening'&&item.manualSubmission.claimId===ids.claimId?item.manualSubmission:null;
    const approved=recovery?.approvedHosts||[],mayOpen=!!recovery?.reopenConfirmedAt&&body.challengeHosts.every(host=>approved.includes(host));
-   item.manualSubmission={id:body.id,claimId:ids.claimId,state:'ready',at:now,updatedAt:now,challengeHosts:body.challengeHosts,approvedHosts:approved.filter(host=>body.challengeHosts.includes(host)),openRequested:mayOpen,...(body.browserHealthVersion===1&&body.browserSessionId?{browserHealthVersion:1 as const,browserSessionId:body.browserSessionId}:{})};h=item.manualSubmission;
+   item.manualSubmission={id:body.id,claimId:ids.claimId,state:'ready',at:now,updatedAt:now,challengeHosts:body.challengeHosts,approvedHosts:approved.filter(host=>body.challengeHosts.includes(host)),openRequested:mayOpen,...(recovery?.retryAfterErrorAt?{retryAfterErrorAt:recovery.retryAfterErrorAt}:{}),...(body.browserHealthVersion===1&&body.browserSessionId?{browserHealthVersion:1 as const,browserSessionId:body.browserSessionId}:{})};h=item.manualSubmission;
   }else if(h.id!==body.id)throw new DomainError('Another exact browser owns this submission.',409);
   if(h.browserSessionId&&body.browserSessionId&&h.browserSessionId!==body.browserSessionId)throw new DomainError('This is not the browser that owns this manual session.',409);
   const touchBrowser=async()=>{if(body.browserHealthVersion===1&&body.browserSessionId){

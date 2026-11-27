@@ -12,6 +12,7 @@ export function browserRecoverySnapshot(owner:string,applications:ApplicationReq
  const ownRows=new Map(rows.filter(row=>row.owner_id===owner).map(row=>[row.request_id,row]));
  for(const item of applications){
   const manual=manualDisplaySession(item);
+  if(manual?.state==='closed_after_error')continue; // Only its explicit owner retry can prepare another attempt.
   if(item.status!=='processing'&&!manual)continue;
   const job=jobs.find(job=>job.id===item.jobId),base={requestId:item.id,title:job?.title||'Application',company:job?.company||'Employer',manual:!!manual,canRecover:false,autoRecoverable:canAutomaticallyRecoverBrowser(owner,item,ownRows.get(item.id)||null,now)};
   if(manual?.state==='reopening'){entries.push({...base,state:item.status==='queued'?'waiting_for_runner':'restoring',message:item.status==='queued'?'Recovery is queued. The background runner has not picked up this request yet. Keep the runner computer awake and connected; check agent setup if it is stopped.':'The background runner picked up this same unsent form and is preparing its replacement browser.'});continue;}

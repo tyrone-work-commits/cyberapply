@@ -34,3 +34,15 @@ test('owner-observed processing error conservatively prevents a zero-action olde
  assert.equal(a.report.journey.possible_delivery,true);assert.equal(a.report.journey.human_submit_observed,0);assert.equal(m.lostManualRecoveryEligible(a),false);assert.equal(m.ownerConfirmedOpenedUnsentEligible(a),false);
  const old=fixture().report;assert.equal(merge(a.report,old).journey.possible_delivery,true);
 });
+
+function closedError(){const a=fixture();a.status='uncertain';a.manualSubmission.state='cancelled';a.manualSubmission.processingError={at,source:'browser',httpStatus:428};a.report.journey.possible_delivery=true;a.report.journey.manual_submit_observed=true;a.report.journey.human_submit_observed=1;a.result={at,message:'Browser ended after error'};return a;}
+test('closed error offers an explicit retry while keeping uncertain delivery and refusing automatic recovery',()=>{
+ const a=closedError(),before=structuredClone(a);assert.equal(m.closedAfterSubmissionError(a),true);assert.equal(m.manualDisplaySession(a).state,'closed_after_error');assert.equal(progress(a,now).label,'Retry available after employer error');assert.equal(progress(a,now).canQueue,false);assert.equal(m.closedBeforeSubmit(a),false);assert.equal(m.lostManualRecoveryEligible(a),false);assert.deepEqual(a,before);
+ assert.throws(()=>m.retryClosedSubmissionError(a,'manual',false),/duplicate/);assert.throws(()=>m.retryClosedSubmissionError(a,'other',true),/available/);
+ m.retryClosedSubmissionError(a,'manual',true);assert.equal(a.status,'queued');assert.equal(a.manualSubmission.state,'reopening');assert.equal(a.manualSubmission.openRequested,false);assert.equal(a.manualSubmission.reopenConfirmedAt,undefined);assert.ok(a.manualSubmission.retryAfterErrorAt);assert.deepEqual(a.cv,before.cv);assert.deepEqual(a.confirmedAnswers,before.confirmedAnswers);
+ assert.equal(a.manualRetryHistory[0].journey.possible_delivery,true);assert.equal(a.manualRetryHistory[0].journey.human_submit_observed,1);assert.equal(a.manualRetryHistory[0].error.httpStatus,428);assert.equal(a.manualRetryHistory[0].claimId,'claim');assert.equal(a.report.journey,undefined);assert.throws(()=>m.retryClosedSubmissionError(a,'manual',true),/available/);
+});
+test('missing error, no observed Submit, open browser, mismatched claim and any receipt forbid retry-after-error',()=>{
+ for(const change of [a=>delete a.manualSubmission.processingError,a=>a.report.journey.human_submit_observed=0,a=>a.status='processing',a=>a.manualSubmission.claimId='other',a=>a.status='applied',a=>a.result.receipt='Received',a=>a.result.evidence={url:'https://fixture.example',text:'Received'},a=>a.manualSubmission.receipt={url:'https://fixture.example',text:'Received'},a=>a.receiptVerification={verifiedAt:at}]){const a=closedError();change(a);assert.equal(m.closedAfterSubmissionError(a),false);assert.throws(()=>m.retryClosedSubmissionError(a,'manual',true),/available/);}
+ const a=closedError();delete a.manualSubmission.processingError;a.report.manual_submission.state='needs_submit';assert.equal(m.closedAfterSubmissionError(a),true);
+});

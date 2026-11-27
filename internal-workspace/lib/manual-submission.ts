@@ -1,5 +1,5 @@
 import {DomainError,type ApplicationRequest} from './cyber-domain';
-export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string};browserSessionId?:string;browserHealthVersion?:1;openCommandId?:string;openRequestedAt?:string;openedCommandId?:string;openError?:'window_unavailable';browserExposedAt?:string;processingError?:{at:string;source:'browser'|'owner';httpStatus?:number}};
+export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'closed_after_error'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string};browserSessionId?:string;browserHealthVersion?:1;openCommandId?:string;openRequestedAt?:string;openedCommandId?:string;openError?:'window_unavailable';browserExposedAt?:string;retryAfterErrorAt?:string;processingError?:{at:string;source:'browser'|'owner';httpStatus?:number}};
 export type ManualBrowserHealth={state:'checking'|'connected'|'not_reporting';open:'idle'|'pending'|'opened'|'failed'|'timed_out';canRestore:boolean;canConfirmUnsent?:boolean;lastSeenAt?:string;legacy?:boolean;recoveryPhase?:'queued'|'working'};
 export function lostManualRecoveryEligible(item:ApplicationRequest){
  const h=manualSession(item),j=item.report?.journey as Record<string,unknown>|undefined,m=item.report?.manual_submission as Record<string,unknown>|undefined;
@@ -42,6 +42,7 @@ export function closedBeforeSubmit(item:ApplicationRequest){
 /** Display recovery without silently restarting an old or possibly delivered application. */
 export function manualDisplaySession(item:ApplicationRequest){
  const active=manualSession(item);if(active)return active;
+ if(closedAfterSubmissionError(item))return {...item.manualSubmission!,state:'closed_after_error' as const,openRequested:false};
  if(closedBeforeSubmit(item))return {...item.manualSubmission!,state:'closed_before_submit' as const,approvedHosts:[],openRequested:false};
  if(item.manualSubmission?.state==='reopening'&&['queued','processing'].includes(item.status))return item.manualSubmission;
  return null;
@@ -67,4 +68,27 @@ export function recordManualProcessingError(item:ApplicationRequest,id:string,so
  if(source==='owner'&&!h.browserExposedAt)throw new DomainError('Open the exact employer browser before reporting its error.',409);
  const now=new Date().toISOString();item.report={...item.report,journey:{...(item.report?.journey as Record<string,unknown>|undefined),possible_delivery:true}};h.state='needs_submit';h.processingError={at:h.processingError?.at||now,source:h.processingError?.source||source,...(httpStatus?{httpStatus}:h.processingError?.httpStatus?{httpStatus:h.processingError.httpStatus}:{})};h.updatedAt=now;
  item.result={at:now,message:'The employer displayed an application-processing error. The outcome is unverified. Keep this exact browser open and check for employer confirmation before trying again. CyberApply will not retry Submit.'};return h;
+}
+
+/** A closed error is eligible for an informed owner choice, never an automatic retry. */
+export function closedAfterSubmissionError(item:ApplicationRequest){
+ const h=item.manualSubmission,j=item.report?.journey as Record<string,unknown>|undefined,m=mFrom(item);
+ return !!h&&h.claimId===item.claim?.id&&h.state==='cancelled'&&item.status==='uncertain'
+  &&!item.result?.receipt&&!item.result?.evidence&&!h.receipt&&!item.receiptVerification
+  &&m.policy==='user_final_submit'&&j?.version===1&&Number(j.human_submit_observed)>0
+  &&!!(h.processingError||m.processing_error||m.state==='needs_submit');
+}
+export type ManualRetryAttempt={authorizedAt:string;claimId:string;sessionId:string;closedAt:string;journey:Record<string,unknown>;errorKind:'employer_processing_error'|'recaptcha_error';error?:ManualSubmission['processingError'];message?:string};
+export function retryClosedSubmissionError(item:ApplicationRequest,id:string,confirmed:boolean){
+ const h=item.manualSubmission;if(!h||h.id!==id||!closedAfterSubmissionError(item))throw new DomainError('No closed employer-error attempt is available to retry. No application was restarted.',409);
+ if(!confirmed)throw new DomainError('Confirm the error, the closed browser, no confirmation received, and the risk of a duplicate before preparing another attempt.',409);
+ if((item.manualRetryHistory?.length||0)>=10)throw new DomainError('The saved retry history is full. Check the employer outcome before further attempts.',409);
+ const at=new Date().toISOString();
+ item.manualRetryHistory=[...(item.manualRetryHistory||[]),{authorizedAt:at,claimId:h.claimId,sessionId:h.id,closedAt:h.updatedAt,errorKind:h.processingError||mFrom(item).processing_error?'employer_processing_error':'recaptcha_error',journey:structuredClone(item.report!.journey as Record<string,unknown>),...(h.processingError?{error:structuredClone(h.processingError)}:{}),...(item.result?.message?{message:item.result.message}:{})}];
+ item.manualSubmission={id:h.id,claimId:h.claimId,state:'reopening',at:h.at,updatedAt:at,challengeHosts:[],approvedHosts:[],openRequested:false,retryAfterErrorAt:at};
+ // Start a distinct attempt. Prior delivery evidence stays in the immutable attempt snapshot.
+ item.report={manual_submission:{policy:'user_final_submit',state:'reopening',window:'hidden',recovery_source:'owner_authorized_retry_after_error'}};
+ delete item.verificationHandoff;delete item.profileSync;
+ item.status='queued';item.agentAuthorizedAt=at;item.result={at,message:'You authorized another attempt after an employer error and accepted the duplicate risk. Preparing the same vacancy with your original CV and saved answers. The replacement stays hidden until Open; final Submit remains manual.'};
+ return item.manualSubmission;
 }
