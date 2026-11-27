@@ -114,13 +114,13 @@ export async function manualSubmitOwner(request:Request){try{
 
 export async function manualSubmitWorker(request:Request){try{
  const user=await worker(request),url=new URL(request.url);
- const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['ready','needs_submit','processing_error','poll','closed_before_submit','cancelled','confirmed']),submissionHttpStatus:z.number().int().min(400).max(599).optional(),browserHealthVersion:z.literal(1).optional(),browserSessionId:z.string().uuid().optional(),openedCommandId:z.string().uuid().optional(),openError:z.literal('window_unavailable').optional(),challengeHosts:z.array(z.string().max(100)).max(7).default([]),evidence:z.object({url:z.string().max(2000),text:z.string().trim().min(1).max(3000)}).strict().optional(),report:z.record(z.string(),z.unknown()).optional()}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['ready','needs_submit','processing_error','email_verification','poll','closed_before_submit','cancelled','confirmed']),submissionHttpStatus:z.number().int().min(400).max(599).optional(),browserHealthVersion:z.literal(1).optional(),browserSessionId:z.string().uuid().optional(),openedCommandId:z.string().uuid().optional(),openError:z.literal('window_unavailable').optional(),challengeHosts:z.array(z.string().max(100)).max(7).default([]),evidence:z.object({url:z.string().max(2000),text:z.string().trim().min(1).max(3000)}).strict().optional(),report:z.record(z.string(),z.unknown()).optional()}).strict().parse(await json(request)):null;
  const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);
   const prior=current.state.applications?.find(a=>a.id===ids.requestId);
   if(body?.event==='cancelled'&&prior?.claim?.id===ids.claimId&&prior.manualSubmission?.id===body.id&&prior.manualSubmission.state==='cancelled'&&prior.status==='uncertain')return response({session:prior.manualSubmission});
-  if(body?.event==='confirmed'&&prior?.claim?.id===ids.claimId&&prior.manualSubmission?.id===body.id&&prior.manualSubmission.state==='confirmed')return response({session:prior.manualSubmission});
+  if(prior?.claim?.id===ids.claimId&&prior.status==='applied'&&prior.manualSubmission?.state==='confirmed'&&prior.manualSubmission.receipt&&(!body||prior.manualSubmission.id===body.id))return response({session:prior.manualSubmission});
   if(body?.event==='closed_before_submit'&&prior?.claim?.id===ids.claimId&&prior.manualSubmission?.id===body.id&&prior.manualSubmission.state==='closed_before_submit'&&closedBeforeSubmit(prior))return response({session:prior.manualSubmission});
   const item=activeClaim(current.state,ids.requestId,ids.claimId);
   if(!body)return response({session:manualSession(item)});
@@ -152,7 +152,8 @@ export async function manualSubmitWorker(request:Request){try{
   h.challengeHosts=[...new Set([...h.challengeHosts,...body.challengeHosts])];h.updatedAt=now;
   if(body.event==='processing_error'&&h.state!=='cancel_requested')recordManualProcessingError(item,body.id,'browser',body.submissionHttpStatus);
   if(body.event==='needs_submit'&&h.state!=='cancel_requested')h.state='needs_submit';
-  if(['ready','needs_submit'].includes(body.event)&&h.state!=='cancel_requested'&&!h.processingError)item.result={at:now,message:h.state==='needs_submit'?'The employer asked you to complete reCAPTCHA and resubmit. The agent will not retry. Submit it yourself in the same browser.':'Ready – submit it yourself. Open the CyberApply browser window and press Submit.'};
+  if(body.event==='email_verification'&&h.state!=='cancel_requested'){h.state='needs_submit';h.verificationStage='email_code';item.result={at:now,message:'The employer is asking for an emailed verification code. Enter it yourself in the same browser and finish its verification. This is not yet an application confirmation; the agent will not read the code or repeat Submit.'};}
+  if(['ready','needs_submit'].includes(body.event)&&h.state!=='cancel_requested'&&!h.processingError&&!h.verificationStage)item.result={at:now,message:h.state==='needs_submit'?'The employer asked you to complete reCAPTCHA and resubmit. The agent will not retry. Submit it yourself in the same browser.':'Ready – submit it yourself. Open the CyberApply browser window and press Submit.'};
   if(body.event==='closed_before_submit'){
    const prior=item.report?.journey as Record<string,unknown>|undefined;
    if(item.result?.receipt||item.result?.evidence||h.receipt||prior?.possible_delivery===true||prior?.manual_submit_observed===true||Number(prior?.human_submit_observed)>0||Number(prior?.submit_click_attempts)>0||Number(prior?.continue_click_attempts)>0)throw new DomainError('An earlier action may have delivered data. Check the employer outcome before retrying.',409);
@@ -179,7 +180,7 @@ export async function manualSubmitWorker(request:Request){try{
   try{await save(user,current.revision,current.state,'manual_submit_'+body.event);return response({session:display});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
  }
  throw new DomainError('Browser status changed. No employer action was replayed.',409);
-}catch(error){return failure(error);}}
+}catch(error){return failure(error instanceof z.ZodError?new DomainError('Invalid manual browser update.',400):error);}}
 
 export async function profileSyncOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
@@ -336,7 +337,7 @@ export async function authorize(request:Request){try{
 export async function result(request:Request){try{
   const user=await worker(request),body=resultBody.parse(await json(request));
   for(let attempt=0;attempt<3;attempt++){
-    const current=await load(user);stillConnected(current.state,user);const existing=current.state.applications?.find(a=>a.id===body.requestId);if(existing?.claim?.id===body.claimId&&existing.status==='applied'&&existing.manualSubmission?.state==='confirmed'&&JSON.stringify(existing.result?.evidence)===JSON.stringify(body.evidence)){if(body.report){existing.report={...existing.report,...body.report};rememberEmployerQuestions(current.state,existing,body.report,new Date().toISOString());await save(user,current.revision,current.state,'manual_submit_report');}return response({recorded:true});}if(existing?.claim?.id===body.claimId&&existing.manualSubmission?.state==='closed_before_submit'&&closedBeforeSubmit(existing))return response({recorded:true});if(existing?.claim?.id===body.claimId&&existing.status==='uncertain'&&existing.manualSubmission?.state==='cancelled')return response({recorded:true});completeApplication(current.state,body);
+    const current=await load(user);stillConnected(current.state,user);const existing=current.state.applications?.find(a=>a.id===body.requestId);if(existing?.claim?.id===body.claimId&&existing.status==='applied'&&existing.manualSubmission?.state==='confirmed'&&existing.result?.evidence&&existing.manualSubmission.receipt){if(body.report){existing.report=mergeManualReport(existing.report,body.report);existing.report.manual_submission={...(existing.report.manual_submission as object),state:'confirmed'};rememberEmployerQuestions(current.state,existing,body.report,new Date().toISOString());await save(user,current.revision,current.state,'manual_submit_report');}return response({recorded:true});}if(existing?.claim?.id===body.claimId&&existing.manualSubmission?.state==='closed_before_submit'&&closedBeforeSubmit(existing))return response({recorded:true});if(existing?.claim?.id===body.claimId&&existing.status==='uncertain'&&existing.manualSubmission?.state==='cancelled')return response({recorded:true});completeApplication(current.state,body);
     queueMissingLocationChoices(current.state,body.requestId);
     try{await save(user,current.revision,current.state,'application_agent_result');return response({recorded:true});}catch(error){if(error instanceof DomainError&&error.status===409)continue;throw error;}
   }

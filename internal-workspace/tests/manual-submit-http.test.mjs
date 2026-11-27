@@ -39,6 +39,11 @@ r=await call(workerPath,{method:'POST',headers:worker,body:{...begin,event:'read
 current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'processing');assert.match(current.state.applications[0].result.message,/processing error/);checks++;
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'processing_error',submissionHttpStatus:428}})).data.session.processingError.httpStatus,428);
 eq((await command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
+// A visible code prompt is a human verification step, never a receipt or a new submission.
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'email_verification',code:'MUST_NOT_BE_ACCEPTED'}})).status,400);
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'email_verification'}})).data.session.verificationStage,'email_code');
+r=await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'ready'}});eq(r.data.session.verificationStage,'email_code');
+current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'processing');assert.match(current.state.applications[0].result.message,/emailed verification code/);checks++;
 eq((await command('cancel')).data.session.state,'cancel_requested');
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'processing_error',submissionHttpStatus:428}})).data.session.state,'cancel_requested');
 // A genuine receipt wins a cancellation race, but no request is queued/retried.
@@ -47,6 +52,13 @@ r=await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'con
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'confirmed',evidence}})).status,200);
 eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...ids,status:'applied',message:'Confirmed',receipt:evidence.text,evidence,report:{journey:{version:1,submit_click_attempts:0,possible_delivery:true}}}})).status,200);
 current=(await call('/api/workspace')).data;eq(current.state.applications.length,1);eq(current.state.applications[0].status,'applied');eq(current.state.applications[0].claim.id,task.claimId);eq(current.state.applications[0].report.journey.submit_click_attempts,0);
+// Once confirmation is saved, old polling/closure/results are acknowledgements only.
+eq((await call(workerPath+query+'&claimId='+task.claimId,{headers:worker})).data.session.state,'confirmed');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'poll'}})).data.session.state,'confirmed');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'cancelled'}})).data.session.state,'confirmed');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id:randomUUID(),event:'poll'}})).status,409);
+eq((await call('/api/application-agent/result',{method:'POST',headers:worker,body:{...ids,status:'uncertain',message:'Late closed-browser result',report:{journey:{version:1,possible_delivery:false},manual_submission:{state:'cancelled'}}}})).status,200);
+current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'applied');eq(current.state.applications[0].result.evidence,evidence);eq(current.state.applications[0].report.manual_submission.state,'confirmed');eq(current.state.applications[0].report.journey.possible_delivery,true);
 eq((await command('cancel')).status,409);
 // An accidentally closed, positively unsent form stays Ready; only an explicit
 // checkbox + Reopen can reprepare the SAME request and original CV. No employer contacted.

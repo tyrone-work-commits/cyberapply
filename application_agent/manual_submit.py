@@ -2,10 +2,11 @@
 import re
 import sys
 import time
-from urllib.parse import urlsplit, urlencode
+from urllib.parse import urlsplit, urlencode, parse_qs
 from uuid import uuid4
 from .employer_verification import observed_recaptcha_error, recaptcha_resource
 from .submission_errors import observed_processing_error, submission_http_error
+from .submission_receipt import receipt_match, public_receipt_url, observed_email_verification
 
 
 def protected_form(page, greenhouse=False):
@@ -22,6 +23,9 @@ def confirmation_url(before, current):
     """Only a new same-board, same-vacancy Greenhouse confirmation path."""
     old,new=urlsplit(before),urlsplit(current)
     hosts={'boards.greenhouse.io','job-boards.greenhouse.io','boards.eu.greenhouse.io','job-boards.eu.greenhouse.io'}
+    if old.hostname in hosts and new.hostname in hosts and old.scheme==new.scheme=='https' and not old.username and not old.password and not new.username and not new.password and old.port in (None,443) and new.port in (None,443) and old.path=='/embed/job_app' and new.path=='/embed/job_app/confirmation':
+        a,b=parse_qs(old.query),parse_qs(new.query)
+        return all(len(a.get(k,[]))==1 and a.get(k)==b.get(k) for k in ('for','token')) and bool(re.fullmatch(r'[A-Za-z0-9_-]{1,100}',a['for'][0]) and re.fullmatch(r'\d{1,30}',a['token'][0]))
     match=re.fullmatch(r'/([^/]+)/jobs/(\d+)/?',old.path)
     return bool(match and new.scheme=='https' and old.hostname in hosts and new.hostname in hosts and not new.username and not new.password and new.port in (None,443) and re.fullmatch(re.escape('/'+match[1]+'/jobs/'+match[2])+r'/(?:confirmation|thank_you)/?',new.path))
 
@@ -96,16 +100,18 @@ class ManualSubmit:
             journey.data['manual_submit_observed']=self.delivery or self.human_attempts>0
             journey.data['possible_delivery']=journey.data.get('possible_delivery',False) or self.delivery
             journey.data['human_submit_observed']=self.human_attempts
-            if self.delivery or self.human_attempts:
+            email_verification=observed_email_verification(frames)
+            if (self.delivery or self.human_attempts) and not email_verification:
                 for frame in frames:
                     try:
-                        found=success.search(frame.locator('body').inner_text(timeout=1500))
-                        if found:pending_evidence={'url':frame.url,'text':found.group(0)};break
-                        if confirmation_url(initial,frame.url):pending_evidence={'url':frame.url,'text':'Employer displayed the vacancy-specific application confirmation page.'};break
+                        found=receipt_match(frame.locator('body').inner_text(timeout=1500),success)
+                        if found:pending_evidence={'url':public_receipt_url(frame.url),'text':found.group(0)};break
+                        if confirmation_url(initial,frame.url):pending_evidence={'url':public_receipt_url(frame.url),'text':'Employer displayed the vacancy-specific application confirmation page.'};break
                     except Exception:pass  # Navigation can temporarily replace the document.
             try:error=observed_recaptcha_error(frames) if frames else False
             except Exception:error=False
-            if error:state='needs_submit'
+            if error or email_verification:state='needs_submit'
+            report['manual_submission']['verification_stage']='email_code' if email_verification else None
             if (self.delivery or self.human_attempts) and observed_processing_error(frames):
                 processing_error=True;state='needs_submit'
             if processing_error:
@@ -117,15 +123,20 @@ class ManualSubmit:
             now=time.monotonic()
             if now-last_poll>=2 or pending_evidence or closed:
                 unsent=closed and not self.delivery and self.human_attempts==0 and journey.data.get('continue_click_attempts')==0 and journey.data.get('submit_click_attempts')==0 and journey.data.get('possible_delivery') is False
-                event='confirmed' if pending_evidence else ('closed_before_submit' if unsent else 'cancelled') if closed else 'ready' if session is None else 'processing_error' if processing_error and not session.get('processingError') else 'needs_submit' if state=='needs_submit' and session.get('state')!='needs_submit' else 'poll'
+                event='confirmed' if pending_evidence else ('closed_before_submit' if unsent else 'cancelled') if closed else 'ready' if session is None else 'email_verification' if email_verification and session.get('verificationStage')!='email_code' else 'processing_error' if processing_error and not email_verification and not session.get('processingError') else 'needs_submit' if state=='needs_submit' and session.get('state')!='needs_submit' else 'poll'
                 # Keep the main report small enough for the bounded endpoint. No CV bytes.
                 snapshot={k:report[k] for k in ('journey','manual_submission','unresolved','submission_control') if k in report}
                 try:
                     result=self.call(endpoint,{**self.ids,'id':self.id,'event':event,'browserHealthVersion':1,'browserSessionId':browser_session,**({'openedCommandId':opened_command} if opened_command else {}),**({'openError':open_error} if open_error else {}),'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],**({'submissionHttpStatus':http_error} if event=='processing_error' and http_error else {}),'report':snapshot,**({'evidence':pending_evidence} if pending_evidence else {})})
                     session=result['session'];last_event=event
                     report['manual_submission'].pop('connection',None)
+                    if session['state']=='confirmed' and session.get('receipt'):pending_evidence=session['receipt']
                     if pending_evidence and session['state']=='confirmed':
-                        if watch:watch.attach(context,page);watch.set_control('confirmed');watch.capture(force=True)
+                        if watch:
+                            try:
+                                watch.set_control('confirmed')
+                                if not closed:watch.attach(context,page);watch.capture(force=True)
+                            except Exception:pass  # Media failure cannot undo an employer receipt.
                         return {'status':'applied','message':'The employer displayed confirmation after you submitted.','receipt':pending_evidence['text'],'evidence':pending_evidence}
                     if closed and session['state']=='closed_before_submit':
                         report['manual_submission']['state']='closed_before_submit'

@@ -46,3 +46,8 @@ test('missing error, no observed Submit, open browser, mismatched claim and any 
  for(const change of [a=>delete a.manualSubmission.processingError,a=>a.report.journey.human_submit_observed=0,a=>a.status='processing',a=>a.manualSubmission.claimId='other',a=>a.status='applied',a=>a.result.receipt='Received',a=>a.result.evidence={url:'https://fixture.example',text:'Received'},a=>a.manualSubmission.receipt={url:'https://fixture.example',text:'Received'},a=>a.receiptVerification={verifiedAt:at}]){const a=closedError();change(a);assert.equal(m.closedAfterSubmissionError(a),false);assert.throws(()=>m.retryClosedSubmissionError(a,'manual',true),/available/);}
  const a=closedError();delete a.manualSubmission.processingError;a.report.manual_submission.state='needs_submit';assert.equal(m.closedAfterSubmissionError(a),true);
 });
+
+test('email-code stage supersedes an earlier error without claiming completion',async()=>{
+ const a=fixture();a.manualSubmission.state='needs_submit';a.manualSubmission.processingError={at,source:'browser'};a.manualSubmission.verificationStage='email_code';assert.equal(progress(a,now).label,'Email verification needed');assert.equal(progress(a,now).canQueue,false);assert.equal(a.status,'processing');
+ const {desktopNotices}=await import('../'+dir+'/desktop-notices.mjs');assert.equal(desktopNotices({applications:[a],jobs:[]},now)[0].kind,'input');
+});

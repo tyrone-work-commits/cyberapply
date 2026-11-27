@@ -194,6 +194,9 @@ def test_native_widget_bootstrap_can_finish_approved_read_before_synthetic_human
     class ReadyActor(ExplicitAccess):
         def api(self,path,body):
             if self.current and body['event']=='poll' and not self.clicked:
+                self.fixture_polls=getattr(self,'fixture_polls',0)+1
+                if self.fixture_polls>3:
+                    self.current['state']='cancel_requested';return {'session':self.current}
                 self.page.wait_for_function('document.documentElement.dataset.verificationReady==="yes"',timeout=3000)
             return super().api(path,body)
     posts=[];served=[]
@@ -202,7 +205,7 @@ def test_native_widget_bootstrap_can_finish_approved_read_before_synthetic_human
         if parsed.hostname=='www.google.com':
             served.append((parsed.path,req.resource_type))
             if parsed.path.endswith('api.js'):
-                return {'content_type':'text/javascript','body':"fetch('https://www.google.com/recaptcha/enterprise/anchor?fixture=only').then(r=>r.text()).then(()=>document.documentElement.dataset.verificationReady='yes');"}
+                return {'content_type':'text/javascript','body':"fetch('https://www.google.com/recaptcha/enterprise/anchor?fixture=only',{mode:'no-cors'}).then(r=>r.text()).then(()=>document.documentElement.dataset.verificationReady='yes');"}
             return {'content_type':'text/plain','body':'ISOLATED READ FIXTURE; NOT A REAL CAPTCHA'}
         return 'Your application has been submitted' if req.method=='POST' else FORM.replace('{extra}','<script src="https://www.google.com/recaptcha/api.js"></script>')
     actor=ReadyActor();handoff=BrowserHandoff(lambda *_:None,{'requestId':'one','claimId':'fixture'})
