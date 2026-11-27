@@ -144,7 +144,7 @@ export async function manualSubmitWorker(request:Request){try{
   if(body.browserHealthVersion===1&&h.openRequested&&!h.openCommandId){h.openCommandId=crypto.randomUUID();h.openRequestedAt=now;}
 
   h.challengeHosts=[...new Set([...h.challengeHosts,...body.challengeHosts])];h.updatedAt=now;
-  if(body.event==='processing_error')recordManualProcessingError(item,body.id,'browser',body.submissionHttpStatus);
+  if(body.event==='processing_error'&&h.state!=='cancel_requested')recordManualProcessingError(item,body.id,'browser',body.submissionHttpStatus);
   if(body.event==='needs_submit'&&h.state!=='cancel_requested')h.state='needs_submit';
   if(['ready','needs_submit'].includes(body.event)&&h.state!=='cancel_requested'&&!h.processingError)item.result={at:now,message:h.state==='needs_submit'?'The employer asked you to complete reCAPTCHA and resubmit. The agent will not retry. Submit it yourself in the same browser.':'Ready – submit it yourself. Open the CyberApply browser window and press Submit.'};
   if(body.event==='closed_before_submit'){

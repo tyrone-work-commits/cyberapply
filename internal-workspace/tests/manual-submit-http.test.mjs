@@ -40,6 +40,7 @@ current=(await call('/api/workspace')).data;eq(current.state.applications[0].sta
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'processing_error',submissionHttpStatus:428}})).data.session.processingError.httpStatus,428);
 eq((await command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
 eq((await command('cancel')).data.session.state,'cancel_requested');
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'processing_error',submissionHttpStatus:428}})).data.session.state,'cancel_requested');
 // A genuine receipt wins a cancellation race, but no request is queued/retried.
 const evidence={url:'https://fixture.example/confirmation',text:'Thank you for applying'};
 r=await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'confirmed',evidence}});eq(r.status,200);eq(r.data.session.state,'confirmed');
