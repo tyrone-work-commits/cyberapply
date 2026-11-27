@@ -7,6 +7,28 @@ from application_agent.background import protect, retry_delay, status, should_st
 import json
 
 class BackgroundTests(unittest.TestCase):
+    def test_explicit_stop_replaces_an_old_upgrade_drain_marker(self):
+        from application_agent import background
+        with TemporaryDirectory() as folder:
+            root=Path(folder);(root/'stop').write_text('finish-current-run-before-identity-close-return:00000000-0000-4000-8000-000000000001')
+            with patch.object(background,'data_dir',return_value=root),patch.object(background.sys,'argv',['background','stop']):
+                background.main()
+            self.assertEqual((root/'stop').read_text(),'')
+            self.assertTrue(should_stop_runner(root/'stop',assisting=True))
+
+    def test_new_generation_ignores_only_its_retired_upgrade_marker(self):
+        with TemporaryDirectory() as folder:
+            stop=Path(folder)/'stop'
+            old='finish-current-run-before-identity-close-return:00000000-0000-4000-8000-000000000001'
+            stop.write_text(old)
+            self.assertFalse(should_stop_runner(stop,retired_upgrade_marker=old))
+            self.assertTrue(stop.exists())
+            stop.write_text(old[:-1]+'2')
+            self.assertTrue(should_stop_runner(stop,retired_upgrade_marker=old))
+            for marker in ['', 'stop', old+'\n']:
+                stop.write_text(marker)
+                self.assertTrue(should_stop_runner(stop,retired_upgrade_marker=old))
+
     def test_recording_update_companion_preserves_old_browser_and_honors_real_stop(self):
         with TemporaryDirectory() as folder:
             stop=Path(folder)/'stop'

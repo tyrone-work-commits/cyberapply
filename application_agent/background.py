@@ -26,16 +26,21 @@ def data_dir():
     return Path(os.environ['LOCALAPPDATA']) / 'CyberApply' / 'application-agent'
 
 
-def should_stop_runner(stop_file,*,assisting=False,legacy_alive=True):
+def upgrade_drain_marker(stop_file):
+    try:marker=stop_file.read_text(encoding='utf-8')
+    except OSError:return None
+    return marker if re.fullmatch(r'finish-current-run-before-identity-close-return:[a-f0-9-]{36}',marker) else None
+
+
+def should_stop_runner(stop_file,*,assisting=False,legacy_alive=True,retired_upgrade_marker=None):
     if assisting and not legacy_alive:return True
     if not stop_file.exists():return False
-    if assisting:
-        try:marker=stop_file.read_text(encoding='utf-8')
-        except OSError:return True
+    marker=upgrade_drain_marker(stop_file)
+    if marker:
         # This update marker drains only the old runner, preserving its exact
         # browser. A new companion can serve future authorized requests. An
         # actual user Stop replaces the marker and still stops both runners.
-        if re.fullmatch(r'finish-current-run-before-identity-close-return:[a-f0-9-]{36}',marker):return False
+        if assisting or marker==retired_upgrade_marker:return False
     return True
 
 
@@ -107,6 +112,10 @@ def run(legacy_pid=None):
         kernel.CloseHandle(mutex)
         return
     root=data_dir();folder=root/'parallel' if legacy_pid else root
+    # We acquired a fresh singleton: no old standard/companion guard remains.
+    # Retire only the exact previous upgrade generation, never a real Stop or
+    # a newly written drain marker. Leave the file intact to avoid unlink races.
+    retired_upgrade_marker=upgrade_drain_marker(root/'stop') if not legacy_pid else None
     legacy_handle=keeper=None
     presence_stop=None
     legacy_alive=lambda:False
@@ -149,7 +158,7 @@ def run(legacy_pid=None):
             token,service=connected()
             run_location_capture(SITE,token,call_site,service,'chrome')
             maybe_refresh_sources(SITE,token,service)
-        run_pool(work,lambda:should_stop_runner(root/'stop',assisting=bool(legacy_pid),legacy_alive=legacy_alive()),
+        run_pool(work,lambda:should_stop_runner(root/'stop',assisting=bool(legacy_pid),legacy_alive=legacy_alive(),retired_upgrade_marker=retired_upgrade_marker),
                  lambda state,**extra:status(state,folder=folder,**extra),
                  limit=MAX_PARALLEL_APPLICATIONS,maintenance=maintenance)
     finally:
@@ -161,7 +170,7 @@ def run(legacy_pid=None):
                 except Exception:pass
         for handle in (keeper,legacy_handle,mutex):
             if handle:kernel.CloseHandle(handle)
-    if legacy_pid and not (root/'stop').exists():
+    if legacy_pid and (not (root/'stop').exists() or upgrade_drain_marker(root/'stop')):
         # The old process ended and every companion browser finished naturally.
         # Start the standard ten-slot login runner; never replay an old claim.
         subprocess.Popen([str(Path(sys.executable).with_name('pythonw.exe')),'-m','application_agent.background','run'],
@@ -230,7 +239,7 @@ def main():
         print('Saved employer sign-in sessions cleared for this CyberApply account.')
     elif args.action in ('stop','uninstall'):
         data_dir().mkdir(parents=True,exist_ok=True)
-        (data_dir()/'stop').touch()
+        (data_dir()/'stop').write_text('',encoding='utf-8')
         if args.action=='uninstall':
             from .setup_launcher import unregister_setup_launcher
             unregister_setup_launcher()
