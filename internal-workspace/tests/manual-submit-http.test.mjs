@@ -33,6 +33,12 @@ eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'p
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'poll'}})).data.session.openRequested,false);
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'needs_submit'}})).data.session.state,'needs_submit');
 eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'confirmed'}})).status,409);
+// Owner-observed error is metadata only and survives an older worker's Ready/poll.
+eq((await command('report_processing_error')).status,200);
+r=await call(workerPath,{method:'POST',headers:worker,body:{...begin,event:'ready'}});eq(r.data.session.state,'needs_submit');eq(r.data.session.processingError.source,'owner');
+current=(await call('/api/workspace')).data;eq(current.state.applications[0].status,'processing');assert.match(current.state.applications[0].result.message,/processing error/);checks++;
+eq((await call(workerPath,{method:'POST',headers:worker,body:{...ids,id,event:'processing_error',submissionHttpStatus:428}})).data.session.processingError.httpStatus,428);
+eq((await command('restore',{openConfirmed:true,closedBeforeSubmitConfirmed:true})).status,409);
 eq((await command('cancel')).data.session.state,'cancel_requested');
 // A genuine receipt wins a cancellation race, but no request is queued/retried.
 const evidence={url:'https://fixture.example/confirmation',text:'Thank you for applying'};

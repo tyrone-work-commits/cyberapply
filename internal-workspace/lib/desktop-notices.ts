@@ -12,6 +12,8 @@ export function desktopNotices(state:State,now=Date.now(),health?:Record<string,
   let reason:DesktopNotice['reason'];
   if(manual&&['ready','needs_submit'].includes(manual.state)&&health?.[item.id]?.state==='not_reporting'){
    kind='input';version=`browser_lost:${manual.id}`;reason='browser_session';
+  }else if(manual?.processingError){
+   kind='input';version=`submission_error:${manual.id}`;
   }else if(manual&&['ready','needs_submit','closed_before_submit'].includes(manual.state)){
    kind='submit';version=`manual:${manual.id}:${manual.state}`;
   }else if(handoff&&['waiting','opening','opened'].includes(handoff.state)){

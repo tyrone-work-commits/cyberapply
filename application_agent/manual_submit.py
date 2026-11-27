@@ -5,6 +5,7 @@ import time
 from urllib.parse import urlsplit, urlencode
 from uuid import uuid4
 from .employer_verification import observed_recaptcha_error, recaptcha_resource
+from .submission_errors import observed_processing_error, submission_http_error
 
 
 def protected_form(page, greenhouse=False):
@@ -78,7 +79,13 @@ class ManualSubmit:
         if self.notify is None:report['manual_submission']['notification_delivery']='background_checkin'
         # Snapshot may be retried idempotently; neither this loop nor any callback submits.
         endpoint='/api/application-agent/manual-submit'
-        pending_evidence=None;closed=False
+        pending_evidence=None;closed=False;processing_error=False;http_error=None
+        def response_observed(response):
+            nonlocal http_error
+            if self.delivery or self.human_attempts:
+                status=submission_http_error(response,hosts,page)
+                if status is not None:http_error=status
+        if callable(getattr(page,'on',None)):page.on('response',response_observed)
         while True:
             # Only this handoff's checkbox-confirmed open command may focus it.
             closed=page.is_closed()
@@ -99,6 +106,10 @@ class ManualSubmit:
             try:error=observed_recaptcha_error(frames) if frames else False
             except Exception:error=False
             if error:state='needs_submit'
+            if (self.delivery or self.human_attempts) and observed_processing_error(frames):
+                processing_error=True;state='needs_submit'
+            if processing_error:
+                report['manual_submission']['processing_error']={'code':'employer_processing_error',**({'http_status':http_error} if http_error else {})}
             report['manual_submission']['state']='confirmed' if pending_evidence else state
             report['manual_submission']['human_submit_observed']=self.human_attempts
             if recaptcha and callable(getattr(recaptcha,'summary',None)):
@@ -106,11 +117,11 @@ class ManualSubmit:
             now=time.monotonic()
             if now-last_poll>=2 or pending_evidence or closed:
                 unsent=closed and not self.delivery and self.human_attempts==0 and journey.data.get('continue_click_attempts')==0 and journey.data.get('submit_click_attempts')==0 and journey.data.get('possible_delivery') is False
-                event='confirmed' if pending_evidence else ('closed_before_submit' if unsent else 'cancelled') if closed else 'ready' if session is None else 'needs_submit' if state=='needs_submit' and session.get('state')!='needs_submit' else 'poll'
+                event='confirmed' if pending_evidence else ('closed_before_submit' if unsent else 'cancelled') if closed else 'ready' if session is None else 'processing_error' if processing_error and not session.get('processingError') else 'needs_submit' if state=='needs_submit' and session.get('state')!='needs_submit' else 'poll'
                 # Keep the main report small enough for the bounded endpoint. No CV bytes.
                 snapshot={k:report[k] for k in ('journey','manual_submission','unresolved','submission_control') if k in report}
                 try:
-                    result=self.call(endpoint,{**self.ids,'id':self.id,'event':event,'browserHealthVersion':1,'browserSessionId':browser_session,**({'openedCommandId':opened_command} if opened_command else {}),**({'openError':open_error} if open_error else {}),'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],'report':snapshot,**({'evidence':pending_evidence} if pending_evidence else {})})
+                    result=self.call(endpoint,{**self.ids,'id':self.id,'event':event,'browserHealthVersion':1,'browserSessionId':browser_session,**({'openedCommandId':opened_command} if opened_command else {}),**({'openError':open_error} if open_error else {}),'challengeHosts':sorted(recaptcha.pending) if recaptcha else [],**({'submissionHttpStatus':http_error} if event=='processing_error' and http_error else {}),'report':snapshot,**({'evidence':pending_evidence} if pending_evidence else {})})
                     session=result['session'];last_event=event
                     report['manual_submission'].pop('connection',None)
                     if pending_evidence and session['state']=='confirmed':

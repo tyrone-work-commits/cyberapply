@@ -1,5 +1,5 @@
 import {DomainError,type ApplicationRequest} from './cyber-domain';
-export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string};browserSessionId?:string;browserHealthVersion?:1;openCommandId?:string;openRequestedAt?:string;openedCommandId?:string;openError?:'window_unavailable';browserExposedAt?:string};
+export type ManualSubmission={id:string;claimId:string;state:'ready'|'needs_submit'|'closed_before_submit'|'reopening'|'cancel_requested'|'cancelled'|'confirmed';at:string;updatedAt:string;challengeHosts:string[];approvedHosts:string[];openRequested?:boolean;reopenConfirmedAt?:string;receipt?:{url:string;text:string};browserSessionId?:string;browserHealthVersion?:1;openCommandId?:string;openRequestedAt?:string;openedCommandId?:string;openError?:'window_unavailable';browserExposedAt?:string;processingError?:{at:string;source:'browser'|'owner';httpStatus?:number}};
 export type ManualBrowserHealth={state:'checking'|'connected'|'not_reporting';open:'idle'|'pending'|'opened'|'failed'|'timed_out';canRestore:boolean;canConfirmUnsent?:boolean;lastSeenAt?:string;legacy?:boolean;recoveryPhase?:'queued'|'working'};
 export function lostManualRecoveryEligible(item:ApplicationRequest){
  const h=manualSession(item),j=item.report?.journey as Record<string,unknown>|undefined,m=item.report?.manual_submission as Record<string,unknown>|undefined;
@@ -59,4 +59,12 @@ export function manualCommand(item:ApplicationRequest,id:string,command:'open'|'
  if(command==='cancel'){h.state='cancel_requested';h.openRequested=false;}
  else {if(!openConfirmed)throw new DomainError('Tick the checkbox before opening the CyberApply browser window.',409);if(h.state==='cancel_requested')throw new DomainError('Cancellation is already requested.',409);if(hosts.some(host=>!h.challengeHosts.includes(host)))throw new DomainError('Approve only the displayed reCAPTCHA hosts.',409);if(h.challengeHosts.some(host=>!h.approvedHosts.includes(host)&&!hosts.includes(host)))throw new DomainError('Approve the displayed reCAPTCHA hosts before opening this window.',409);h.approvedHosts=[...new Set([...h.approvedHosts,...hosts])];h.openRequested=true;h.openCommandId=crypto.randomUUID();h.openRequestedAt=new Date().toISOString();delete h.openError;}
  h.updatedAt=new Date().toISOString();return h;
+}
+
+/** A reported employer error changes metadata only; the exact browser and delivery evidence remain. */
+export function recordManualProcessingError(item:ApplicationRequest,id:string,source:'browser'|'owner',httpStatus?:number){
+ const h=manualSession(item);if(!h||h.id!==id||h.state==='cancel_requested')throw new DomainError('This exact manual browser is unavailable. No application was restarted.',409);
+ if(source==='owner'&&!h.browserExposedAt)throw new DomainError('Open the exact employer browser before reporting its error.',409);
+ const now=new Date().toISOString();item.report={...item.report,journey:{...(item.report?.journey as Record<string,unknown>|undefined),possible_delivery:true}};h.state='needs_submit';h.processingError={at:h.processingError?.at||now,source:h.processingError?.source||source,...(httpStatus?{httpStatus}:h.processingError?.httpStatus?{httpStatus:h.processingError.httpStatus}:{})};h.updatedAt=now;
+ item.result={at:now,message:'The employer displayed an application-processing error. The outcome is unverified. Keep this exact browser open and check for employer confirmation before trying again. CyberApply will not retry Submit.'};return h;
 }

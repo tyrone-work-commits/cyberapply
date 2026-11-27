@@ -6,7 +6,7 @@ import {manualBrowserHealth,mergeManualReport} from './manual-browser-health';
 import {getBrowserWindow,updateBrowserWindow} from './application-browser-window';
 import {applicationLiveState} from './application-live-state';
 import {desktopNotices} from './desktop-notices';
-import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,restoreLostManualSubmission,restoreOwnerConfirmedUnsent,manualCommand} from './manual-submission';
+import {manualSession,manualDisplaySession,closedBeforeSubmit,recoverManualSubmission,restoreLostManualSubmission,restoreOwnerConfirmedUnsent,manualCommand,recordManualProcessingError} from './manual-submission';
 import {claimLocationCapture,completeLocationCapture,queueMissingLocationChoices} from './application-choice-capture';
 import {locationCapture,employerChoiceLimit} from './employer-location-choices';
 import {rememberEmployerQuestions} from './employer-questions';
@@ -66,7 +66,7 @@ const resultBody=claimBody.extend({status:z.enum(['applied','needs_attention','u
 
 export async function manualSubmitOwner(request:Request){try{
  const user=await identity(request),url=new URL(request.url);
- const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),keepHidden:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?z.object({requestId:z.string().min(1).max(300),id:z.string().uuid(),command:z.enum(['open','cancel','restore','confirm_unsent','report_processing_error']),openConfirmed:z.boolean().optional(),closedBeforeSubmitConfirmed:z.boolean().optional(),neverSubmittedConfirmed:z.boolean().optional(),keepHidden:z.boolean().optional(),approvedHosts:z.array(z.string().max(100)).max(7).default([])}).strict().parse(await json(request)):null;
  if(body)sameOrigin(request);
  const id=body?.requestId||watchId.parse(url.searchParams.get('requestId'));
  for(let attempt=0;attempt<3;attempt++){
@@ -74,7 +74,10 @@ export async function manualSubmitOwner(request:Request){try{
   const health=manualBrowserHealth(user.userId,item,await getBrowserWindow(presenceDb(),user.userId,item.id));
   if(!body)return response({session:manualDisplaySession(item),health});
   let session;
-  if(body.command==='restore'||body.command==='confirm_unsent'){
+  if(body.command==='report_processing_error'){
+   if(health.state!=='connected')throw new DomainError('The exact employer browser must be connected to report this error.',409);
+   session=recordManualProcessingError(item,body.id,'owner');
+  }else if(body.command==='restore'||body.command==='confirm_unsent'){
    if(health.state!=='not_reporting'||!(body.command==='confirm_unsent'?health.canConfirmUnsent:health.canRestore))throw new DomainError('This session is connected or its unsent outcome cannot be established. No application was restarted.',409);
    assertApplicationAuthorizationCurrent(current.state,item);
    const file=current.state.attachments.find(f=>f.id===item.cv?.fileId),job=current.state.jobs.find(j=>j.id===item.jobId);
@@ -105,7 +108,7 @@ export async function manualSubmitOwner(request:Request){try{
 
 export async function manualSubmitWorker(request:Request){try{
  const user=await worker(request),url=new URL(request.url);
- const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['ready','needs_submit','poll','closed_before_submit','cancelled','confirmed']),browserHealthVersion:z.literal(1).optional(),browserSessionId:z.string().uuid().optional(),openedCommandId:z.string().uuid().optional(),openError:z.literal('window_unavailable').optional(),challengeHosts:z.array(z.string().max(100)).max(7).default([]),evidence:z.object({url:z.string().max(2000),text:z.string().trim().min(1).max(3000)}).strict().optional(),report:z.record(z.string(),z.unknown()).optional()}).strict().parse(await json(request)):null;
+ const body=request.method==='POST'?claimBody.extend({id:z.string().uuid(),event:z.enum(['ready','needs_submit','processing_error','poll','closed_before_submit','cancelled','confirmed']),submissionHttpStatus:z.number().int().min(400).max(599).optional(),browserHealthVersion:z.literal(1).optional(),browserSessionId:z.string().uuid().optional(),openedCommandId:z.string().uuid().optional(),openError:z.literal('window_unavailable').optional(),challengeHosts:z.array(z.string().max(100)).max(7).default([]),evidence:z.object({url:z.string().max(2000),text:z.string().trim().min(1).max(3000)}).strict().optional(),report:z.record(z.string(),z.unknown()).optional()}).strict().parse(await json(request)):null;
  const ids=body||claimBody.parse({requestId:url.searchParams.get('requestId'),claimId:url.searchParams.get('claimId')});
  for(let attempt=0;attempt<3;attempt++){
   const current=await load(user);stillConnected(current.state,user);
@@ -141,8 +144,9 @@ export async function manualSubmitWorker(request:Request){try{
   if(body.browserHealthVersion===1&&h.openRequested&&!h.openCommandId){h.openCommandId=crypto.randomUUID();h.openRequestedAt=now;}
 
   h.challengeHosts=[...new Set([...h.challengeHosts,...body.challengeHosts])];h.updatedAt=now;
+  if(body.event==='processing_error')recordManualProcessingError(item,body.id,'browser',body.submissionHttpStatus);
   if(body.event==='needs_submit'&&h.state!=='cancel_requested')h.state='needs_submit';
-  if(['ready','needs_submit'].includes(body.event)&&h.state!=='cancel_requested')item.result={at:now,message:h.state==='needs_submit'?'The employer asked you to complete reCAPTCHA and resubmit. The agent will not retry. Submit it yourself in the same browser.':'Ready – submit it yourself. Open the CyberApply browser window and press Submit.'};
+  if(['ready','needs_submit'].includes(body.event)&&h.state!=='cancel_requested'&&!h.processingError)item.result={at:now,message:h.state==='needs_submit'?'The employer asked you to complete reCAPTCHA and resubmit. The agent will not retry. Submit it yourself in the same browser.':'Ready – submit it yourself. Open the CyberApply browser window and press Submit.'};
   if(body.event==='closed_before_submit'){
    const prior=item.report?.journey as Record<string,unknown>|undefined;
    if(item.result?.receipt||item.result?.evidence||h.receipt||prior?.possible_delivery===true||prior?.manual_submit_observed===true||Number(prior?.human_submit_observed)>0||Number(prior?.submit_click_attempts)>0||Number(prior?.continue_click_attempts)>0)throw new DomainError('An earlier action may have delivered data. Check the employer outcome before retrying.',409);
